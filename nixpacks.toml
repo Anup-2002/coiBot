@@ -1,0 +1,50 @@
+# Nixpacks configuration for Railway deployment
+# This explicitly defines the Debian system packages required for Playwright/Chromium
+# to run headlessly without shared library errors (e.g. libglib-2.0.so.0, libnss3.so).
+
+[phases.setup]
+aptPkgs = [
+  # Core GNOME and GLib libraries (provides libglib-2.0.so.0)
+  "libglib2.0-0",
+  
+  # Network Security Services (provides libnss3.so, libsmime3.so, libnssutil3.so)
+  "libnss3",
+  "libnspr4",
+  
+  # Accessibility and UI toolkit interfaces
+  "libatk1.0-0",
+  "libatk-bridge2.0-0",
+  
+  # Printing system and hardware access
+  "libcups2",
+  "libdrm2",
+  "libdbus-1-3",
+  
+  # X11 Window System protocols and extensions
+  "libxcb1",
+  "libxkbcommon0",
+  "libx11-6",
+  "libxcomposite1",
+  "libxdamage1",
+  "libxext6",
+  "libxfixes3",
+  "libxrandr2",
+  
+  # Graphics Buffer Manager (provides libgbm.so.1)
+  "libgbm1",
+  
+  # Font rendering and typography (Pango, Cairo, Freetype)
+  "libpango-1.0-0",
+  "libcairo2",
+  
+  # Audio support
+  "libasound2",
+  
+  # Shared memory synchronization and UUID tools
+  "libxshmfence1",
+  "libuuid1"
+]
+
+[variables]
+# Signals to Nixpacks that we are deploying an application that uses Playwright
+NIXPACKS_PLAYWRIGHT = "1"

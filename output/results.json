@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Bitcoin",
+    "symbol": "BTC",
+    "url": "https://coinmarketcap.com/currencies/bitcoin/",
+    "status": "expired",
+    "message": "Post button text is Log In",
+    "timestamp": "4:42:14 AM",
+    "sentiment": "bearish"
+  }
+]
