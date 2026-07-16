@@ -134,15 +134,6 @@ Create or append to your environment configuration (`.env` or PM2 variables) the
 PORT=3000
 NODE_ENV=production
 BASE_PATH=/anup
-
-# Optional: Firebase Configuration (fallback if firebase-applet-config.json is not present)
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_API_KEY=your-api-key
-FIREBASE_AUTH_DOMAIN=your-auth-domain
-FIREBASE_STORAGE_BUCKET=your-storage-bucket
-FIREBASE_MESSAGING_SENDER_ID=your-messaging-sender-id
-FIREBASE_APP_ID=your-app-id
-FIREBASE_FIRESTORE_DATABASE_ID=(default)
 ```
 
 ### Step 2: Build the Production Artifacts
