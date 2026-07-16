@@ -485,6 +485,38 @@ async function clickResiliently(page: any, element: any, selectorDescription: st
   }
 }
 
+async function fillInputResiliently(page: any, input: any, value: string) {
+  try {
+    await input.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+    await input.click({ timeout: 2000 }).catch(() => {});
+    await input.focus().catch(() => {});
+    
+    // Clear any existing text
+    await input.fill("").catch(() => {});
+    
+    // Use fill
+    await input.fill(value).catch(() => {});
+    
+    // Double-check if the value matches. If not, use keyboard.type
+    const currentVal = await input.inputValue().catch(() => "");
+    if (currentVal !== value) {
+      await input.focus().catch(() => {});
+      await page.keyboard.press("Control+A").catch(() => {});
+      await page.keyboard.press("Backspace").catch(() => {});
+      await page.keyboard.type(value, { delay: 30 }).catch(() => {});
+    }
+    
+    // Dispatch 'input' and 'change' events via evaluate to absolutely force React state update
+    await input.evaluate((el: HTMLInputElement, val: string) => {
+      el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value).catch(() => {});
+  } catch (err) {
+    addLog("warning", `Error during resilient fill: ${(err as Error).message}`);
+  }
+}
+
 async function locateAndPrepareCommentEditor(page: any): Promise<any> {
   // 1. Purge all blocking overlays/cookie banners immediately via extremely fast DOM script
   await removeBlockingOverlays(page).catch(() => {});
@@ -793,21 +825,25 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       } catch {}
     }
 
-    // 1. Strict Cookie Check: If we lack core authorization cookies, we are logged out
+    // 1. Cookie Check: We check if core authorization cookies are present in the context.
     const cookies = await context.cookies().catch(() => []);
     const hasAuthCookie = cookies.some((c: any) => c.name === "Authorization" && c.value && c.value.length > 20);
     const hasUprodCookie = cookies.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
 
-    if (!hasAuthCookie && !hasUprodCookie) {
-      addLog("error", "Login validation failed: Missing core 'Authorization' or 'u-prod' cookies in context.");
-      return { status: "expired", message: "Logged out (Missing auth cookies)" };
-    }
-
     // Scan page for the comment editor
     const editor = await locateAndPrepareCommentEditor(page);
 
-    if (!editor || isHeaderLoginVisible) {
-      await saveDebugScreenshot(page, "editor_or_login_failed");
+    if (!hasAuthCookie && !hasUprodCookie && !editor) {
+      addLog("error", "Login validation failed: Missing core 'Authorization' or 'u-prod' cookies in context, and comment editor is missing.");
+      return { status: "expired", message: "Logged out (Missing auth cookies)" };
+    }
+
+    // We only fail if the comment editor is missing.
+    // If the comment editor is fully visible and prepared, we are functionally logged in!
+    // We treat isHeaderLoginVisible as a non-blocking indicator because of high false-positives
+    // (such as mobile menus, footers, promo links, or slow-loading profile headers).
+    if (!editor) {
+      await saveDebugScreenshot(page, "editor_failed");
       
       // Let's check for specific Cloudflare captcha elements first
       const title = await page.title().catch(() => "");
@@ -820,14 +856,14 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       }
 
       if (isHeaderLoginVisible) {
-        addLog("error", "Login validation failed: Active 'Log In' button is visible in the page header.");
+        addLog("error", "Login validation failed: Comment editor is missing and active 'Log In' button is visible in the page header.");
         return { status: "expired", message: "Logged out (Log In button is visible)" };
       }
 
       // Check if button text indicates "Log In" is required
       const loginBtn = await page.$('button:has-text("Log In"), button:has-text("Sign Up")');
       if (loginBtn) {
-        addLog("error", "Login validation failed: Session expired or invalid cookies. detected Log In button.");
+        addLog("error", "Login validation failed: Session expired or invalid cookies. Detected Log In button.");
         return { status: "expired", message: "Logged out (Log In button found)" };
       }
 
@@ -1037,13 +1073,15 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     // Retry finding elements up to 5 times with delay
     for (let i = 0; i < 5; i++) {
       const emailSelectors = [
+        '[data-test="email-input"]',
+        'input.email-input',
+        '.email-input',
         'input[type="email"]',
         'input[placeholder*="email" i]',
         'input[placeholder*="Email" i]',
         'input[name="email"]',
         '#email',
-        '#username',
-        'input[type="text"]'
+        '#username'
       ];
       for (const sel of emailSelectors) {
         try {
@@ -1056,11 +1094,14 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
 
       const passwordSelectors = [
+        '[data-test="password-input"]',
+        'input.password-input',
+        '.password-input',
         'input[type="password"]',
         'input[placeholder*="password" i]',
         'input[placeholder*="Password" i]',
         'input[name="password"]',
-        '#password',
+        '#password'
       ];
       for (const sel of passwordSelectors) {
         try {
@@ -1085,8 +1126,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       addLog("info", "Inputs not found on main frame. Scanning subframes...");
       for (const frame of page.frames()) {
         try {
-          const elEmail = await frame.$('input[type="email"], input[placeholder*="email" i]');
-          const elPass = await frame.$('input[type="password"], input[placeholder*="password" i]');
+          const elEmail = await frame.$('[data-test="email-input"], input.email-input, .email-input, input[type="email"], input[placeholder*="email" i]');
+          const elPass = await frame.$('[data-test="password-input"], input.password-input, .password-input, input[type="password"], input[placeholder*="password" i]');
           if (elEmail && elPass) {
             emailInput = elEmail;
             passwordInput = elPass;
@@ -1104,15 +1145,14 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
 
     addLog("info", "Entering email and password securely...");
-    await emailInput.fill("");
-    await emailInput.type(email, { delay: 40 });
+    await fillInputResiliently(page, emailInput, email);
     await page.waitForTimeout(400);
-    await passwordInput.fill("");
-    await passwordInput.type(password, { delay: 40 });
+    await fillInputResiliently(page, passwordInput, password);
     await page.waitForTimeout(400);
 
     let loginBtn = null;
     const btnSelectors = [
+      '[data-test="login-btn"]',
       'button[type="submit"]',
       'button:has-text("Log In")',
       'button:has-text("Log in")',
@@ -1213,8 +1253,9 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     const cookiesList = await context.cookies().catch(() => []);
     const hasAuthCookie = cookiesList.some((c: any) => c.name === "Authorization" && c.value && c.value.length > 20);
     const hasUprodCookie = cookiesList.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
+    const hasEitherCookie = hasAuthCookie || hasUprodCookie;
 
-    if ((editor || !isHeaderLoginVisible) && hasAuthCookie && hasUprodCookie) {
+    if (editor || (!isHeaderLoginVisible && hasEitherCookie)) {
       addLog("success", "Successfully logged in and verified community editor access!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
@@ -1231,8 +1272,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       await browser.close().catch(() => {});
       return { status: "success", message: "Login successful! Session cookies saved." };
     } else {
-      if (!hasAuthCookie || !hasUprodCookie) {
-        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}). It was likely blocked by Cloudflare or AWS WAF.`);
+      if (!hasEitherCookie) {
+        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}) and comment editor is missing. It was likely blocked by Cloudflare or AWS WAF.`);
       } else {
         addLog("error", "Login did not succeed. Still appears logged out.");
       }
@@ -1328,8 +1369,7 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       return { status: "failed", message: "Could not find the security code input box." };
     }
 
-    await codeInput.fill("");
-    await codeInput.type(otp.trim(), { delay: 50 });
+    await fillInputResiliently(page, codeInput, otp.trim());
     await page.waitForTimeout(500);
 
     let submitBtn = null;
