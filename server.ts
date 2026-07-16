@@ -313,12 +313,24 @@ let isGeneratingRunning = false;
 const runMode = "Real Browser";
 
 let isContinuousLoopActive = false;
+let isFullFlowAborted = false;
 let nextCycleStartTime: number | null = null;
 let nextCycleTimeout: NodeJS.Timeout | null = null;
 let continuousLoopIntervalMinutes = 20; // Customizable, default 20 minutes
 
+async function interruptibleSleep(ms: number): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (!isPostingRunning) {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+}
+
 function cancelNextAutomationCycle() {
   isContinuousLoopActive = false;
+  isFullFlowAborted = true;
   nextCycleStartTime = null;
   if (nextCycleTimeout) {
     clearTimeout(nextCycleTimeout);
@@ -346,6 +358,8 @@ async function triggerFullFlowExecution() {
     return;
   }
 
+  isFullFlowAborted = false;
+
   addLog("info", "========================================");
   addLog("info", "Starting Continuous Loop - Running Full Bot Cycle...");
   addLog("info", "========================================");
@@ -360,6 +374,12 @@ async function triggerFullFlowExecution() {
     botStatus = "Fetching";
     await executeFetchTrending();
 
+    if (isFullFlowAborted) {
+      addLog("warning", "Full automated sequence aborted by user during Fetching phase.");
+      botStatus = "Idle";
+      return;
+    }
+
     // Step 2: Generate
     addLog("info", "[FLOW STEP 2/3] Generating custom community comments...");
     botStatus = "Generating";
@@ -368,6 +388,12 @@ async function triggerFullFlowExecution() {
       await executeGenerateMessages();
     } finally {
       isGeneratingRunning = false;
+    }
+
+    if (isFullFlowAborted) {
+      addLog("warning", "Full automated sequence aborted by user during Generation phase.");
+      botStatus = "Idle";
+      return;
     }
 
     // Step 3: Post
@@ -2962,6 +2988,10 @@ async function executeGenerateMessages(): Promise<number> {
 
       const batchSize = 10;
       for (let i = 0; i < coins.length; i += batchSize) {
+        if (!isGeneratingRunning) {
+          addLog("warning", "Comment generation aborted by user.");
+          break;
+        }
         const chunk = coins.slice(i, i + batchSize);
         addLog("info", `Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gpt-4o-mini...`);
 
@@ -3040,6 +3070,10 @@ async function executeGenerateMessages(): Promise<number> {
 
       const batchSize = 10;
       for (let i = 0; i < coins.length; i += batchSize) {
+        if (!isGeneratingRunning) {
+          addLog("warning", "Comment generation aborted by user.");
+          break;
+        }
         const chunk = coins.slice(i, i + batchSize);
         addLog("info", `Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gemini-3.5-flash...`);
 
@@ -3429,7 +3463,7 @@ async function runPostingLoop() {
       // Interval spacing between posts to target 2-3 coins per minute (approx 18-22 seconds delay)
       const spacing = 18000 + Math.random() * 4000;
       addLog("info", `Cooling down for ${(spacing / 1000).toFixed(1)} seconds to maintain a posting rate of 2-3 coins per minute...`);
-      await new Promise(resolve => setTimeout(resolve, spacing));
+      await interruptibleSleep(spacing);
     }
 
     if (currentPostingIndex >= messages.length) {
@@ -3455,6 +3489,8 @@ async function runPostingLoop() {
 // 9. Stop posting loop
 app.post("/api/stop-posting", (req, res) => {
   isPostingRunning = false;
+  isGeneratingRunning = false;
+  isFullFlowAborted = true;
   botStatus = "Idle";
   cancelNextAutomationCycle();
   addLog("warning", "Automated posting sequence has been manually stopped/paused and scheduled cycles are cancelled.");
@@ -3509,10 +3545,18 @@ app.post("/api/full-flow", async (req, res) => {
     writeJsonFile(RESULTS_FILE, []);
     writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
 
+    isFullFlowAborted = false;
+
     // Step 1: Fetch
     addLog("info", "[FLOW STEP 1/3] Fetching latest trending coins...");
     botStatus = "Fetching";
     await executeFetchTrending();
+
+    if (isFullFlowAborted) {
+      addLog("warning", "Full automated sequence aborted by user during Fetching phase.");
+      botStatus = "Idle";
+      return res.json({ success: false, message: "Sequence aborted by user." });
+    }
 
     // Step 2: Generate
     addLog("info", "[FLOW STEP 2/3] Generating custom community comments...");
@@ -3522,6 +3566,12 @@ app.post("/api/full-flow", async (req, res) => {
       await executeGenerateMessages();
     } finally {
       isGeneratingRunning = false;
+    }
+
+    if (isFullFlowAborted) {
+      addLog("warning", "Full automated sequence aborted by user during Generation phase.");
+      botStatus = "Idle";
+      return res.json({ success: false, message: "Sequence aborted by user." });
     }
 
     // Step 3: Post

@@ -541,6 +541,11 @@ export default function App() {
       }
       const res = await fetch(resolveUrl(endpoint), options);
       const data = await parseResponseJson(res, {});
+      if (endpoint.includes("stop-posting")) {
+        setIsContinuousLoopActive(false);
+        setNextCycleStartTime(null);
+        setStatus("Idle");
+      }
       if (endpoint.includes("clear-all")) {
         setCoinsList([]);
         setMessagesList([]);
@@ -1053,13 +1058,13 @@ export default function App() {
                   )}
                 </button>
 
-                {status === "Posting" ? (
+                {(status === "Posting" || status === "Fetching" || status === "Generating" || isContinuousLoopActive) ? (
                   <button
                     onClick={() => runCommand("/api/stop-posting", "post")}
                     className="w-full p-3.5 rounded-xl bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-400 hover:text-red-300 transition flex items-center justify-center gap-2.5 font-semibold text-sm cursor-pointer animate-pulse"
                     id="btn-pause"
                   >
-                    <Pause className="h-4.5 w-4.5" /> Pause posting sequence
+                    <Pause className="h-4.5 w-4.5" /> Stop posting sequence
                   </button>
                 ) : (
                   <button
