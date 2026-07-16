@@ -64,6 +64,32 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
 app.use(express.json({ limit: "50mb" }));
+
+// Intercept specific static file requests to guarantee up-to-date cloud synchronization
+app.get("/output/last_trending.json", async (req, res) => {
+  try {
+    await syncLocalFromCloudIfStale();
+  } catch (err) {
+    console.error("[SERVE] Error syncing before serving trending:", err);
+  }
+  if (fs.existsSync(LAST_TRENDING_FILE)) {
+    return res.sendFile(LAST_TRENDING_FILE);
+  }
+  res.json([]);
+});
+
+app.get("/output/generated_messages.json", async (req, res) => {
+  try {
+    await syncLocalFromCloudIfStale();
+  } catch (err) {
+    console.error("[SERVE] Error syncing before serving messages:", err);
+  }
+  if (fs.existsSync(GENERATED_MESSAGES_FILE)) {
+    return res.sendFile(GENERATED_MESSAGES_FILE);
+  }
+  res.json([]);
+});
+
 app.use("/output", express.static(OUTPUT_DIR));
 
 // Define File Paths matching Python project structure
@@ -365,8 +391,8 @@ async function triggerFullFlowExecution() {
   addLog("info", "========================================");
 
   // Clear previous results and progress for the new run
-  writeJsonFile(RESULTS_FILE, []);
-  writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+  await writeJsonFile(RESULTS_FILE, []);
+  await writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
 
   try {
     // Step 1: Fetch
@@ -2046,7 +2072,7 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
   }
 }
 
-function writeJsonFile<T>(filePath: string, data: T) {
+async function writeJsonFile<T>(filePath: string, data: T) {
   const tempPath = `${filePath}.tmp`;
   try {
     fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf-8");
@@ -2054,32 +2080,87 @@ function writeJsonFile<T>(filePath: string, data: T) {
 
     // Synchronize to Firestore Cloud Database
     if (filePath === AUTH_STATE_FILE) {
-      saveSessionStateCloud(JSON.stringify(data)).catch(err => {
-        console.error("[FIREBASE] Error syncing session to cloud:", err.message);
-      });
+      try {
+        await saveSessionStateCloud(JSON.stringify(data));
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing session to cloud:", (err as Error).message);
+      }
     } else if (filePath === LAST_TRENDING_FILE) {
-      saveTrendingCoinsCloud(data as any).catch(err => {
-        console.error("[FIREBASE] Error syncing coins to cloud:", err.message);
-      });
+      try {
+        await saveTrendingCoinsCloud(data as any);
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing coins to cloud:", (err as Error).message);
+      }
     } else if (filePath === GENERATED_MESSAGES_FILE) {
-      saveGeneratedMessagesCloud(data as any).catch(err => {
-        console.error("[FIREBASE] Error syncing messages to cloud:", err.message);
-      });
+      try {
+        await saveGeneratedMessagesCloud(data as any);
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing messages to cloud:", (err as Error).message);
+      }
     } else if (filePath === RESULTS_FILE) {
-      savePostResultsCloud(data as any).catch(err => {
-        console.error("[FIREBASE] Error syncing results to cloud:", err.message);
-      });
+      try {
+        await savePostResultsCloud(data as any);
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing results to cloud:", (err as Error).message);
+      }
     } else if (filePath === POST_PROGRESS_FILE) {
       const progressObj = data as any;
-      saveBotProgressCloud(progressObj?.next_index || 0).catch(err => {
-        console.error("[FIREBASE] Error syncing progress to cloud:", err.message);
-      });
+      try {
+        await saveBotProgressCloud(progressObj?.next_index || 0);
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing progress to cloud:", (err as Error).message);
+      }
     }
   } catch (error) {
     addLog("error", `Failed to write atomically to ${path.basename(filePath)}: ${(error as Error).message}`);
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch (_) {}
     }
+  }
+}
+
+let lastCloudSyncTime = 0;
+const CLOUD_SYNC_THROTTLE_MS = 5000; // 5 seconds throttle
+
+async function syncLocalFromCloudIfStale(force = false) {
+  const now = Date.now();
+  if (!force && (now - lastCloudSyncTime < CLOUD_SYNC_THROTTLE_MS)) {
+    return; // Already synced recently
+  }
+  lastCloudSyncTime = now;
+  try {
+    // 1. Trending Coins
+    const cloudCoins = await getTrendingCoinsCloud();
+    if (cloudCoins && Array.isArray(cloudCoins)) {
+      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+    }
+
+    // 2. Generated Messages
+    const cloudMessages = await getGeneratedMessagesCloud();
+    if (cloudMessages && Array.isArray(cloudMessages)) {
+      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
+    }
+
+    // 3. Post Results
+    const cloudResults = await getPostResultsCloud();
+    if (cloudResults && Array.isArray(cloudResults)) {
+      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+    }
+
+    // 4. Bot Progress
+    const cloudProgress = await getBotProgressCloud();
+    if (cloudProgress) {
+      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
+      currentPostingIndex = cloudProgress.next_index;
+    }
+
+    // 5. Profiles
+    const cloudProfiles = await getProfilesCloud();
+    if (cloudProfiles && Array.isArray(cloudProfiles)) {
+      fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
+    }
+  } catch (err) {
+    console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
   }
 }
 
@@ -2350,7 +2431,9 @@ app.post("/api/delete-profile", async (req, res) => {
 });
 
 // 4. Status endpoint
-app.get("/api/status", (req, res) => {
+app.get("/api/status", async (req, res) => {
+  await syncLocalFromCloudIfStale();
+
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
@@ -2677,7 +2760,7 @@ app.post("/api/retry-single", async (req, res) => {
       results.push(newResultEntry);
     }
 
-    writeJsonFile(RESULTS_FILE, results);
+    await writeJsonFile(RESULTS_FILE, results);
     
     if (outcome === "success") {
       addLog("success", `Successfully manually retried posting for ${symbol}!`);
@@ -2992,7 +3075,7 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
     }
   }
 
-  writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
+  await writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
   return { coins: resolvedCoins, creditCount };
 }
 
@@ -3212,8 +3295,8 @@ async function executeGenerateMessages(): Promise<number> {
     });
   }
 
-  writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
-  writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+  await writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
+  await writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
   return generatedMessages.length;
 }
 
