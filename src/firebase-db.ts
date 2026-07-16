@@ -8,12 +8,36 @@ let db: any = null;
 function getDb() {
   if (db) return db;
   try {
+    let config: any = null;
     const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-    if (!fs.existsSync(configPath)) {
-      console.error("[FIREBASE] Config file not found at:", configPath);
+    if (fs.existsSync(configPath)) {
+      try {
+        config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      } catch (err) {
+        console.error("[FIREBASE] Error parsing firebase-applet-config.json:", err);
+      }
+    }
+
+    // Fallback to environment variables if config file not found or invalid
+    if (!config || !config.projectId) {
+      if (process.env.FIREBASE_PROJECT_ID) {
+        config = {
+          apiKey: process.env.FIREBASE_API_KEY,
+          authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+          messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+          appId: process.env.FIREBASE_APP_ID,
+          firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID,
+        };
+      }
+    }
+
+    if (!config || !config.projectId) {
+      console.warn("[FIREBASE] Config file not found and environment variables not set. Running in local-only mode.");
       return null;
     }
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
     const firebaseConfig = {
       apiKey: config.apiKey,
       authDomain: config.authDomain,
