@@ -931,7 +931,7 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
 
 async function checkLoginReal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
   return PlaywrightLock.acquire(async () => {
-    const attempts = 3;
+    const attempts = 2;
     let lastResult: { status: "success" | "expired" | "captcha" | "failed"; message: string } = { status: "failed", message: "Not started" };
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -944,7 +944,7 @@ async function checkLoginReal(): Promise<{ status: "success" | "expired" | "capt
           120000,
           "Playwright launch or session check timed out after 120 seconds"
         );
-        if (lastResult.status === "success") {
+        if (lastResult.status === "success" || lastResult.status === "expired" || lastResult.status === "captcha") {
           return lastResult;
         }
         addLog("warning", `[SESSION CONNECT] Attempt ${attempt}/${attempts} returned status: ${lastResult.status} (${lastResult.message})`);
@@ -1383,6 +1383,12 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
   }
 
   const { browser, context, page, email } = activeLoginSession;
+  if (browser && !browser.isConnected()) {
+    addLog("error", "Active login session browser has been disconnected or closed. Please restart the login process.");
+    activeLoginSession = null;
+    return { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
+  }
+
   addLog("info", `Submitting 6-digit verification code: ${otp} for email: ${email}...`);
 
   try {
@@ -1534,6 +1540,13 @@ async function executeCancelLogin(): Promise<void> {
 async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry"; message: string }> {
   let browser: any = sharedBrowser || null;
   let ownsBrowser = !sharedBrowser;
+  
+  if (browser && !browser.isConnected()) {
+    addLog("warning", "Provided shared browser instance is disconnected. Discarding it and launching fresh on-demand instance...");
+    browser = null;
+    ownsBrowser = true;
+  }
+
   let context: any = null;
   let page: any = null;
   
