@@ -413,6 +413,10 @@ interface LoginSession {
   email: string;
 }
 let activeLoginSession: LoginSession | null = null;
+let loginState: {
+  status: "idle" | "authenticating" | "requires_otp" | "success" | "failed";
+  message: string;
+} = { status: "idle", message: "" };
 
 function isBusy(): boolean {
   return (
@@ -959,6 +963,7 @@ async function checkLoginReal(): Promise<{ status: "success" | "expired" | "capt
 }
 
 async function executeStartLogin(email: string, password: string): Promise<{ status: "success" | "requires_otp" | "captcha" | "failed"; message: string }> {
+  loginState = { status: "authenticating", message: "Starting automated credentials login flow..." };
   return PlaywrightLock.acquire(async () => {
     if (activeLoginSession) {
       addLog("warning", "An active login session exists in memory. Closing it before starting a new one...");
@@ -967,6 +972,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
 
     addLog("info", `Starting automated credentials login flow for email: ${email}...`);
+    loginState = { status: "authenticating", message: `Initializing secure headless browser for email: ${email}...` };
     let browser: any = null;
     try {
       browser = await launchBrowserResilient({
@@ -998,6 +1004,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       let loginFormLoadedDirectly = false;
       addLog("info", "Attempting direct navigation to CoinMarketCap Login page...");
+      loginState = { status: "authenticating", message: "Attempting direct navigation to CoinMarketCap Login page..." };
       try {
         await page.goto("https://coinmarketcap.com/login/", {
           waitUntil: "domcontentloaded",
@@ -1020,6 +1027,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       if (!loginFormLoadedDirectly) {
         addLog("info", "Navigating to CoinMarketCap Home page...");
+        loginState = { status: "authenticating", message: "Navigating to CoinMarketCap Home page workflow..." };
         await page.goto("https://coinmarketcap.com/", {
           waitUntil: "domcontentloaded",
           timeout: 45000
@@ -1165,12 +1173,14 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
       
       addLog("info", `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...`);
+      loginState = { status: "authenticating", message: `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...` };
       await page.waitForTimeout(2000);
     }
 
     // Subframe fallback scanning
     if (!emailInput || !passwordInput) {
       addLog("info", "Inputs not found on main frame. Scanning subframes...");
+      loginState = { status: "authenticating", message: "Inputs not found on main frame. Scanning subframes..." };
       for (const frame of page.frames()) {
         try {
           const elEmail = await frame.$('[data-test="email-input"], input.email-input, .email-input, input[type="email"], input[placeholder*="email" i]');
@@ -1192,6 +1202,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
 
     addLog("info", "Entering email and password securely...");
+    loginState = { status: "authenticating", message: "Entering email and password securely..." };
     await fillInputResiliently(page, emailInput, email);
     await page.waitForTimeout(400);
     await fillInputResiliently(page, passwordInput, password);
@@ -1231,6 +1242,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
 
     addLog("info", "Submitting login form...");
+    loginState = { status: "authenticating", message: "Submitting login form..." };
     try {
       await loginBtn.click({ timeout: 5000 });
     } catch (clickErr) {
@@ -1244,6 +1256,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
     
     addLog("info", "Waiting for login feedback or redirect (8 seconds)...");
+    loginState = { status: "authenticating", message: "Waiting for login feedback or security redirects (8s)..." };
     await page.waitForTimeout(8000);
 
     const pageText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
@@ -1251,6 +1264,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     if (title.includes("Cloudflare") || title.includes("Just a moment") || pageText.includes("cloudflare") || pageText.includes("security challenge") || pageText.includes("captcha")) {
       addLog("error", "Cloudflare Captcha Challenge detected during login.");
       await browser.close().catch(() => {});
+      loginState = { status: "failed", message: "Cloudflare Captcha challenge intercepted login." };
       return { status: "captcha", message: "Cloudflare Captcha challenge intercepted login." };
     }
 
@@ -1267,11 +1281,13 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     if (requiresCode) {
       addLog("warning", "CoinMarketCap requests 6-digit security verification code!");
       activeLoginSession = { browser, context, page, email };
+      loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
       return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
     }
 
     // Otherwise, check if successfully logged in by checking comments editor on bitcoin page
     addLog("info", "No verification challenge found. Preparing to check login outcome...");
+    loginState = { status: "authenticating", message: "Credentials accepted. Navigating to verify community editor access..." };
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
@@ -1317,6 +1333,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
 
       await browser.close().catch(() => {});
+      loginState = { status: "success", message: "Login successful! Session cookies saved." };
       return { status: "success", message: "Login successful! Session cookies saved." };
     } else {
       if (!hasEitherCookie) {
@@ -1361,6 +1378,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       const finalMsg = formErrorMessage 
         ? `Login failed: ${formErrorMessage}` 
         : "Credentials submitted but verification failed or login page reloaded.";
+      loginState = { status: "failed", message: finalMsg };
       return { status: "failed", message: finalMsg };
     }
 
@@ -1370,15 +1388,18 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     if (browser) {
       await browser.close().catch(() => {});
     }
+    loginState = { status: "failed", message: errMsg };
     return { status: "failed", message: errMsg };
   }
   });
 }
 
 async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "failed"; message: string }> {
+  loginState = { status: "authenticating", message: "Submitting verification code..." };
   return PlaywrightLock.acquire(async () => {
   if (!activeLoginSession) {
     addLog("error", "No active login session in memory to submit verification code.");
+    loginState = { status: "failed", message: "No active login session in progress." };
     return { status: "failed", message: "No active login session in progress." };
   }
 
@@ -1386,10 +1407,12 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
   if (browser && !browser.isConnected()) {
     addLog("error", "Active login session browser has been disconnected or closed. Please restart the login process.");
     activeLoginSession = null;
+    loginState = { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
     return { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
   }
 
   addLog("info", `Submitting 6-digit verification code: ${otp} for email: ${email}...`);
+  loginState = { status: "authenticating", message: `Submitting 6-digit verification code: ${otp}...` };
 
   try {
     let codeInput = null;
@@ -1466,10 +1489,12 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
     }
 
     addLog("info", "Waiting for authentication submission to complete (up to 10 seconds)...");
+    loginState = { status: "authenticating", message: "Waiting for verification code submission response..." };
     await page.waitForTimeout(10000);
 
     // Verify successful session
     addLog("info", "Navigating to CoinMarketCap to verify session active state...");
+    loginState = { status: "authenticating", message: "Navigating to verify session active state..." };
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 35000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
@@ -1511,12 +1536,14 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
 
       await browser.close().catch(() => {});
       activeLoginSession = null;
+      loginState = { status: "success", message: "Successfully verified and logged in! State loaded." };
       return { status: "success", message: "Successfully verified and logged in! State loaded." };
     } else {
       addLog("error", "Code submission completed, but session verification failed (still shows as logged out).");
       await saveDebugScreenshot(page, "otp_verification_failed");
       await browser.close().catch(() => {});
       activeLoginSession = null;
+      loginState = { status: "failed", message: "Verification code failed or expired. Please try logging in again." };
       return { status: "failed", message: "Verification code failed or expired. Please try logging in again." };
     }
 
@@ -2257,6 +2284,7 @@ app.get("/api/status", (req, res) => {
 
   res.json({
     status: botStatus,
+    loginState,
     runMode,
     totalCoins: coins.length,
     generatedMessages: messages.length,
@@ -2430,16 +2458,25 @@ app.post("/api/start-login", async (req, res) => {
   }
 
   botStatus = "Authenticating";
-  try {
-    const result = await executeStartLogin(email, password);
-    if (result.status !== "requires_otp") {
+  loginState = { status: "authenticating", message: "Initializing secure credentials login flow..." };
+
+  // Run asynchronously in background to prevent 504 Gateway Timeout on AWS/Nginx proxy
+  executeStartLogin(email, password)
+    .then((result) => {
+      const mappedStatus = result.status === "requires_otp" ? "requires_otp" : (result.status === "success" ? "success" : "failed");
+      loginState = { status: mappedStatus, message: result.message };
+      if (result.status !== "requires_otp") {
+        botStatus = "Idle";
+      } else {
+        botStatus = "Verifying Code";
+      }
+    })
+    .catch((error) => {
       botStatus = "Idle";
-    }
-    return res.json(result);
-  } catch (error) {
-    botStatus = "Idle";
-    return res.status(500).json({ error: (error as Error).message });
-  }
+      loginState = { status: "failed", message: (error as Error).message };
+    });
+
+  return res.json({ status: "authenticating", message: "Automated login flow initiated. Please wait..." });
 });
 
 // 5.2. Submit OTP / Verification Code
@@ -2454,14 +2491,20 @@ app.post("/api/submit-otp", async (req, res) => {
   }
 
   botStatus = "Verifying Code";
-  try {
-    const result = await executeSubmitOtp(otp);
-    botStatus = "Idle";
-    return res.json(result);
-  } catch (error) {
-    botStatus = "Idle";
-    return res.status(500).json({ error: (error as Error).message });
-  }
+  loginState = { status: "authenticating", message: "Submitting 6-digit verification code..." };
+
+  // Run asynchronously in background to prevent 504 Gateway Timeout on AWS/Nginx proxy
+  executeSubmitOtp(otp)
+    .then((result) => {
+      loginState = { status: result.status, message: result.message };
+      botStatus = "Idle";
+    })
+    .catch((error) => {
+      botStatus = "Idle";
+      loginState = { status: "failed", message: (error as Error).message };
+    });
+
+  return res.json({ status: "authenticating", message: "OTP submission initiated. Please wait..." });
 });
 
 // 5.3. Cancel active login session
@@ -2472,9 +2515,11 @@ app.post("/api/cancel-login", async (req, res) => {
   try {
     await executeCancelLogin();
     botStatus = "Idle";
+    loginState = { status: "idle", message: "Login session cancelled." };
     return res.json({ success: true, message: "Login session cancelled." });
   } catch (error) {
     botStatus = "Idle";
+    loginState = { status: "idle", message: (error as Error).message };
     return res.status(500).json({ error: (error as Error).message });
   }
 });

@@ -393,6 +393,11 @@ export default function App() {
           setContinuousInterval(data.continuousLoopIntervalMinutes);
           isInitialIntervalLoaded.current = true;
         }
+        if (data.loginState) {
+          const step = data.loginState.status === "requires_otp" ? "otp_required" : data.loginState.status;
+          setLoginStep(step);
+          setLoginStatusMessage(data.loginState.message);
+        }
       }
     } catch (_) {}
   };
@@ -607,18 +612,7 @@ export default function App() {
         return;
       }
 
-      if (data.status === "success") {
-        setLoginStep("success");
-        setLoginStatusMessage("Successfully authenticated! Your state.json is now active.");
-        fetchSessionDetails();
-        fetchStats();
-      } else if (data.status === "requires_otp") {
-        setLoginStep("otp_required");
-        setLoginStatusMessage(data.message || "Enter the 6-digit verification code sent to your email.");
-      } else {
-        setLoginStep("failed");
-        setLoginStatusMessage(data.message || "Authentication attempt was unsuccessful.");
-      }
+      setLoginStatusMessage(data.message || "Login process initiated. Please wait...");
     } catch (err) {
       setLoginStep("failed");
       setLoginStatusMessage("Error connecting to login service: " + (err as Error).message);
@@ -646,16 +640,7 @@ export default function App() {
         return;
       }
 
-      if (data.status === "success") {
-        setLoginStep("success");
-        setLoginStatusMessage("Success! Your CoinMarketCap session is fully verified and saved to state.json.");
-        setOtpCode("");
-        fetchSessionDetails();
-        fetchStats();
-      } else {
-        setLoginStep("failed");
-        setLoginStatusMessage(data.message || "Failed to verify security code.");
-      }
+      setLoginStatusMessage(data.message || "OTP submitted. Verifying session, please wait...");
     } catch (err) {
       setLoginStep("failed");
       setLoginStatusMessage("Error submitting verification code: " + (err as Error).message);
