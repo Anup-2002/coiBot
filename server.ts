@@ -2002,7 +2002,7 @@ function readJsonFile<T>(filePath: string, defaultValue: T): T {
   return defaultValue;
 }
 
-function autoSyncSessionToProfiles(stateJson: string, email?: string) {
+async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
   try {
     if (!stateJson || !stateJson.trim()) return;
     JSON.parse(stateJson);
@@ -2040,9 +2040,7 @@ function autoSyncSessionToProfiles(stateJson: string, email?: string) {
     fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     
     // Sync to Cloud
-    saveProfilesCloud(profiles).catch(err => {
-      console.error("[FIREBASE] Error syncing profiles to cloud during auto-sync:", err.message);
-    });
+    await saveProfilesCloud(profiles);
   } catch (error) {
     console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
   }
@@ -2120,7 +2118,7 @@ app.get("/api/get-session", (req, res) => {
 });
 
 // 2. Save Session state
-app.post("/api/save-session", (req, res) => {
+app.post("/api/save-session", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot modify session cookies while the Continuous Automation Loop is active." });
   }
@@ -2141,14 +2139,19 @@ app.post("/api/save-session", (req, res) => {
     fs.writeFileSync(AUTH_STATE_FILE, stateJson, "utf-8");
     addLog("success", "Successfully updated browser auth state (auth/state.json).");
     
+    // Reset login flow state to idle on manual session save
+    loginState = { status: "idle", message: "" };
+    
     // Sync to Firestore Cloud Database
-    saveSessionStateCloud(stateJson).catch(err => {
-      console.error("[FIREBASE] Error saving session to cloud:", err.message);
-    });
+    try {
+      await saveSessionStateCloud(stateJson);
+    } catch (err) {
+      console.error("[FIREBASE] Error saving session to cloud:", (err as Error).message);
+    }
 
     // Auto-update or create Account Profiles
     try {
-      autoSyncSessionToProfiles(stateJson);
+      await autoSyncSessionToProfiles(stateJson);
     } catch (err) {
       console.error("Error auto-syncing profiles from manual save:", (err as Error).message);
     }
@@ -2161,7 +2164,7 @@ app.post("/api/save-session", (req, res) => {
 });
 
 // 3. Clear session
-app.post("/api/clear-session", (req, res) => {
+app.post("/api/clear-session", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot clear session cookies while the Continuous Automation Loop is active." });
   }
@@ -2170,9 +2173,13 @@ app.post("/api/clear-session", (req, res) => {
   }
   try {
     // Clear from Firestore Cloud Database
-    saveSessionStateCloud("").catch(err => {
-      console.error("[FIREBASE] Error clearing session from cloud:", err.message);
-    });
+    try {
+      await saveSessionStateCloud("");
+    } catch (err) {
+      console.error("[FIREBASE] Error clearing session from cloud:", (err as Error).message);
+    }
+
+    loginState = { status: "idle", message: "" };
 
     if (fs.existsSync(AUTH_STATE_FILE)) {
       fs.unlinkSync(AUTH_STATE_FILE);
@@ -2197,7 +2204,7 @@ app.get("/api/profiles", (req, res) => {
 });
 
 // 3b. Save/Update Profile
-app.post("/api/save-profile", (req, res) => {
+app.post("/api/save-profile", async (req, res) => {
   try {
     const { id, name, stateJson } = req.body;
     if (!name || !stateJson) {
@@ -2228,9 +2235,11 @@ app.post("/api/save-profile", (req, res) => {
     addLog("success", `Saved account profile: "${name}"`);
 
     // Sync to Cloud
-    saveProfilesCloud(profiles).catch(err => {
-      console.error("[FIREBASE] Error syncing profiles to cloud:", err.message);
-    });
+    try {
+      await saveProfilesCloud(profiles);
+    } catch (err) {
+      console.error("[FIREBASE] Error syncing profiles to cloud:", (err as Error).message);
+    }
 
     res.json({ success: true, profile: profileData });
   } catch (error) {
@@ -2239,7 +2248,7 @@ app.post("/api/save-profile", (req, res) => {
 });
 
 // 3c. Activate Profile
-app.post("/api/activate-profile", (req, res) => {
+app.post("/api/activate-profile", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active." });
   }
@@ -2272,8 +2281,15 @@ app.post("/api/activate-profile", (req, res) => {
     addLog("success", `Activated account profile: "${activeProfile.name}". Swept active cookies state.`);
 
     // Sync active session and profiles lists to Cloud
-    saveSessionStateCloud(activeProfile.stateJson).catch(() => {});
-    saveProfilesCloud(profiles).catch(() => {});
+    try {
+      await saveSessionStateCloud(activeProfile.stateJson);
+      await saveProfilesCloud(profiles);
+    } catch (err) {
+      console.error("[FIREBASE] Error syncing to cloud on profile activation:", (err as Error).message);
+    }
+
+    // Reset login flow state to idle on activation
+    loginState = { status: "idle", message: "" };
 
     res.json({ success: true, message: `Successfully activated profile "${activeProfile.name}"` });
   } catch (error) {
@@ -2282,7 +2298,7 @@ app.post("/api/activate-profile", (req, res) => {
 });
 
 // 3d. Delete Profile
-app.post("/api/delete-profile", (req, res) => {
+app.post("/api/delete-profile", async (req, res) => {
   try {
     const { id } = req.body;
     if (!id) {
@@ -2308,13 +2324,24 @@ app.post("/api/delete-profile", (req, res) => {
       if (fs.existsSync(AUTH_STATE_FILE)) {
         fs.unlinkSync(AUTH_STATE_FILE);
       }
-      saveSessionStateCloud("").catch(() => {});
+      try {
+        await saveSessionStateCloud("");
+      } catch (err) {
+        console.error("[FIREBASE] Error clearing session from cloud on deletion:", (err as Error).message);
+      }
     }
+
+    // Always reset login flow state to idle on deletion to prevent sticky success banner
+    loginState = { status: "idle", message: "" };
 
     fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     addLog("warning", `Deleted profile: "${deletedName}"`);
 
-    saveProfilesCloud(profiles).catch(() => {});
+    try {
+      await saveProfilesCloud(profiles);
+    } catch (err) {
+      console.error("[FIREBASE] Error syncing profiles to cloud on deletion:", (err as Error).message);
+    }
 
     res.json({ success: true, message: "Profile deleted." });
   } catch (error) {
