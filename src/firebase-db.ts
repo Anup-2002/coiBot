@@ -141,3 +141,17 @@ export async function saveSystemLogsCloud(logs: any[]): Promise<void> {
     lastUpdated: new Date().toISOString()
   });
 }
+
+// Multi-profile Support Sync
+export async function getProfilesCloud(): Promise<any[]> {
+  const data = await fetchDoc("bot/profiles", { list: [] });
+  return data.list || [];
+}
+
+export async function saveProfilesCloud(profiles: any[]): Promise<void> {
+  await writeDoc("bot/profiles", {
+    list: profiles,
+    lastUpdated: new Date().toISOString()
+  });
+}
+

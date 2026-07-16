@@ -20,7 +20,10 @@ import {
   Globe,
   Upload,
   BookOpen,
-  ArrowDown
+  ArrowDown,
+  Users,
+  Camera,
+  Eye
 } from "lucide-react";
 
 // Types matching backend server structures
@@ -93,9 +96,28 @@ export default function App() {
   const [sessionExists, setSessionExists] = useState<boolean>(false);
   const [sessionDetails, setSessionDetails] = useState<any>(null);
   const [showSessionModal, setShowSessionModal] = useState<boolean>(false);
+  const [activeSessionContent, setActiveSessionContent] = useState<string>("");
+
+  // Account Profiles support
+  const [profilesList, setProfilesList] = useState<any[]>([]);
+  const [newProfileName, setNewProfileName] = useState<string>("");
+  const [newProfileJson, setNewProfileJson] = useState<string>("");
+  const [activeProfile, setActiveProfile] = useState<any | null>(null);
+  const [showProfileAddForm, setShowProfileAddForm] = useState<boolean>(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Elegant Custom Notification State
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => prev?.message === message ? null : prev);
+    }, 4500);
+  };
 
   // Interactive Login State
-  const [loginTab, setLoginTab] = useState<"credentials" | "cookies">("credentials");
+  const [loginTab, setLoginTab] = useState<"credentials" | "cookies" | "profiles">("credentials");
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loginStep, setLoginStep] = useState<"idle" | "authenticating" | "otp_required" | "success" | "failed">("idle");
@@ -157,6 +179,7 @@ export default function App() {
     fetchStats();
     fetchLogs();
     fetchSessionDetails();
+    fetchProfiles();
     checkSystemHealth();
     
     // Initial fetch of lists
@@ -173,6 +196,8 @@ export default function App() {
     const interval = setInterval(() => {
       fetchStats();
       fetchLogs();
+      fetchProfiles(); // Keep profiles list sync'd across instances
+      fetchSessionDetails(); // Update session configuration details in real time
       // Poll data lists to keep them synchronized
       fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
@@ -243,8 +268,92 @@ export default function App() {
         const data = await res.json();
         setSessionExists(data.exists);
         setSessionDetails(data.details);
+        setActiveSessionContent(data.content || "");
       }
     } catch (_) {}
+  };
+
+  // Fetch account profiles
+  const fetchProfiles = async () => {
+    try {
+      const res = await fetch(resolveUrl("/api/profiles"));
+      if (res.ok) {
+        const data = await res.json();
+        setProfilesList(data.profiles || []);
+        const active = (data.profiles || []).find((p: any) => p.isActive);
+        setActiveProfile(active || null);
+      }
+    } catch (e) {
+      console.error("Error fetching profiles:", e);
+    }
+  };
+
+  const handleSaveProfile = async (name: string, stateJson: string) => {
+    if (!name.trim() || !stateJson.trim()) {
+      showToast("Please provide both profile name and cookies JSON.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(resolveUrl("/api/save-profile"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, stateJson })
+      });
+      if (res.ok) {
+        setNewProfileName("");
+        setNewProfileJson("");
+        setShowProfileAddForm(false);
+        fetchProfiles();
+        fetchSessionDetails();
+        showToast(`Account profile for "${name}" saved successfully!`, "success");
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Failed to save profile.", "error");
+      }
+    } catch (error) {
+      showToast("Error saving profile: " + (error as Error).message, "error");
+    }
+  };
+
+  const handleActivateProfile = async (id: string) => {
+    try {
+      const res = await fetch(resolveUrl("/api/activate-profile"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        fetchProfiles();
+        fetchSessionDetails();
+        fetchStats();
+        showToast("Account switched successfully!", "success");
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Failed to switch account.", "error");
+      }
+    } catch (error) {
+      showToast("Error switching account: " + (error as Error).message, "error");
+    }
+  };
+
+  const handleDeleteProfile = async (id: string) => {
+    try {
+      const res = await fetch(resolveUrl("/api/delete-profile"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        fetchProfiles();
+        fetchSessionDetails();
+        showToast("Account profile deleted successfully.", "success");
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Failed to delete profile.", "error");
+      }
+    } catch (error) {
+      showToast("Error deleting profile: " + (error as Error).message, "error");
+    }
   };
 
   // Fetch Status Stats
@@ -657,6 +766,31 @@ export default function App() {
               </span>
             )}
           </div>
+
+          <button
+            onClick={() => {
+              setLoginTab("profiles");
+              setShowSessionModal(true);
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border text-xs font-bold transition duration-200 cursor-pointer ${
+              activeProfile 
+                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
+                : (sessionExists 
+                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
+                  : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
+                )
+            }`}
+            title="Manage Accounts and Cookie Sessions"
+            id="navbar-login-btn"
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span>
+              {activeProfile 
+                ? `Account: ${activeProfile.name}` 
+                : (sessionExists ? "Account: Active" : "Login / Add Account")
+              }
+            </span>
+          </button>
         </div>
       </header>
 
@@ -1083,6 +1217,12 @@ export default function App() {
                           {new Date(sessionDetails.updatedAt).toLocaleTimeString()}
                         </span>
                       </div>
+                      {activeProfile && (
+                        <div className="col-span-2 pt-1.5 border-t border-slate-800/80">
+                          <span className="text-slate-500 block">Active Account Profile:</span>
+                          <span className="text-emerald-400 font-bold text-xs">{activeProfile.name}</span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-[11px] text-amber-400 font-medium bg-amber-500/5 p-2 rounded border border-amber-500/10">
@@ -1987,6 +2127,14 @@ export default function App() {
               >
                 2. Paste state.json cookies
               </button>
+              <button
+                onClick={() => setLoginTab("profiles")}
+                className={`pb-3 text-xs font-bold transition-all relative ${
+                  loginTab === "profiles" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                3. Switch Accounts ({profilesList.length})
+              </button>
             </div>
 
             {/* Modal Body */}
@@ -2153,6 +2301,160 @@ export default function App() {
                 </div>
               )}
 
+              {loginTab === "profiles" && (
+                <div className="space-y-4 text-xs text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-slate-400">
+                      Save multiple CoinMarketCap accounts and easily swap between them. Different users can use their own profiles.
+                    </p>
+                    <button
+                      onClick={() => setShowProfileAddForm(!showProfileAddForm)}
+                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1"
+                    >
+                      {showProfileAddForm ? "✕ Close Form" : "➕ Add Account Profile"}
+                    </button>
+                  </div>
+
+                  {showProfileAddForm && (
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3.5">
+                      <h4 className="font-bold text-white text-[11px] uppercase tracking-wider">New Account Profile</h4>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Profile Name / Owner</label>
+                        <input
+                          type="text"
+                          value={newProfileName}
+                          onChange={(e) => setNewProfileName(e.target.value)}
+                          placeholder="e.g. Anup Main Account, Vineet Bot"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Cookies JSON (state.json content)</label>
+                        <textarea
+                          rows={4}
+                          value={newProfileJson}
+                          onChange={(e) => setNewProfileJson(e.target.value)}
+                          placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700"
+                        />
+                      </div>
+                      <button
+                        onClick={() => handleSaveProfile(newProfileName, newProfileJson)}
+                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs"
+                      >
+                        Save Account Profile
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-slate-400 font-mono text-[10px] uppercase tracking-wider">Saved Accounts Profiles</h4>
+                    {profilesList.length === 0 ? (
+                      <div className="p-6 bg-slate-950 border border-slate-850/80 rounded-xl text-center text-slate-500 text-[11px]">
+                        No account profiles saved yet. Add one above to enable fast multi-account switching.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {profilesList.map((p) => (
+                          <div
+                            key={p.id}
+                            className={`p-3.5 rounded-xl border flex items-center justify-between transition-all ${
+                              p.isActive
+                                ? "bg-emerald-500/5 border-emerald-500/25"
+                                : "bg-slate-950 border-slate-850 hover:border-slate-800"
+                            }`}
+                          >
+                            <div className="space-y-1 pr-4 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white text-xs truncate">{p.name}</span>
+                                {p.isActive && (
+                                  <span className="bg-emerald-500/15 text-emerald-400 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 block font-mono">
+                                ID: {p.id} • Saved: {new Date(p.updatedAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {!p.isActive && (
+                                <button
+                                  onClick={() => handleActivateProfile(p.id)}
+                                  className="py-1 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold rounded-lg transition"
+                                >
+                                  Activate
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(p.stateJson);
+                                  showToast(`Copied state.json for "${p.name}" to clipboard!`, "success");
+                                }}
+                                className="py-1 px-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 text-[10px] font-medium rounded-lg border border-slate-800 cursor-pointer"
+                              >
+                                📋 Copy JSON
+                              </button>
+                              {deletingId === p.id ? (
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      handleDeleteProfile(p.id);
+                                      setDeletingId(null);
+                                    }}
+                                    className="py-1 px-2.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    onClick={() => setDeletingId(null)}
+                                    className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium rounded-lg cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setDeletingId(p.id)}
+                                  className="py-1 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium rounded-lg border border-rose-500/10 transition cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {activeSessionContent && (
+                    <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold tracking-wider">
+                          Active state.json Cookies Content
+                        </label>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(activeSessionContent);
+                            showToast("Active state.json successfully copied to clipboard!", "success");
+                          }}
+                          className="text-[10px] text-emerald-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                        >
+                          📋 Copy Active Session State
+                        </button>
+                      </div>
+                      <textarea
+                        rows={4}
+                        readOnly
+                        value={activeSessionContent}
+                        className="w-full bg-slate-950 border border-slate-850/80 rounded-lg p-2 font-mono text-[9px] text-slate-400 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
 
             {/* Modal Footer (only for manual cookie tab) */}
@@ -2177,6 +2479,14 @@ export default function App() {
             )}
 
           </div>
+        </div>
+      )}
+
+      {/* Custom elegant toast notifications */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4.5 py-3 rounded-xl border shadow-xl bg-slate-900/95 border-slate-800 text-xs text-white max-w-sm backdrop-blur transition-all animate-pulse">
+          <div className={`w-2 h-2 rounded-full ${toast.type === "success" ? "bg-emerald-500" : toast.type === "error" ? "bg-rose-500" : "bg-blue-500"}`} />
+          <span className="font-semibold">{toast.message}</span>
         </div>
       )}
 

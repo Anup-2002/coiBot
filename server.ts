@@ -39,7 +39,9 @@ import {
   getBotProgressCloud,
   saveBotProgressCloud,
   getSystemLogsCloud,
-  saveSystemLogsCloud
+  saveSystemLogsCloud,
+  getProfilesCloud,
+  saveProfilesCloud
 } from "./src/firebase-db";
 
 import express from "express";
@@ -70,6 +72,12 @@ const GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json")
 const RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
 const POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
 const AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
+const PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
+
+// Ensure PROFILES_FILE exists
+if (!fs.existsSync(PROFILES_FILE)) {
+  fs.writeFileSync(PROFILES_FILE, JSON.stringify([], null, 2), "utf-8");
+}
 
 // In-Memory Logs to display in the UI console
 interface LogEntry {
@@ -410,7 +418,7 @@ function isBusy(): boolean {
 // Playwright Real Automation Helpers
 
 async function saveDebugScreenshot(page: any, name: string) {
-  // Debug screenshots disabled for maximum execution speed as requested.
+  // Screenshot capture disabled to optimize CPU, memory, and disk space usage
 }
 
 // Robust click helper to prevent timeouts on elements blocked by overlays or slow actionability checks
@@ -516,20 +524,33 @@ async function locateAndPrepareCommentEditor(page: any): Promise<any> {
       if (tab && await tab.isVisible()) {
         addLog("info", `Clicking tab trigger to activate community section: "${selector}"`);
         await clickResiliently(page, tab, "community tab button");
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(1000);
         break;
       }
     } catch {}
   }
 
-  // 4. Scroll once to trigger lazy load (removed redundant gradual scrolling/waiting loops)
-  addLog("info", "Performing a single smooth scroll to trigger lazy loading of comments...");
-  await page.evaluate(() => window.scrollBy(0, 800));
+  // 4. Scroll down in incremental steps to trigger lazy loading of comments / editor section
+  addLog("info", "Executing incremental scrolling loops to trigger CoinMarketCap lazy loaders...");
+  for (let step = 1; step <= 6; step++) {
+    try {
+      const el = await page.$(robustSelector);
+      if (el && await el.isVisible()) {
+        addLog("success", `Successfully found comment editor during scroll-step ${step}!`);
+        return el;
+      }
+    } catch {}
 
-  // 5. Use a single, highly efficient wait-for-selector strategy
+    const scrollAmount = 700;
+    addLog("info", `Scroll-step ${step}/6: Scrolling page down by ${scrollAmount}px...`);
+    await page.evaluate((amt: number) => window.scrollBy(0, amt), scrollAmount).catch(() => {});
+    await page.waitForTimeout(1200); // Allow lazy components to fetch and load
+  }
+
+  // 5. Use a final, highly efficient wait-for-selector strategy
   try {
     addLog("info", "Waiting for comment editor to load using our robust selector strategy...");
-    const editor = await page.waitForSelector(robustSelector, { state: "visible", timeout: 8000 });
+    const editor = await page.waitForSelector(robustSelector, { state: "visible", timeout: 6000 });
     if (editor) {
       addLog("success", "Successfully located comment editor using robust selector!");
       return editor;
@@ -594,6 +615,108 @@ async function setupPageResourceBlocking(page: any): Promise<void> {
   }
 }
 
+function normalizeStateJson(stateJsonStr: string): string {
+  try {
+    if (!stateJsonStr || !stateJsonStr.trim()) return stateJsonStr;
+    const state = JSON.parse(stateJsonStr);
+    let changed = false;
+    
+    // Normalize Authorization cookie: CoinMarketCap expects 'BearereyJ...' WITHOUT any space.
+    // If a space exists (e.g. "Bearer eyJ..."), we MUST remove it to ensure the cookie format is correct.
+    if (state && Array.isArray(state.cookies)) {
+      state.cookies = state.cookies.map((c: any) => {
+        if (c && c.name === "Authorization" && typeof c.value === "string") {
+          if (c.value.startsWith("Bearer eyJ")) {
+            c.value = "Bearer" + c.value.substring(7); // "Bearer " is 7 characters
+            changed = true;
+            addLog("info", "Automatically normalized 'Authorization' cookie value (removed space to match CoinMarketCap's BearereyJ standard).");
+          }
+        }
+        return c;
+      });
+    }
+    
+    return changed ? JSON.stringify(state, null, 2) : stateJsonStr;
+  } catch (err) {
+    console.error("Error during state.json cookie normalization:", (err as Error).message);
+    return stateJsonStr;
+  }
+}
+
+function extractFingerprintDetails(stateFilePath: string) {
+  let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+  let timezoneId = "America/New_York";
+  let locale = "en-US";
+
+  try {
+    if (fs.existsSync(stateFilePath)) {
+      const state = JSON.parse(fs.readFileSync(stateFilePath, "utf-8"));
+      
+      let bncFvInfoStr = "";
+      
+      // Check cookies
+      if (Array.isArray(state.cookies)) {
+        const cookie = state.cookies.find((c: any) => c.name === "BNC_FV_INFO" || c.name === "__BNC_FP_INFO__");
+        if (cookie && cookie.value) {
+          bncFvInfoStr = decodeURIComponent(cookie.value);
+        }
+      }
+      
+      // Check localStorage if not found in cookies
+      if (!bncFvInfoStr && Array.isArray(state.origins)) {
+        for (const origin of state.origins) {
+          if (Array.isArray(origin.localStorage)) {
+            const item = origin.localStorage.find((l: any) => l.name === "BNC_FV_INFO" || l.name === "__BNC_FP_INFO__" || l.name === "BNC_FV_KEY");
+            if (item && item.value) {
+              bncFvInfoStr = item.value;
+            }
+          }
+        }
+      }
+      
+      if (bncFvInfoStr) {
+        let parsedInfo: any = null;
+        try {
+          const outer = JSON.parse(bncFvInfoStr);
+          if (outer && typeof outer === "object" && typeof outer.value === "string") {
+            parsedInfo = JSON.parse(outer.value);
+          } else {
+            parsedInfo = outer;
+          }
+        } catch {
+          try {
+            parsedInfo = JSON.parse(bncFvInfoStr);
+          } catch {}
+        }
+        
+        if (parsedInfo && typeof parsedInfo === "object") {
+          if (parsedInfo.ua) {
+            userAgent = parsedInfo.ua;
+          } else if (parsedInfo.user_agent) {
+            userAgent = parsedInfo.user_agent;
+          }
+          
+          if (parsedInfo.webTimezone) {
+            timezoneId = parsedInfo.webTimezone;
+          } else if (parsedInfo.web_timezone) {
+            timezoneId = parsedInfo.web_timezone;
+          }
+          
+          if (parsedInfo.sysLanguage) {
+            locale = parsedInfo.sysLanguage;
+          } else if (parsedInfo.system_lang) {
+            locale = parsedInfo.system_lang;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error extracting fingerprint details from storage state:", (err as Error).message);
+  }
+
+  return { userAgent, timezoneId, locale };
+}
+
 async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
   addLog("info", "Playwright launching headlessly with stealth configurations...");
   let browser: any = null;
@@ -608,13 +731,17 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
         "--disable-blink-features=AutomationControlled",
       ]
     });
-    addLog("info", "Loading browser context storage state from auth/state.json...");
+    
+    // Extract fingerprint details from user's state.json to maximize session authenticity
+    const { userAgent, timezoneId, locale } = extractFingerprintDetails(AUTH_STATE_FILE);
+    
+    addLog("info", `Loading browser context storage state from auth/state.json with fingerprint settings (User-Agent: ${userAgent.substring(0, 40)}..., Timezone: ${timezoneId}, Locale: ${locale})...`);
     const context = await browser.newContext({
       storageState: AUTH_STATE_FILE,
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      userAgent,
       viewport: { width: 1366, height: 768 },
-      locale: "en-US",
-      timezoneId: "America/New_York",
+      locale,
+      timezoneId,
     });
 
     // Stealth: hide webdriver property
@@ -628,10 +755,14 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
     await setupPageResourceBlocking(page);
     addLog("info", "Navigating to CoinMarketCap Bitcoin page: https://coinmarketcap.com/currencies/bitcoin/");
     
-    await page.goto("https://coinmarketcap.com/currencies/bitcoin/", {
-      waitUntil: "domcontentloaded",
-      timeout: 45000
-    });
+    try {
+      await page.goto("https://coinmarketcap.com/currencies/bitcoin/", {
+        waitUntil: "domcontentloaded",
+        timeout: 45000
+      });
+    } catch (gotoErr) {
+      addLog("warning", `Initial page navigation timeout/warning (continuing anyway to check elements): ${(gotoErr as Error).message}`);
+    }
     
     // Wait for the page to settle down
     await page.waitForTimeout(2000);
@@ -643,11 +774,40 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       return { status: "expired", message: "Session expired: Redirected to login page" };
     }
     
+    // Also check if any header Log In buttons are visible on the page
+    let isHeaderLoginVisible = false;
+    const headerLoginSelectors = [
+      'button:has-text("Log In")',
+      'button:has-text("Log in")',
+      'a:has-text("Log In")',
+      'a:has-text("Log in")',
+      '[data-testid="header-login-button"]'
+    ];
+    for (const sel of headerLoginSelectors) {
+      try {
+        const el = await page.$(sel);
+        if (el && await el.isVisible()) {
+          isHeaderLoginVisible = true;
+          break;
+        }
+      } catch {}
+    }
+
+    // 1. Strict Cookie Check: If we lack core authorization cookies, we are logged out
+    const cookies = await context.cookies().catch(() => []);
+    const hasAuthCookie = cookies.some((c: any) => c.name === "Authorization" && c.value && c.value.length > 20);
+    const hasUprodCookie = cookies.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
+
+    if (!hasAuthCookie && !hasUprodCookie) {
+      addLog("error", "Login validation failed: Missing core 'Authorization' or 'u-prod' cookies in context.");
+      return { status: "expired", message: "Logged out (Missing auth cookies)" };
+    }
+
     // Scan page for the comment editor
     const editor = await locateAndPrepareCommentEditor(page);
 
-    if (!editor) {
-      await saveDebugScreenshot(page, "editor_not_found");
+    if (!editor || isHeaderLoginVisible) {
+      await saveDebugScreenshot(page, "editor_or_login_failed");
       
       // Let's check for specific Cloudflare captcha elements first
       const title = await page.title().catch(() => "");
@@ -657,6 +817,11 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       if (hasCfTitle || hasCfSelectors) {
         addLog("error", "CRITICAL: Cloudflare Turnstile human challenge detected on page!");
         return { status: "captcha", message: "Cloudflare Turnstile captcha block" };
+      }
+
+      if (isHeaderLoginVisible) {
+        addLog("error", "Login validation failed: Active 'Log In' button is visible in the page header.");
+        return { status: "expired", message: "Logged out (Log In button is visible)" };
       }
 
       // Check if button text indicates "Log In" is required
@@ -670,7 +835,30 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       return { status: "expired", message: "Comment editor input missing or session inactive" };
     }
     
-    addLog("success", "Successfully found and verified comment editor element!");
+    // Now check the actual text on the post submit button if available to be 100% sure we are not prompted to login
+    const postButtonSelectors = [
+      '[data-test="editor-post-button"]',
+      'button:has-text("Post")',
+      'button:has-text("Submit")',
+      'button:has-text("Comment")',
+      'button.editor-post-button',
+      '.editor-post-button'
+    ];
+    let postBtn = null;
+    for (const selector of postButtonSelectors) {
+      postBtn = await page.$(selector);
+      if (postBtn) break;
+    }
+    if (postBtn) {
+      const buttonText = await postBtn.innerText().catch(() => "");
+      if (buttonText.toLowerCase().includes("log in") || buttonText.toLowerCase().includes("signin")) {
+        addLog("error", "Login validation failed: Found comment editor, but submit button text is 'Log In' instead of 'Post'.");
+        await saveDebugScreenshot(page, "login_required_post_btn");
+        return { status: "expired", message: "Logged out (Post button requires Log In)" };
+      }
+    }
+
+    addLog("success", "Successfully found and verified comment editor and active session state!");
     addLog("success", "Session active! Authentication is fully verified.");
     return { status: "success", message: "Session active" };
   } catch (error) {
@@ -996,24 +1184,96 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
 
     // Otherwise, check if successfully logged in by checking comments editor on bitcoin page
-    addLog("info", "No verification challenge found. Checking login outcome...");
+    addLog("info", "No verification challenge found. Preparing to check login outcome...");
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
-    const checkText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-    const isLoggedOut = checkText.includes("log in") && !checkText.includes("log out");
-    const editorExists = (await page.$('[data-test="base-editor-editable"]')) !== null;
+    // Use our robust locateAndPrepareCommentEditor to check if we can access the editor
+    const editor = await locateAndPrepareCommentEditor(page);
+    
+    // Also check if any header Log In buttons are visible on the page
+    let isHeaderLoginVisible = false;
+    const headerLoginSelectors = [
+      'button:has-text("Log In")',
+      'button:has-text("Log in")',
+      'a:has-text("Log In")',
+      'a:has-text("Log in")',
+      '[data-testid="header-login-button"]'
+    ];
+    for (const sel of headerLoginSelectors) {
+      try {
+        const el = await page.$(sel);
+        if (el && await el.isVisible()) {
+          isHeaderLoginVisible = true;
+          break;
+        }
+      } catch {}
+    }
 
-    if (editorExists || !isLoggedOut) {
+    const cookiesList = await context.cookies().catch(() => []);
+    const hasAuthCookie = cookiesList.some((c: any) => c.name === "Authorization" && c.value && c.value.length > 20);
+    const hasUprodCookie = cookiesList.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
+
+    if ((editor || !isHeaderLoginVisible) && hasAuthCookie && hasUprodCookie) {
       addLog("success", "Successfully logged in and verified community editor access!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+      
+      // Sync successfully saved session to Cloud and Auto-Update Profiles
+      try {
+        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        await saveSessionStateCloud(cookiesStr);
+        autoSyncSessionToProfiles(cookiesStr, email);
+      } catch (e) {
+        console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+      }
+
       await browser.close().catch(() => {});
       return { status: "success", message: "Login successful! Session cookies saved." };
     } else {
-      addLog("error", "Login did not succeed. Still appears logged out.");
+      if (!hasAuthCookie || !hasUprodCookie) {
+        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}). It was likely blocked by Cloudflare or AWS WAF.`);
+      } else {
+        addLog("error", "Login did not succeed. Still appears logged out.");
+      }
+      
+      // Try to extract any visible error message on the form/modal
+      let formErrorMessage = "";
+      try {
+        const errorSelectors = [
+          '.error-message',
+          '.errorMessage',
+          '[class*="error-message" i]',
+          '[class*="errorMessage" i]',
+          '[class*="form-error" i]',
+          '[class*="FormError" i]',
+          '.sc-1cf4148-0',
+          '.sc-acb6320-0',
+          'div[style*="color: rgb(234, 84, 85)"]',
+          'span[style*="color: rgb(234, 84, 85)"]'
+        ];
+        for (const sel of errorSelectors) {
+          const errorEl = await page.$(sel);
+          if (errorEl && await errorEl.isVisible()) {
+            const text = (await errorEl.innerText().catch(() => "")).trim();
+            if (text) {
+              formErrorMessage = text;
+              addLog("warning", `Detected visible login form error: "${text}"`);
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error extracting login modal error text:", (err as Error).message);
+      }
+
+      await saveDebugScreenshot(page, "credentials_login_failed");
       await browser.close().catch(() => {});
-      return { status: "failed", message: "Credentials submitted but verification failed or login page reloaded." };
+      
+      const finalMsg = formErrorMessage 
+        ? `Login failed: ${formErrorMessage}` 
+        : "Credentials submitted but verification failed or login page reloaded.";
+      return { status: "failed", message: finalMsg };
     }
 
   } catch (error) {
@@ -1118,19 +1378,48 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 35000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
-    const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-    const editorExists = (await page.$('[data-test="base-editor-editable"]')) !== null;
-    const isLoggedOut = bodyText.includes("log in") && !bodyText.includes("log out");
+    // Use our robust locateAndPrepareCommentEditor to check if we can access the editor
+    const editor = await locateAndPrepareCommentEditor(page);
+    
+    // Also check if any header Log In buttons are visible on the page
+    let isHeaderLoginVisible = false;
+    const headerLoginSelectors = [
+      'button:has-text("Log In")',
+      'button:has-text("Log in")',
+      'a:has-text("Log In")',
+      'a:has-text("Log in")',
+      '[data-testid="header-login-button"]'
+    ];
+    for (const sel of headerLoginSelectors) {
+      try {
+        const el = await page.$(sel);
+        if (el && await el.isVisible()) {
+          isHeaderLoginVisible = true;
+          break;
+        }
+      } catch {}
+    }
 
-    if (editorExists || !isLoggedOut) {
+    if (editor || !isHeaderLoginVisible) {
       addLog("success", "OTP verification successful! Session is fully active!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved authorized session cookies to ${AUTH_STATE_FILE}`);
+      
+      // Sync successfully saved session to Cloud and Auto-Update Profiles
+      try {
+        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        await saveSessionStateCloud(cookiesStr);
+        autoSyncSessionToProfiles(cookiesStr, email);
+      } catch (e) {
+        console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+      }
+
       await browser.close().catch(() => {});
       activeLoginSession = null;
       return { status: "success", message: "Successfully verified and logged in! State loaded." };
     } else {
       addLog("error", "Code submission completed, but session verification failed (still shows as logged out).");
+      await saveDebugScreenshot(page, "otp_verification_failed");
       await browser.close().catch(() => {});
       activeLoginSession = null;
       return { status: "failed", message: "Verification code failed or expired. Please try logging in again." };
@@ -1175,13 +1464,16 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       addLog("info", "Re-using existing active Playwright browser instance for posting task.");
     }
 
-    addLog("info", "Loading browser context storage state from auth/state.json...");
+    // Extract fingerprint details from user's state.json to maximize session authenticity
+    const { userAgent, timezoneId, locale } = extractFingerprintDetails(AUTH_STATE_FILE);
+
+    addLog("info", `Loading browser context storage state from auth/state.json with fingerprint settings (User-Agent: ${userAgent.substring(0, 40)}..., Timezone: ${timezoneId}, Locale: ${locale})...`);
     context = await browser.newContext({
       storageState: AUTH_STATE_FILE,
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      userAgent,
       viewport: { width: 1366, height: 768 },
-      locale: "en-US",
-      timezoneId: "America/New_York",
+      locale,
+      timezoneId,
     });
 
     // Stealth: hide webdriver property
@@ -1200,39 +1492,30 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     await setupPageResourceBlocking(page);
     addLog("info", `Navigating to target coin URL: ${url}`);
     
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 90000
-    });
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: 90000
+      });
+    } catch (gotoErr) {
+      addLog("warning", `Target coin page navigation timeout/warning (continuing anyway to check elements): ${(gotoErr as Error).message}`);
+    }
     
     // Wait for the page to settle
     await page.waitForTimeout(2000);
     
-    // --- START OF SESSION-VERIFY CHECK ---
-    addLog("info", "Executing explicit 'session-verify' check on target coin page...");
-    const currentUrl = page.url();
-    if (currentUrl.includes("/login") || currentUrl.includes("/signin") || currentUrl.includes("/auth")) {
-      addLog("error", `Session-verify check failed: Redirected to login page (${currentUrl})`);
-      await saveDebugScreenshot(page, "session_verify_failed_redirect");
-      return { status: "expired", message: "Session expired: Redirected to login page" };
-    }
-    
-    // Check if login or signup buttons are visible on the page
-    const loginBtn = await page.$('button:has-text("Log In"), button:has-text("Sign Up"), a:has-text("Log In"), a:has-text("Sign Up")');
-    if (loginBtn && await loginBtn.isVisible()) {
-      addLog("error", "Session-verify check failed: Found active 'Log In' or 'Sign Up' buttons. User is logged out.");
-      await saveDebugScreenshot(page, "session_verify_failed_buttons");
-      return { status: "expired", message: "Not logged in - Session expired" };
-    }
-    addLog("success", "Explicit 'session-verify' check passed! Active session confirmed on target coin page.");
-    // --- END OF SESSION-VERIFY CHECK ---
-
     // Scan page for the comment editor
     const editor = await locateAndPrepareCommentEditor(page);
 
     if (!editor) {
       await saveDebugScreenshot(page, "posting_editor_not_found");
       
+      const currentUrl = page.url();
+      if (currentUrl.includes("/login") || currentUrl.includes("/signin") || currentUrl.includes("/auth")) {
+        addLog("error", `Session-verify check failed: Redirected to login page (${currentUrl})`);
+        return { status: "expired", message: "Session expired: Redirected to login page" };
+      }
+
       const title = await page.title().catch(() => "");
       const hasCfTitle = title.includes("Cloudflare") || title.includes("Just a moment");
       const hasCfSelectors = await page.$('#challenge-running, #challenge-stage, .cf-turnstile').catch(() => null);
@@ -1243,14 +1526,16 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
 
       const loginBtn = await page.$('button:has-text("Log In"), button:has-text("Sign Up")');
-      if (loginBtn) {
-        addLog("error", "Session expired or logged out. Post button/editor is missing.");
+      if (loginBtn && await loginBtn.isVisible()) {
+        addLog("error", "Session expired or logged out. Found active 'Log In' or 'Sign Up' buttons.");
         return { status: "expired", message: "Not logged in - Session expired" };
       }
 
       addLog("error", "Could not locate the post comment editor input box on the page.");
       return { status: "failed", message: "Comment editor element not found on coin page" };
     }
+
+    addLog("success", "Session check passed! Comment editor located successfully on posting page.");
     
     // Focus, write message naturally
     addLog("info", `Editor field focused. Typing comment: "${message}"`);
@@ -1364,6 +1649,19 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     
     addLog("success", "Successfully submitted post via Playwright browser context!");
     await saveDebugScreenshot(page, "success_post_screenshot");
+
+    // Save refreshed storageState back to maintain session longevity
+    try {
+      await context.storageState({ path: AUTH_STATE_FILE });
+      if (fs.existsSync(AUTH_STATE_FILE)) {
+        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        await saveSessionStateCloud(cookiesStr);
+        autoSyncSessionToProfiles(cookiesStr);
+      }
+    } catch (e) {
+      console.error("Failed to update and sync storage state after successful post:", (e as Error).message);
+    }
+
     return { status: "success", message: "Posted successfully" };
   } catch (error) {
     addLog("error", `Playwright posting execution failed: ${(error as Error).message}`);
@@ -1523,6 +1821,52 @@ function readJsonFile<T>(filePath: string, defaultValue: T): T {
   return defaultValue;
 }
 
+function autoSyncSessionToProfiles(stateJson: string, email?: string) {
+  try {
+    if (!stateJson || !stateJson.trim()) return;
+    JSON.parse(stateJson);
+    
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const activeIdx = profiles.findIndex(p => p.isActive);
+    
+    if (activeIdx >= 0) {
+      // Update the active profile
+      profiles[activeIdx].stateJson = stateJson;
+      profiles[activeIdx].updatedAt = new Date().toISOString();
+      if (email && email.trim()) {
+        profiles[activeIdx].name = email.trim();
+      }
+      addLog("success", `Automatically updated active account profile: "${profiles[activeIdx].name}" with new session cookies.`);
+    } else {
+      // Create a new active profile
+      const name = (email && email.trim()) ? email.trim() : "Imported Session";
+      const profileId = name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
+      
+      const newProfile = {
+        id: profileId,
+        name,
+        stateJson,
+        isActive: true,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Mark all others as inactive
+      profiles = profiles.map(p => ({ ...p, isActive: false }));
+      profiles.push(newProfile);
+      addLog("success", `Automatically created and activated new account profile: "${name}"`);
+    }
+    
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    
+    // Sync to Cloud
+    saveProfilesCloud(profiles).catch(err => {
+      console.error("[FIREBASE] Error syncing profiles to cloud during auto-sync:", err.message);
+    });
+  } catch (error) {
+    console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
+  }
+}
+
 function writeJsonFile<T>(filePath: string, data: T) {
   const tempPath = `${filePath}.tmp`;
   try {
@@ -1575,6 +1919,7 @@ addLog("info", `CoinMarketCap API Status: ${isCmcConfigured ? "CONFIGURED" : "NO
 app.get("/api/get-session", (req, res) => {
   const exists = fs.existsSync(AUTH_STATE_FILE);
   let details = {};
+  let content = "";
   if (exists) {
     try {
       const stats = fs.statSync(AUTH_STATE_FILE);
@@ -1582,12 +1927,14 @@ app.get("/api/get-session", (req, res) => {
         sizeBytes: stats.size,
         updatedAt: stats.mtime,
       };
+      content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
     } catch (_) {}
   }
   res.json({
     exists,
     filePath: AUTH_STATE_FILE,
     details,
+    content,
   });
 });
 
@@ -1600,12 +1947,16 @@ app.post("/api/save-session", (req, res) => {
     return res.status(400).json({ error: "Cannot modify session cookies while another process is running." });
   }
   try {
-    const { stateJson } = req.body;
+    let { stateJson } = req.body;
     if (!stateJson) {
       return res.status(400).json({ error: "Missing stateJson payload." });
     }
     // Verify it is valid JSON
     JSON.parse(stateJson);
+    
+    // Normalize and heal common cookie format anomalies automatically
+    stateJson = normalizeStateJson(stateJson);
+    
     fs.writeFileSync(AUTH_STATE_FILE, stateJson, "utf-8");
     addLog("success", "Successfully updated browser auth state (auth/state.json).");
     
@@ -1613,6 +1964,13 @@ app.post("/api/save-session", (req, res) => {
     saveSessionStateCloud(stateJson).catch(err => {
       console.error("[FIREBASE] Error saving session to cloud:", err.message);
     });
+
+    // Auto-update or create Account Profiles
+    try {
+      autoSyncSessionToProfiles(stateJson);
+    } catch (err) {
+      console.error("Error auto-syncing profiles from manual save:", (err as Error).message);
+    }
 
     res.json({ success: true, message: "auth/state.json saved successfully." });
   } catch (error) {
@@ -1642,6 +2000,142 @@ app.post("/api/clear-session", (req, res) => {
     } else {
       res.json({ success: true, message: "No session state existed to delete." });
     }
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// 3a. Get Profiles
+app.get("/api/profiles", (req, res) => {
+  try {
+    const profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    res.json({ success: true, profiles });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// 3b. Save/Update Profile
+app.post("/api/save-profile", (req, res) => {
+  try {
+    const { id, name, stateJson } = req.body;
+    if (!name || !stateJson) {
+      return res.status(400).json({ error: "Missing name or stateJson payload." });
+    }
+    // Validate JSON
+    JSON.parse(stateJson);
+
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profileId = id || name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+    
+    const existingIndex = profiles.findIndex(p => p.id === profileId);
+    const profileData = {
+      id: profileId,
+      name,
+      stateJson,
+      isActive: existingIndex >= 0 ? profiles[existingIndex].isActive : false,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      profiles[existingIndex] = profileData;
+    } else {
+      profiles.push(profileData);
+    }
+
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    addLog("success", `Saved account profile: "${name}"`);
+
+    // Sync to Cloud
+    saveProfilesCloud(profiles).catch(err => {
+      console.error("[FIREBASE] Error syncing profiles to cloud:", err.message);
+    });
+
+    res.json({ success: true, profile: profileData });
+  } catch (error) {
+    res.status(400).json({ error: `Invalid payload/JSON: ${(error as Error).message}` });
+  }
+});
+
+// 3c. Activate Profile
+app.post("/api/activate-profile", (req, res) => {
+  if (isContinuousLoopActive) {
+    return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active." });
+  }
+  if (isBusy()) {
+    return res.status(400).json({ error: "Cannot switch accounts while bot is busy." });
+  }
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Missing profile id." });
+    }
+
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const targetIdx = profiles.findIndex(p => p.id === id);
+    if (targetIdx === -1) {
+      return res.status(404).json({ error: "Profile not found." });
+    }
+
+    // Set all other active to false, target to true
+    profiles = profiles.map((p, idx) => ({
+      ...p,
+      isActive: idx === targetIdx
+    }));
+
+    // Copy to AUTH_STATE_FILE
+    const activeProfile = profiles[targetIdx];
+    fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    
+    addLog("success", `Activated account profile: "${activeProfile.name}". Swept active cookies state.`);
+
+    // Sync active session and profiles lists to Cloud
+    saveSessionStateCloud(activeProfile.stateJson).catch(() => {});
+    saveProfilesCloud(profiles).catch(() => {});
+
+    res.json({ success: true, message: `Successfully activated profile "${activeProfile.name}"` });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// 3d. Delete Profile
+app.post("/api/delete-profile", (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Missing profile id." });
+    }
+
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const targetIdx = profiles.findIndex(p => {
+      const pid = String(p.id || "").trim().toLowerCase();
+      const targetId = String(id || "").trim().toLowerCase();
+      return pid === targetId;
+    });
+    if (targetIdx === -1) {
+      return res.status(404).json({ error: "Profile not found." });
+    }
+
+    const wasActive = profiles[targetIdx].isActive;
+    const deletedName = profiles[targetIdx].name;
+    profiles.splice(targetIdx, 1);
+
+    if (wasActive) {
+      // Clear AUTH_STATE_FILE if active profile was deleted
+      if (fs.existsSync(AUTH_STATE_FILE)) {
+        fs.unlinkSync(AUTH_STATE_FILE);
+      }
+      saveSessionStateCloud("").catch(() => {});
+    }
+
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    addLog("warning", `Deleted profile: "${deletedName}"`);
+
+    saveProfilesCloud(profiles).catch(() => {});
+
+    res.json({ success: true, message: "Profile deleted." });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -2970,14 +3464,89 @@ app.get("/api/download/overall_report.csv", (req, res) => {
 // ============================================================================
 // VITE OR STATIC FILES SERVING MIDDLEWARE
 // ============================================================================
+function synchronizeSessionsAndProfilesOnStartup() {
+  try {
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+    let sessionContent = "";
+    if (sessionExists) {
+      sessionContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8").trim();
+    }
+
+    const activeProfile = profiles.find(p => p.isActive);
+
+    if (sessionExists && sessionContent) {
+      // We have a session file. Is there an active profile matching it?
+      if (activeProfile) {
+        if (activeProfile.stateJson !== sessionContent) {
+          // Update active profile's cookies with the session file cookies (session file is the ground truth)
+          activeProfile.stateJson = sessionContent;
+          activeProfile.updatedAt = new Date().toISOString();
+          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error syncing profiles on startup sync:", err.message));
+          addLog("success", `[SYNC] Synchronized active profile "${activeProfile.name}" with auth/state.json cookies.`);
+        }
+      } else {
+        // We have a session file but no active profile. Let's create/activate one!
+        const name = "Imported Session";
+        const profileId = `profile-${Date.now()}`;
+        const newProfile = {
+          id: profileId,
+          name,
+          stateJson: sessionContent,
+          isActive: true,
+          updatedAt: new Date().toISOString()
+        };
+        profiles.push(newProfile);
+        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving new profile on startup sync:", err.message));
+        addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
+      }
+    } else {
+      // Session file does not exist or is empty. But do we have an active profile?
+      if (activeProfile && activeProfile.stateJson) {
+        // Restore session file from active profile!
+        fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
+        saveSessionStateCloud(activeProfile.stateJson).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
+        addLog("success", `[SYNC] Restored auth/state.json session state from active profile "${activeProfile.name}".`);
+      } else {
+        // No session file and no active profile. Mark all profiles as inactive.
+        let changed = false;
+        profiles = profiles.map(p => {
+          if (p.isActive) {
+            changed = true;
+            return { ...p, isActive: false };
+          }
+          return p;
+        });
+        if (changed) {
+          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving profiles on startup sync:", err.message));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in synchronizeSessionsAndProfilesOnStartup:", (err as Error).message);
+  }
+}
+
 async function hydrateLocalFromCloud() {
   addLog("info", "[FIREBASE] Hydrating local ephemeral storage from Firestore cloud database...");
   try {
     // 1. Session cookies
     const cloudSession = await getSessionStateCloud();
     if (cloudSession) {
-      fs.writeFileSync(AUTH_STATE_FILE, cloudSession, "utf-8");
+      const normalizedSession = normalizeStateJson(cloudSession);
+      fs.writeFileSync(AUTH_STATE_FILE, normalizedSession, "utf-8");
       addLog("success", "[FIREBASE] Hydrated login session cookies from Firestore!");
+      
+      // If the session was corrected, write the normalized version back to Firestore
+      if (normalizedSession !== cloudSession) {
+        addLog("info", "[FIREBASE] Automatically updating Firestore cloud with corrected/normalized session cookies...");
+        saveSessionStateCloud(normalizedSession).catch((e) => {
+          console.error("[FIREBASE] Error updating normalized session back to cloud:", e.message);
+        });
+      }
     } else {
       addLog("info", "[FIREBASE] No session cookies found in Firestore.");
     }
@@ -3011,12 +3580,26 @@ async function hydrateLocalFromCloud() {
       addLog("success", `[FIREBASE] Hydrated bot posting progress index to ${cloudProgress.next_index} from Firestore!`);
     }
 
+    // 5b. Profiles
+    try {
+      const cloudProfiles = await getProfilesCloud();
+      if (cloudProfiles && cloudProfiles.length > 0) {
+        fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
+        addLog("success", `[FIREBASE] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
+      }
+    } catch (e) {
+      console.error("[FIREBASE] Could not hydrate profiles from cloud:", e);
+    }
+
     // 6. System Logs
     const cloudLogs = await getSystemLogsCloud();
     if (cloudLogs && cloudLogs.length > 0) {
       logs = cloudLogs;
       addLog("success", `[FIREBASE] Hydrated ${cloudLogs.length} system logs from Firestore!`);
     }
+
+    // Run unified sessions/profiles synchronization
+    synchronizeSessionsAndProfilesOnStartup();
 
     addLog("success", "[FIREBASE] Local storage state successfully synchronized with Cloud database.");
   } catch (err) {
@@ -3027,6 +3610,20 @@ async function hydrateLocalFromCloud() {
 async function startServer() {
   // First, hydrate all files from Firestore cloud database
   await hydrateLocalFromCloud();
+
+  // Defensive: Normalize local auth/state.json if present on startup
+  if (fs.existsSync(AUTH_STATE_FILE)) {
+    try {
+      const content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      const normalized = normalizeStateJson(content);
+      if (normalized !== content) {
+        fs.writeFileSync(AUTH_STATE_FILE, normalized, "utf-8");
+        addLog("success", "[STARTUP] Auto-corrected and normalized existing local auth/state.json.");
+      }
+    } catch (e) {
+      console.error("[STARTUP] Error during defensive local state normalization:", (e as Error).message);
+    }
+  }
 
   if (process.env.NODE_ENV !== "production") {
     addLog("info", "[SERVER] Running in DEVELOPMENT mode, initializing Vite dev server middleware...");
