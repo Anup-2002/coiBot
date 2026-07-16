@@ -95,7 +95,7 @@ function triggerLogSync() {
     saveSystemLogsCloud(logs).catch(err => {
       console.error("[FIREBASE] Error syncing logs to cloud:", err.message);
     });
-  }, 3000);
+  }, 15000); // Debounce to 15 seconds to prevent excessive write operations during long posting runs
 }
 
 function addLog(level: "info" | "success" | "warning" | "error", message: string) {
@@ -481,18 +481,18 @@ async function clickResiliently(page: any, element: any, selectorDescription: st
     await removeBlockingOverlays(page).catch(() => {});
 
     // Try to scroll the element into view first so actionability is easier to pass
-    await element.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+    await element.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
     
-    // Attempt normal click with a short timeout of 2 seconds so it doesn't hang
-    await element.click({ timeout: 2000 });
+    // Attempt normal click with a short timeout of 500ms so it doesn't hang
+    await element.click({ timeout: 500 });
   } catch (err) {
     addLog("warning", `Standard click failed on ${selectorDescription}: ${(err as Error).message}. Trying forced click fallback...`);
     try {
-      // Attempt click with force: true
-      await element.click({ force: true, timeout: 1500 });
+      // Attempt click with force: true and 500ms timeout
+      await element.click({ force: true, timeout: 500 });
     } catch (err2) {
       addLog("warning", `Forced click failed on ${selectorDescription}: ${(err2 as Error).message}. Using dispatchEvent click fallback...`);
-      // Fallback to dispatchEvent click (bypasses all visibility and actionability checks)
+      // Fallback to dispatchEvent click (bypasses all visibility, hover, and actionability checks)
       await element.dispatchEvent("click").catch(async (err3) => {
         addLog("warning", `dispatchEvent click failed on ${selectorDescription}: ${(err3 as Error).message}. Trying evaluate click fallback...`);
         // Final fail-safe: evaluate element.click() in browser context
