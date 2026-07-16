@@ -72,6 +72,20 @@ const resolveUrl = (url: string): string => {
   return url;
 };
 
+const parseResponseJson = async (res: Response, defaultVal: any = {}): Promise<any> => {
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text().catch(() => "");
+      return { error: text.slice(0, 500) || `HTTP error ${res.status}` };
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn("[JSON PARSE] Failed to parse JSON:", err);
+    return defaultVal;
+  }
+};
+
 export default function App() {
   // Application State
   const [status, setStatus] = useState<string>("Idle");
@@ -254,7 +268,7 @@ export default function App() {
     try {
       const res = await fetch(resolveUrl("/api/logs"));
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { logs: [] });
         setLogsList(data.logs || []);
       }
     } catch (_) {}
@@ -265,7 +279,7 @@ export default function App() {
     try {
       const res = await fetch(resolveUrl("/api/get-session"));
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { exists: false });
         setSessionExists(data.exists);
         setSessionDetails(data.details);
         setActiveSessionContent(data.content || "");
@@ -278,7 +292,7 @@ export default function App() {
     try {
       const res = await fetch(resolveUrl("/api/profiles"));
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { profiles: [] });
         setProfilesList(data.profiles || []);
         const active = (data.profiles || []).find((p: any) => p.isActive);
         setActiveProfile(active || null);
@@ -307,7 +321,7 @@ export default function App() {
         fetchSessionDetails();
         showToast(`Account profile for "${name}" saved successfully!`, "success");
       } else {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { error: "Failed to save profile." });
         showToast(data.error || "Failed to save profile.", "error");
       }
     } catch (error) {
@@ -328,7 +342,7 @@ export default function App() {
         fetchStats();
         showToast("Account switched successfully!", "success");
       } else {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { error: "Failed to switch account." });
         showToast(data.error || "Failed to switch account.", "error");
       }
     } catch (error) {
@@ -348,7 +362,7 @@ export default function App() {
         fetchSessionDetails();
         showToast("Account profile deleted successfully.", "success");
       } else {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { error: "Failed to delete profile." });
         showToast(data.error || "Failed to delete profile.", "error");
       }
     } catch (error) {
@@ -361,17 +375,17 @@ export default function App() {
     try {
       const res = await fetch(resolveUrl("/api/status"));
       if (res.ok) {
-        const data = await res.json();
-        setStatus(data.status);
-        setRunMode(data.runMode);
-        setTotalCoins(data.totalCoins);
-        setGeneratedCount(data.generatedMessages);
-        setPostedCount(data.postedCount);
-        setFailedCount(data.failedCount);
+        const data = await parseResponseJson(res, {});
+        setStatus(data.status || "Idle");
+        setRunMode(data.runMode || "Real Browser");
+        setTotalCoins(data.totalCoins || 0);
+        setGeneratedCount(data.generatedMessages || 0);
+        setPostedCount(data.postedCount || 0);
+        setFailedCount(data.failedCount || 0);
         setResults(data.results || []);
-        setProgressIndex(data.progressIndex);
-        setCurrentCoin(data.currentCoin);
-        setSessionStatus(data.sessionStatus);
+        setProgressIndex(data.progressIndex || 0);
+        setCurrentCoin(data.currentCoin || "N/A");
+        setSessionStatus(data.sessionStatus || "Not Checked");
         setApiStatus(data.apiStatus || { openai: false, cmc: false });
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
         setNextCycleStartTime(data.nextCycleStartTime);
@@ -521,7 +535,7 @@ export default function App() {
         options.body = JSON.stringify(bodyData);
       }
       const res = await fetch(resolveUrl(endpoint), options);
-      const data = await res.json();
+      const data = await parseResponseJson(res, {});
       if (endpoint.includes("clear-all")) {
         setCoinsList([]);
         setMessagesList([]);
@@ -562,7 +576,7 @@ export default function App() {
         fetchSessionDetails();
         fetchStats();
       } else {
-        const data = await res.json();
+        const data = await parseResponseJson(res, { error: "Failed to parse session state JSON." });
         alert(data.error || "Failed to parse session state JSON.");
       }
     } catch (error) {
@@ -586,7 +600,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
-      const data = await res.json();
+      const data = await parseResponseJson(res, { error: "Authentication service not responding." });
       if (!res.ok) {
         setLoginStep("failed");
         setLoginStatusMessage(data.error || "Login attempt failed.");
@@ -625,7 +639,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: otpCode })
       });
-      const data = await res.json();
+      const data = await parseResponseJson(res, { error: "Verification service not responding." });
       if (!res.ok) {
         setLoginStep("failed");
         setLoginStatusMessage(data.error || "OTP verification failed.");
@@ -676,7 +690,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol })
       });
-      const data = await res.json();
+      const data = await parseResponseJson(res, { error: "Retry request failed." });
       if (res.ok) {
         fetchStats();
         fetchLogs();
@@ -699,8 +713,8 @@ export default function App() {
         body: JSON.stringify({ mode })
       });
       if (res.ok) {
-        const data = await res.json();
-        setRunMode(data.runMode);
+        const data = await parseResponseJson(res, {});
+        setRunMode(data.runMode || mode);
       }
     } catch (error) {
       console.error(error);
