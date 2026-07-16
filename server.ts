@@ -65,27 +65,47 @@ if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
 app.use(express.json({ limit: "50mb" }));
 
+// Mount instance-awareness middleware using AsyncLocalStorage
+app.use((req, res, next) => {
+  const headerId = req.headers["x-instance-id"];
+  let instanceId = "default";
+  if (headerId && typeof headerId === "string" && headerId.trim()) {
+    instanceId = headerId.trim();
+  } else if (req.query.instanceId && typeof req.query.instanceId === "string" && req.query.instanceId.trim()) {
+    instanceId = req.query.instanceId.trim();
+  } else if (req.body?.instanceId && typeof req.body?.instanceId === "string" && req.body.instanceId.trim()) {
+    instanceId = req.body.instanceId.trim();
+  }
+  instanceStorage.run(instanceId, () => {
+    next();
+  });
+});
+
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", async (req, res) => {
+  const instId = currentInstanceId();
   try {
-    await syncLocalFromCloudIfStale();
+    await syncLocalFromCloudIfStale(instId);
   } catch (err) {
-    console.error("[SERVE] Error syncing before serving trending:", err);
+    console.error(`[SERVE][${instId}] Error syncing before serving trending:`, err);
   }
-  if (fs.existsSync(LAST_TRENDING_FILE)) {
-    return res.sendFile(LAST_TRENDING_FILE);
+  const file = getInstanceFilePath(LAST_TRENDING_FILE, instId);
+  if (fs.existsSync(file)) {
+    return res.sendFile(file);
   }
   res.json([]);
 });
 
 app.get("/output/generated_messages.json", async (req, res) => {
+  const instId = currentInstanceId();
   try {
-    await syncLocalFromCloudIfStale();
+    await syncLocalFromCloudIfStale(instId);
   } catch (err) {
-    console.error("[SERVE] Error syncing before serving messages:", err);
+    console.error(`[SERVE][${instId}] Error syncing before serving messages:`, err);
   }
-  if (fs.existsSync(GENERATED_MESSAGES_FILE)) {
-    return res.sendFile(GENERATED_MESSAGES_FILE);
+  const file = getInstanceFilePath(GENERATED_MESSAGES_FILE, instId);
+  if (fs.existsSync(file)) {
+    return res.sendFile(file);
   }
   res.json([]);
 });
@@ -105,33 +125,139 @@ if (!fs.existsSync(PROFILES_FILE)) {
   fs.writeFileSync(PROFILES_FILE, JSON.stringify([], null, 2), "utf-8");
 }
 
+import { AsyncLocalStorage } from "async_hooks";
+
+const instanceStorage = new AsyncLocalStorage<string>();
+
+function currentInstanceId(): string {
+  return instanceStorage.getStore() || "default";
+}
+
+interface InstanceState {
+  botStatus: string;
+  currentCoinName: string;
+  activePostingTimeout: NodeJS.Timeout | null;
+  currentPostingIndex: number;
+  isPostingRunning: boolean;
+  isGeneratingRunning: boolean;
+  isContinuousLoopActive: boolean;
+  isFullFlowAborted: boolean;
+  nextCycleStartTime: number | null;
+  nextCycleTimeout: NodeJS.Timeout | null;
+  continuousLoopIntervalMinutes: number;
+  logs: LogEntry[];
+  loginState: { status: "idle" | "authenticating" | "requires_otp" | "success" | "failed"; message: string };
+  activeLoginSession: any;
+}
+
+const instances = new Map<string, InstanceState>();
+
+function getInstance(instanceId: string = "default"): InstanceState {
+  const id = instanceId || "default";
+  if (!instances.has(id)) {
+    instances.set(id, {
+      botStatus: "Idle",
+      currentCoinName: "N/A",
+      activePostingTimeout: null,
+      currentPostingIndex: 0,
+      isPostingRunning: false,
+      isGeneratingRunning: false,
+      isContinuousLoopActive: false,
+      isFullFlowAborted: false,
+      nextCycleStartTime: null,
+      nextCycleTimeout: null,
+      continuousLoopIntervalMinutes: 20,
+      logs: [],
+      loginState: { status: "idle", message: "" },
+      activeLoginSession: null,
+    });
+  }
+  return instances.get(id)!;
+}
+
+const globalKeys = [
+  "botStatus",
+  "currentCoinName",
+  "activePostingTimeout",
+  "currentPostingIndex",
+  "isPostingRunning",
+  "isGeneratingRunning",
+  "isContinuousLoopActive",
+  "isFullFlowAborted",
+  "nextCycleStartTime",
+  "nextCycleTimeout",
+  "continuousLoopIntervalMinutes",
+  "loginState",
+  "activeLoginSession",
+  "logs"
+];
+
+declare global {
+  var botStatus: string;
+  var currentCoinName: string;
+  var activePostingTimeout: NodeJS.Timeout | null;
+  var currentPostingIndex: number;
+  var isPostingRunning: boolean;
+  var isGeneratingRunning: boolean;
+  var isContinuousLoopActive: boolean;
+  var isFullFlowAborted: boolean;
+  var nextCycleStartTime: number | null;
+  var nextCycleTimeout: NodeJS.Timeout | null;
+  var continuousLoopIntervalMinutes: number;
+  var loginState: { status: "idle" | "authenticating" | "requires_otp" | "success" | "failed"; message: string };
+  var activeLoginSession: any;
+  var logs: LogEntry[];
+}
+
+for (const key of globalKeys) {
+  Object.defineProperty(global, key, {
+    get() {
+      return (getInstance(currentInstanceId()) as any)[key];
+    },
+    set(val) {
+      (getInstance(currentInstanceId()) as any)[key] = val;
+    },
+    configurable: true,
+  });
+}
+
+const INSTANCES_LIST_FILE = path.join(AUTH_DIR, "instances.json");
+if (!fs.existsSync(INSTANCES_LIST_FILE)) {
+  fs.writeFileSync(INSTANCES_LIST_FILE, JSON.stringify(["default"], null, 2), "utf-8");
+}
+
 // In-Memory Logs to display in the UI console
 interface LogEntry {
   timestamp: string;
   level: "info" | "success" | "warning" | "error";
   message: string;
 }
-let logs: LogEntry[] = [];
 
-let logSyncTimeout: NodeJS.Timeout | null = null;
+const logSyncTimeouts = new Map<string, NodeJS.Timeout | null>();
+
 function triggerLogSync() {
-  if (logSyncTimeout) return;
-  logSyncTimeout = setTimeout(() => {
-    logSyncTimeout = null;
-    saveSystemLogsCloud(logs).catch(err => {
-      console.error("[FIREBASE] Error syncing logs to cloud:", err.message);
+  const instanceId = currentInstanceId();
+  if (logSyncTimeouts.get(instanceId)) return;
+  const timeout = setTimeout(() => {
+    logSyncTimeouts.set(instanceId, null);
+    const inst = getInstance(instanceId);
+    saveSystemLogsCloud(inst.logs, instanceId).catch(err => {
+      console.error(`[FIREBASE][${instanceId}] Error syncing logs to cloud:`, err.message);
     });
   }, 15000); // Debounce to 15 seconds to prevent excessive write operations during long posting runs
+  logSyncTimeouts.set(instanceId, timeout);
 }
 
 function addLog(level: "info" | "success" | "warning" | "error", message: string) {
+  const instanceId = currentInstanceId();
   const timestamp = new Date().toLocaleTimeString();
   const entry: LogEntry = { timestamp, level, message };
-  logs.push(entry);
-  console.log(`[${level.toUpperCase()}] ${message}`);
+  const inst = getInstance(instanceId);
+  inst.logs.push(entry);
+  console.log(`[${instanceId}][${level.toUpperCase()}] ${message}`);
   // Limit to last 1000 logs
-  if (logs.length > 1000) {
-    logs.shift();
+  if (inst.logs.length > 1000) {
+    inst.logs.shift();
   }
   triggerLogSync();
 }
@@ -330,19 +456,7 @@ interface PostResult {
 }
 
 // Global State
-let botStatus = "Idle"; // "Idle" | "Fetching" | "Generating" | "Posting" | "Completed"
-let currentCoinName = "N/A";
-let activePostingTimeout: NodeJS.Timeout | null = null;
-let currentPostingIndex = 0;
-let isPostingRunning = false;
-let isGeneratingRunning = false;
 const runMode = "Real Browser";
-
-let isContinuousLoopActive = false;
-let isFullFlowAborted = false;
-let nextCycleStartTime: number | null = null;
-let nextCycleTimeout: NodeJS.Timeout | null = null;
-let continuousLoopIntervalMinutes = 20; // Customizable, default 20 minutes
 
 async function interruptibleSleep(ms: number): Promise<void> {
   const start = Date.now();
@@ -441,6 +555,7 @@ async function triggerFullFlowExecution() {
 }
 
 function scheduleNextAutomationCycle() {
+  const instanceId = currentInstanceId();
   if (nextCycleTimeout) {
     clearTimeout(nextCycleTimeout);
   }
@@ -450,11 +565,13 @@ function scheduleNextAutomationCycle() {
   addLog("info", `Next automated bot cycle is scheduled to start in ${continuousLoopIntervalMinutes} minutes (at ${new Date(nextCycleStartTime).toLocaleTimeString()}).`);
   
   nextCycleTimeout = setTimeout(async () => {
-    nextCycleTimeout = null;
-    nextCycleStartTime = null;
-    if (isContinuousLoopActive) {
-      await triggerFullFlowExecution();
-    }
+    instanceStorage.run(instanceId, async () => {
+      nextCycleTimeout = null;
+      nextCycleStartTime = null;
+      if (isContinuousLoopActive) {
+        await triggerFullFlowExecution();
+      }
+    });
   }, gapMs);
 }
 
@@ -464,11 +581,6 @@ interface LoginSession {
   page: any;
   email: string;
 }
-let activeLoginSession: LoginSession | null = null;
-let loginState: {
-  status: "idle" | "authenticating" | "requires_otp" | "success" | "failed";
-  message: string;
-} = { status: "idle", message: "" };
 
 function isBusy(): boolean {
   return (
@@ -2015,25 +2127,37 @@ async function runRealPosting(url: string, message: string, sentiment: string, s
   });
 }
 
+// Helper to determine the path for instance-specific files
+function getInstanceFilePath(filePath: string, instanceId: string = "default"): string {
+  if (!instanceId || instanceId === "default") {
+    return filePath;
+  }
+  const ext = path.extname(filePath);
+  const base = path.basename(filePath, ext);
+  const dir = path.dirname(filePath);
+  return path.join(dir, `${base}_${instanceId}${ext}`);
+}
+
 // Load Helper Functions
-function readJsonFile<T>(filePath: string, defaultValue: T): T {
+function readJsonFile<T>(filePath: string, defaultValue: T, instanceId: string = "default"): T {
+  const resolvedPath = getInstanceFilePath(filePath, instanceId);
   try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
+    if (fs.existsSync(resolvedPath)) {
+      const content = fs.readFileSync(resolvedPath, "utf-8");
       return JSON.parse(content) as T;
     }
   } catch (error) {
-    addLog("error", `Failed to read ${path.basename(filePath)}: ${(error as Error).message}`);
+    addLog("error", `Failed to read ${path.basename(resolvedPath)}: ${(error as Error).message}`);
   }
   return defaultValue;
 }
 
-async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
+async function autoSyncSessionToProfiles(stateJson: string, email?: string, instanceId: string = "default") {
   try {
     if (!stateJson || !stateJson.trim()) return;
     JSON.parse(stateJson);
     
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, [], instanceId);
     const activeIdx = profiles.findIndex(p => p.isActive);
     
     if (activeIdx >= 0) {
@@ -2063,104 +2187,113 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
       addLog("success", `Automatically created and activated new account profile: "${name}"`);
     }
     
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(profiles, null, 2), "utf-8");
     
     // Sync to Cloud
-    await saveProfilesCloud(profiles);
+    await saveProfilesCloud(profiles, instanceId);
   } catch (error) {
     console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
   }
 }
 
-async function writeJsonFile<T>(filePath: string, data: T) {
-  const tempPath = `${filePath}.tmp`;
+async function writeJsonFile<T>(filePath: string, data: T, instanceId: string = "default") {
+  const resolvedPath = getInstanceFilePath(filePath, instanceId);
+  const tempPath = `${resolvedPath}.tmp`;
   try {
     fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf-8");
-    fs.renameSync(tempPath, filePath);
+    fs.renameSync(tempPath, resolvedPath);
 
     // Synchronize to Firestore Cloud Database
     if (filePath === AUTH_STATE_FILE) {
       try {
-        await saveSessionStateCloud(JSON.stringify(data));
+        await saveSessionStateCloud(JSON.stringify(data), instanceId);
       } catch (err) {
         console.error("[FIREBASE] Error syncing session to cloud:", (err as Error).message);
       }
     } else if (filePath === LAST_TRENDING_FILE) {
       try {
-        await saveTrendingCoinsCloud(data as any);
+        await saveTrendingCoinsCloud(data as any, instanceId);
       } catch (err) {
         console.error("[FIREBASE] Error syncing coins to cloud:", (err as Error).message);
       }
     } else if (filePath === GENERATED_MESSAGES_FILE) {
       try {
-        await saveGeneratedMessagesCloud(data as any);
+        await saveGeneratedMessagesCloud(data as any, instanceId);
       } catch (err) {
         console.error("[FIREBASE] Error syncing messages to cloud:", (err as Error).message);
       }
     } else if (filePath === RESULTS_FILE) {
       try {
-        await savePostResultsCloud(data as any);
+        await savePostResultsCloud(data as any, instanceId);
       } catch (err) {
         console.error("[FIREBASE] Error syncing results to cloud:", (err as Error).message);
       }
     } else if (filePath === POST_PROGRESS_FILE) {
       const progressObj = data as any;
       try {
-        await saveBotProgressCloud(progressObj?.next_index || 0);
+        await saveBotProgressCloud(progressObj?.next_index || 0, instanceId);
       } catch (err) {
         console.error("[FIREBASE] Error syncing progress to cloud:", (err as Error).message);
       }
+    } else if (filePath === PROFILES_FILE) {
+      try {
+        await saveProfilesCloud(data as any, instanceId);
+      } catch (err) {
+        console.error("[FIREBASE] Error syncing profiles to cloud:", (err as Error).message);
+      }
     }
   } catch (error) {
-    addLog("error", `Failed to write atomically to ${path.basename(filePath)}: ${(error as Error).message}`);
+    addLog("error", `Failed to write atomically to ${path.basename(resolvedPath)}: ${(error as Error).message}`);
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch (_) {}
     }
   }
 }
 
-let lastCloudSyncTime = 0;
+const lastCloudSyncTimes = new Map<string, number>();
 const CLOUD_SYNC_THROTTLE_MS = 5000; // 5 seconds throttle
 
-async function syncLocalFromCloudIfStale(force = false) {
+async function syncLocalFromCloudIfStale(instanceId: string = "default", force = false) {
   const now = Date.now();
-  if (!force && (now - lastCloudSyncTime < CLOUD_SYNC_THROTTLE_MS)) {
+  const lastSyncTime = lastCloudSyncTimes.get(instanceId) || 0;
+  if (!force && (now - lastSyncTime < CLOUD_SYNC_THROTTLE_MS)) {
     return; // Already synced recently
   }
-  lastCloudSyncTime = now;
+  lastCloudSyncTimes.set(instanceId, now);
+  const inst = getInstance(instanceId);
   try {
     // 1. Trending Coins
-    const cloudCoins = await getTrendingCoinsCloud();
+    const cloudCoins = await getTrendingCoinsCloud(instanceId);
     if (cloudCoins && Array.isArray(cloudCoins)) {
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+      fs.writeFileSync(getInstanceFilePath(LAST_TRENDING_FILE, instanceId), JSON.stringify(cloudCoins, null, 2), "utf-8");
     }
 
     // 2. Generated Messages
-    const cloudMessages = await getGeneratedMessagesCloud();
+    const cloudMessages = await getGeneratedMessagesCloud(instanceId);
     if (cloudMessages && Array.isArray(cloudMessages)) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
+      fs.writeFileSync(getInstanceFilePath(GENERATED_MESSAGES_FILE, instanceId), JSON.stringify(cloudMessages, null, 2), "utf-8");
     }
 
     // 3. Post Results
-    const cloudResults = await getPostResultsCloud();
+    const cloudResults = await getPostResultsCloud(instanceId);
     if (cloudResults && Array.isArray(cloudResults)) {
-      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+      fs.writeFileSync(getInstanceFilePath(RESULTS_FILE, instanceId), JSON.stringify(cloudResults, null, 2), "utf-8");
     }
 
     // 4. Bot Progress
-    const cloudProgress = await getBotProgressCloud();
+    const cloudProgress = await getBotProgressCloud(instanceId);
     if (cloudProgress) {
-      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
-      currentPostingIndex = cloudProgress.next_index;
+      fs.writeFileSync(getInstanceFilePath(POST_PROGRESS_FILE, instanceId), JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
+      inst.currentPostingIndex = cloudProgress.next_index;
     }
 
     // 5. Profiles
-    const cloudProfiles = await getProfilesCloud();
+    const cloudProfiles = await getProfilesCloud(instanceId);
     if (cloudProfiles && Array.isArray(cloudProfiles)) {
-      fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
+      fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(cloudProfiles, null, 2), "utf-8");
     }
   } catch (err) {
-    console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
+    console.error(`[CLOUD-SYNC][${instanceId}] Error during throttled cloud-to-local sync:`, (err as Error).message);
   }
 }
 
@@ -3799,13 +3932,14 @@ app.get("/api/download/overall_report.csv", (req, res) => {
 // ============================================================================
 // VITE OR STATIC FILES SERVING MIDDLEWARE
 // ============================================================================
-function synchronizeSessionsAndProfilesOnStartup() {
+function synchronizeSessionsAndProfilesOnStartup(instanceId: string = "default") {
   try {
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, [], instanceId);
+    const resolvedAuthFile = getInstanceFilePath(AUTH_STATE_FILE, instanceId);
+    const sessionExists = fs.existsSync(resolvedAuthFile);
     let sessionContent = "";
     if (sessionExists) {
-      sessionContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8").trim();
+      sessionContent = fs.readFileSync(resolvedAuthFile, "utf-8").trim();
     }
 
     const activeProfile = profiles.find(p => p.isActive);
@@ -3817,8 +3951,8 @@ function synchronizeSessionsAndProfilesOnStartup() {
           // Update active profile's cookies with the session file cookies (session file is the ground truth)
           activeProfile.stateJson = sessionContent;
           activeProfile.updatedAt = new Date().toISOString();
-          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error syncing profiles on startup sync:", err.message));
+          fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(profiles, null, 2), "utf-8");
+          saveProfilesCloud(profiles, instanceId).catch(err => console.error(`[FIREBASE][${instanceId}] Error syncing profiles on startup sync:`, err.message));
           addLog("success", `[SYNC] Synchronized active profile "${activeProfile.name}" with auth/state.json cookies.`);
         }
       } else {
@@ -3833,16 +3967,16 @@ function synchronizeSessionsAndProfilesOnStartup() {
           updatedAt: new Date().toISOString()
         };
         profiles.push(newProfile);
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving new profile on startup sync:", err.message));
+        fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(profiles, null, 2), "utf-8");
+        saveProfilesCloud(profiles, instanceId).catch(err => console.error(`[FIREBASE][${instanceId}] Error saving new profile on startup sync:`, err.message));
         addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
       }
     } else {
       // Session file does not exist or is empty. But do we have an active profile?
       if (activeProfile && activeProfile.stateJson) {
         // Restore session file from active profile!
-        fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-        saveSessionStateCloud(activeProfile.stateJson).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
+        fs.writeFileSync(resolvedAuthFile, activeProfile.stateJson, "utf-8");
+        saveSessionStateCloud(activeProfile.stateJson, instanceId).catch(err => console.error(`[FIREBASE][${instanceId}] Error saving session to cloud on startup sync:`, err.message));
         addLog("success", `[SYNC] Restored auth/state.json session state from active profile "${activeProfile.name}".`);
       } else {
         // No session file and no active profile. Mark all profiles as inactive.
@@ -3855,109 +3989,177 @@ function synchronizeSessionsAndProfilesOnStartup() {
           return p;
         });
         if (changed) {
-          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving profiles on startup sync:", err.message));
+          fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(profiles, null, 2), "utf-8");
+          saveProfilesCloud(profiles, instanceId).catch(err => console.error(`[FIREBASE][${instanceId}] Error saving profiles on startup sync:`, err.message));
         }
       }
     }
   } catch (err) {
-    console.error("Error in synchronizeSessionsAndProfilesOnStartup:", (err as Error).message);
+    console.error(`[${instanceId}] Error in synchronizeSessionsAndProfilesOnStartup:`, (err as Error).message);
   }
 }
 
-async function hydrateLocalFromCloud() {
-  addLog("info", "[FIREBASE] Hydrating local ephemeral storage from Firestore cloud database...");
+async function hydrateLocalFromCloud(instanceId: string = "default") {
+  addLog("info", `[FIREBASE][${instanceId}] Hydrating local ephemeral storage from Firestore cloud database...`);
   try {
     // 1. Session cookies
-    const cloudSession = await getSessionStateCloud();
+    const cloudSession = await getSessionStateCloud(instanceId);
     if (cloudSession) {
       const normalizedSession = normalizeStateJson(cloudSession);
-      fs.writeFileSync(AUTH_STATE_FILE, normalizedSession, "utf-8");
-      addLog("success", "[FIREBASE] Hydrated login session cookies from Firestore!");
+      fs.writeFileSync(getInstanceFilePath(AUTH_STATE_FILE, instanceId), normalizedSession, "utf-8");
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated login session cookies from Firestore!`);
       
       // If the session was corrected, write the normalized version back to Firestore
       if (normalizedSession !== cloudSession) {
-        addLog("info", "[FIREBASE] Automatically updating Firestore cloud with corrected/normalized session cookies...");
-        saveSessionStateCloud(normalizedSession).catch((e) => {
-          console.error("[FIREBASE] Error updating normalized session back to cloud:", e.message);
+        addLog("info", `[FIREBASE][${instanceId}] Automatically updating Firestore cloud with corrected/normalized session cookies...`);
+        saveSessionStateCloud(normalizedSession, instanceId).catch((e) => {
+          console.error(`[FIREBASE][${instanceId}] Error updating normalized session back to cloud:`, e.message);
         });
       }
     } else {
-      addLog("info", "[FIREBASE] No session cookies found in Firestore.");
+      addLog("info", `[FIREBASE][${instanceId}] No session cookies found in Firestore.`);
     }
 
     // 2. Trending Coins
-    const cloudCoins = await getTrendingCoinsCloud();
+    const cloudCoins = await getTrendingCoinsCloud(instanceId);
     if (cloudCoins && cloudCoins.length > 0) {
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudCoins.length} trending coins from Firestore!`);
+      fs.writeFileSync(getInstanceFilePath(LAST_TRENDING_FILE, instanceId), JSON.stringify(cloudCoins, null, 2), "utf-8");
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated ${cloudCoins.length} trending coins from Firestore!`);
     }
 
     // 3. Generated Messages
-    const cloudMessages = await getGeneratedMessagesCloud();
+    const cloudMessages = await getGeneratedMessagesCloud(instanceId);
     if (cloudMessages && cloudMessages.length > 0) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudMessages.length} generated messages from Firestore!`);
+      fs.writeFileSync(getInstanceFilePath(GENERATED_MESSAGES_FILE, instanceId), JSON.stringify(cloudMessages, null, 2), "utf-8");
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated ${cloudMessages.length} generated messages from Firestore!`);
     }
 
     // 4. Post Results
-    const cloudResults = await getPostResultsCloud();
+    const cloudResults = await getPostResultsCloud(instanceId);
     if (cloudResults && cloudResults.length > 0) {
-      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudResults.length} post results from Firestore!`);
+      fs.writeFileSync(getInstanceFilePath(RESULTS_FILE, instanceId), JSON.stringify(cloudResults, null, 2), "utf-8");
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated ${cloudResults.length} post results from Firestore!`);
     }
 
     // 5. Bot Progress
-    const cloudProgress = await getBotProgressCloud();
+    const cloudProgress = await getBotProgressCloud(instanceId);
     if (cloudProgress) {
-      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
-      currentPostingIndex = cloudProgress.next_index;
-      addLog("success", `[FIREBASE] Hydrated bot posting progress index to ${cloudProgress.next_index} from Firestore!`);
+      fs.writeFileSync(getInstanceFilePath(POST_PROGRESS_FILE, instanceId), JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
+      getInstance(instanceId).currentPostingIndex = cloudProgress.next_index;
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated bot posting progress index to ${cloudProgress.next_index} from Firestore!`);
     }
 
     // 5b. Profiles
     try {
-      const cloudProfiles = await getProfilesCloud();
+      const cloudProfiles = await getProfilesCloud(instanceId);
       if (cloudProfiles && cloudProfiles.length > 0) {
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
-        addLog("success", `[FIREBASE] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
+        fs.writeFileSync(getInstanceFilePath(PROFILES_FILE, instanceId), JSON.stringify(cloudProfiles, null, 2), "utf-8");
+        addLog("success", `[FIREBASE][${instanceId}] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
       }
     } catch (e) {
-      console.error("[FIREBASE] Could not hydrate profiles from cloud:", e);
+      console.error(`[FIREBASE][${instanceId}] Could not hydrate profiles from cloud:`, e);
     }
 
     // 6. System Logs
-    const cloudLogs = await getSystemLogsCloud();
+    const cloudLogs = await getSystemLogsCloud(instanceId);
     if (cloudLogs && cloudLogs.length > 0) {
-      logs = cloudLogs;
-      addLog("success", `[FIREBASE] Hydrated ${cloudLogs.length} system logs from Firestore!`);
+      getInstance(instanceId).logs = cloudLogs;
+      addLog("success", `[FIREBASE][${instanceId}] Hydrated ${cloudLogs.length} system logs from Firestore!`);
     }
 
     // Run unified sessions/profiles synchronization
-    synchronizeSessionsAndProfilesOnStartup();
+    synchronizeSessionsAndProfilesOnStartup(instanceId);
 
-    addLog("success", "[FIREBASE] Local storage state successfully synchronized with Cloud database.");
+    addLog("success", `[FIREBASE][${instanceId}] Local storage state successfully synchronized with Cloud database.`);
   } catch (err) {
-    addLog("error", `[FIREBASE] Failed to hydrate local storage from Firestore: ${(err as Error).message}`);
+    addLog("error", `[FIREBASE][${instanceId}] Failed to hydrate local storage from Firestore: ${(err as Error).message}`);
   }
 }
 
-async function startServer() {
-  // First, hydrate all files from Firestore cloud database
-  await hydrateLocalFromCloud();
+// Workspace instance endpoints
+app.get("/api/instances", (req, res) => {
+  const list = readJsonFile<string[]>(INSTANCES_LIST_FILE, ["default"]);
+  res.json({ success: true, list });
+});
 
-  // Defensive: Normalize local auth/state.json if present on startup
-  if (fs.existsSync(AUTH_STATE_FILE)) {
-    try {
-      const content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-      const normalized = normalizeStateJson(content);
-      if (normalized !== content) {
-        fs.writeFileSync(AUTH_STATE_FILE, normalized, "utf-8");
-        addLog("success", "[STARTUP] Auto-corrected and normalized existing local auth/state.json.");
-      }
-    } catch (e) {
-      console.error("[STARTUP] Error during defensive local state normalization:", (e as Error).message);
+app.post("/api/instances/create", async (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ error: "Instance name is required" });
+  }
+  const cleanId = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (!cleanId) {
+    return res.status(400).json({ error: "Invalid instance name characters" });
+  }
+  const list = readJsonFile<string[]>(INSTANCES_LIST_FILE, ["default"]);
+  if (!list.includes(cleanId)) {
+    list.push(cleanId);
+    await writeJsonFile(INSTANCES_LIST_FILE, list);
+    
+    // Warm up the instance state in-memory and try hydrating it
+    getInstance(cleanId);
+    await instanceStorage.run(cleanId, async () => {
+      await hydrateLocalFromCloud(cleanId);
+    });
+  }
+  res.json({ success: true, instanceId: cleanId, list });
+});
+
+app.post("/api/instances/delete", async (req, res) => {
+  const { instanceId } = req.body;
+  if (!instanceId || instanceId === "default") {
+    return res.status(400).json({ error: "Cannot delete the default instance" });
+  }
+  let list = readJsonFile<string[]>(INSTANCES_LIST_FILE, ["default"]);
+  list = list.filter(id => id !== instanceId);
+  await writeJsonFile(INSTANCES_LIST_FILE, list);
+  
+  // Clean up local files for this instance
+  const filesToClean = [
+    getInstanceFilePath(LAST_TRENDING_FILE, instanceId),
+    getInstanceFilePath(GENERATED_MESSAGES_FILE, instanceId),
+    getInstanceFilePath(RESULTS_FILE, instanceId),
+    getInstanceFilePath(POST_PROGRESS_FILE, instanceId),
+    getInstanceFilePath(AUTH_STATE_FILE, instanceId),
+    getInstanceFilePath(PROFILES_FILE, instanceId),
+  ];
+  for (const file of filesToClean) {
+    if (fs.existsSync(file)) {
+      try { fs.unlinkSync(file); } catch (_) {}
     }
+  }
+  
+  // Remove from memory
+  instances.delete(instanceId);
+  
+  res.json({ success: true, list });
+});
+
+async function startServer() {
+  // Read all registered instances and hydrate them on startup
+  const list = readJsonFile<string[]>(INSTANCES_LIST_FILE, ["default"]);
+  console.log(`[STARTUP] Registering and hydrating ${list.length} workspace instances: ${list.join(", ")}`);
+  
+  for (const instanceId of list) {
+    getInstance(instanceId);
+    await instanceStorage.run(instanceId, async () => {
+      await hydrateLocalFromCloud(instanceId);
+      
+      // Defensive: Normalize local auth/state.json if present on startup
+      const resolvedAuthFile = getInstanceFilePath(AUTH_STATE_FILE, instanceId);
+      if (fs.existsSync(resolvedAuthFile)) {
+        try {
+          const content = fs.readFileSync(resolvedAuthFile, "utf-8");
+          const normalized = normalizeStateJson(content);
+          if (normalized !== content) {
+            fs.writeFileSync(resolvedAuthFile, normalized, "utf-8");
+            addLog("success", "[STARTUP] Auto-corrected and normalized existing local auth/state.json.");
+          }
+        } catch (e) {
+          console.error(`[STARTUP][${instanceId}] Error during defensive local state normalization:`, (e as Error).message);
+        }
+      }
+    });
   }
 
   if (process.env.NODE_ENV !== "production") {

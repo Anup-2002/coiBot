@@ -87,6 +87,33 @@ const parseResponseJson = async (res: Response, defaultVal: any = {}): Promise<a
 };
 
 export default function App() {
+  // Workspace Instance State
+  const [instanceId, setInstanceId] = useState<string>(() => {
+    return localStorage.getItem("cmc_bot_instance_id") || "default";
+  });
+  const [instancesList, setInstancesList] = useState<string[]>(["default"]);
+  const [newInstanceName, setNewInstanceName] = useState<string>("");
+  const [showInstanceModal, setShowInstanceModal] = useState<boolean>(false);
+
+  // Sync selected instanceId to localStorage
+  useEffect(() => {
+    localStorage.setItem("cmc_bot_instance_id", instanceId);
+  }, [instanceId]);
+
+  // Custom fetch wrapper to pass instance headers
+  const instanceFetch = (url: string, options: RequestInit = {}) => {
+    const headers = {
+      ...(options.headers || {}),
+      "X-Instance-Id": instanceId,
+    };
+    let targetUrl = url;
+    if (url.includes("/output/")) {
+      const separator = url.includes("?") ? "&" : "?";
+      targetUrl = `${url}${separator}instanceId=${instanceId}`;
+    }
+    return fetch(targetUrl, { ...options, headers });
+  };
+
   // Application State
   const [status, setStatus] = useState<string>("Idle");
   const [runMode, setRunMode] = useState<string>("Real Browser");
@@ -128,6 +155,70 @@ export default function App() {
     setTimeout(() => {
       setToast(prev => prev?.message === message ? null : prev);
     }, 4500);
+  };
+
+  // Fetch workspace instances
+  const fetchInstances = async () => {
+    try {
+      const res = await fetch(resolveUrl("/api/instances"));
+      if (res.ok) {
+        const data = await parseResponseJson(res, { list: ["default"] });
+        setInstancesList(data.list || ["default"]);
+      }
+    } catch (_) {}
+  };
+
+  const createInstance = async (name: string) => {
+    if (!name.trim()) return;
+    try {
+      const res = await fetch(resolveUrl("/api/instances/create"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await parseResponseJson(res, {});
+        if (data.success) {
+          setInstancesList(data.list || ["default"]);
+          setInstanceId(data.instanceId);
+          showToast(`Successfully created workspace instance: "${data.instanceId}"`, "success");
+          setNewInstanceName("");
+          setShowInstanceModal(false);
+        } else {
+          showToast(data.error || "Failed to create instance", "error");
+        }
+      }
+    } catch (err) {
+      showToast((err as Error).message, "error");
+    }
+  };
+
+  const deleteInstance = async (idToDelete: string) => {
+    if (idToDelete === "default") {
+      showToast("Cannot delete the default instance", "error");
+      return;
+    }
+    try {
+      const res = await fetch(resolveUrl("/api/instances/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instanceId: idToDelete }),
+      });
+      if (res.ok) {
+        const data = await parseResponseJson(res, {});
+        if (data.success) {
+          setInstancesList(data.list || ["default"]);
+          if (instanceId === idToDelete) {
+            setInstanceId("default");
+          }
+          showToast(`Successfully deleted instance "${idToDelete}"`, "success");
+        } else {
+          showToast(data.error || "Failed to delete instance", "error");
+        }
+      }
+    } catch (err) {
+      showToast((err as Error).message, "error");
+    }
   };
 
   // Interactive Login State
@@ -190,6 +281,7 @@ export default function App() {
 
   // Fetch initial stats and list on page load
   useEffect(() => {
+    fetchInstances();
     fetchStats();
     fetchLogs();
     fetchSessionDetails();
@@ -197,27 +289,28 @@ export default function App() {
     checkSystemHealth();
     
     // Initial fetch of lists
-    fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+    instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
       .then(res => (res.ok ? res.json() : []))
       .then(data => setCoinsList(Array.isArray(data) ? data : []))
       .catch(() => {});
-    fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+    instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
       .then(res => (res.ok ? res.json() : []))
       .then(data => setMessagesList(Array.isArray(data) ? data : []))
       .catch(() => {});
 
     // Setup periodic polling for status & logs
     const interval = setInterval(() => {
+      fetchInstances();
       fetchStats();
       fetchLogs();
       fetchProfiles(); // Keep profiles list sync'd across instances
       fetchSessionDetails(); // Update session configuration details in real time
       // Poll data lists to keep them synchronized
-      fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setCoinsList(Array.isArray(data) ? data : []))
         .catch(() => {});
-      fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setMessagesList(Array.isArray(data) ? data : []))
         .catch(() => {});
@@ -225,6 +318,24 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Trigger instant refetch when instanceId changes
+  useEffect(() => {
+    fetchStats();
+    fetchLogs();
+    fetchSessionDetails();
+    fetchProfiles();
+    checkSystemHealth();
+    
+    instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setCoinsList(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setMessagesList(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [instanceId]);
 
   // Sync Simulator with current posting state
   useEffect(() => {
@@ -266,7 +377,7 @@ export default function App() {
   // Fetch Current logs
   const fetchLogs = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/logs"));
+      const res = await instanceFetch(resolveUrl("/api/logs"));
       if (res.ok) {
         const data = await parseResponseJson(res, { logs: [] });
         setLogsList(data.logs || []);
@@ -277,7 +388,7 @@ export default function App() {
   // Fetch Session details
   const fetchSessionDetails = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/get-session"));
+      const res = await instanceFetch(resolveUrl("/api/get-session"));
       if (res.ok) {
         const data = await parseResponseJson(res, { exists: false });
         setSessionExists(data.exists);
@@ -290,7 +401,7 @@ export default function App() {
   // Fetch account profiles
   const fetchProfiles = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/profiles"));
+      const res = await instanceFetch(resolveUrl("/api/profiles"));
       if (res.ok) {
         const data = await parseResponseJson(res, { profiles: [] });
         setProfilesList(data.profiles || []);
@@ -308,7 +419,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(resolveUrl("/api/save-profile"), {
+      const res = await instanceFetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, stateJson })
@@ -331,7 +442,7 @@ export default function App() {
 
   const handleActivateProfile = async (id: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/activate-profile"), {
+      const res = await instanceFetch(resolveUrl("/api/activate-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -352,7 +463,7 @@ export default function App() {
 
   const handleDeleteProfile = async (id: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/delete-profile"), {
+      const res = await instanceFetch(resolveUrl("/api/delete-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -373,7 +484,7 @@ export default function App() {
   // Fetch Status Stats
   const fetchStats = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/status"));
+      const res = await instanceFetch(resolveUrl("/api/status"));
       if (res.ok) {
         const data = await parseResponseJson(res, {});
         setStatus(data.status || "Idle");
@@ -429,7 +540,7 @@ export default function App() {
   const toggleContinuousLoop = async (active: boolean, intervalMins?: number) => {
     const targetMins = intervalMins !== undefined ? intervalMins : continuousInterval;
     try {
-      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await instanceFetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active, intervalMinutes: targetMins }),
@@ -447,7 +558,7 @@ export default function App() {
 
   const saveIntervalToServer = async (mins: number) => {
     try {
-      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await instanceFetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intervalMinutes: mins }),
@@ -466,7 +577,7 @@ export default function App() {
   const checkSystemHealth = async () => {
     setIsCheckingSystem(true);
     try {
-      const res = await fetch(resolveUrl("/api/check-system"));
+      const res = await instanceFetch(resolveUrl("/api/check-system"));
       if (res.ok) {
         const data = await res.json();
         setSystemCheckResult(data);
@@ -499,12 +610,12 @@ export default function App() {
   // Lazy Load Data lists based on Active Tab
   useEffect(() => {
     if (activeTab === "coins") {
-      fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setCoinsList(Array.isArray(data) ? data : []))
         .catch(() => setCoinsList([]));
     } else if (activeTab === "comments" || activeTab === "reports") {
-      fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setMessagesList(Array.isArray(data) ? data : []))
         .catch(() => setMessagesList([]));
@@ -539,7 +650,7 @@ export default function App() {
         options.headers = { "Content-Type": "application/json" };
         options.body = JSON.stringify(bodyData);
       }
-      const res = await fetch(resolveUrl(endpoint), options);
+      const res = await instanceFetch(resolveUrl(endpoint), options);
       const data = await parseResponseJson(res, {});
       if (endpoint.includes("stop-posting")) {
         setIsContinuousLoopActive(false);
@@ -575,7 +686,7 @@ export default function App() {
     if (!sessionJson.trim()) return;
     setIsPending(prev => ({ ...prev, login: true }));
     try {
-      const res = await fetch(resolveUrl("/api/save-session"), {
+      const res = await instanceFetch(resolveUrl("/api/save-session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stateJson: sessionJson })
@@ -587,10 +698,10 @@ export default function App() {
         fetchStats();
       } else {
         const data = await parseResponseJson(res, { error: "Failed to parse session state JSON." });
-        alert(data.error || "Failed to parse session state JSON.");
+        showToast(data.error || "Failed to parse session state JSON.", "error");
       }
     } catch (error) {
-      alert("Error saving session: " + (error as Error).message);
+      showToast("Error saving session: " + (error as Error).message, "error");
     } finally {
       setIsPending(prev => ({ ...prev, login: false }));
     }
@@ -599,13 +710,13 @@ export default function App() {
   // Start credential-based login
   const handleStartLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      alert("Please fill in both email and password.");
+      showToast("Please fill in both email and password.", "error");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Initializing secure browser, navigating to CoinMarketCap and entering credentials...");
     try {
-      const res = await fetch(resolveUrl("/api/start-login"), {
+      const res = await instanceFetch(resolveUrl("/api/start-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
@@ -627,13 +738,13 @@ export default function App() {
   // Submit OTP / Verification code
   const handleSubmitOtp = async () => {
     if (!otpCode.trim() || otpCode.length < 4) {
-      alert("Please enter a valid verification code.");
+      showToast("Please enter a valid verification code.", "error");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Submitting 6-digit code and verifying active session, please wait...");
     try {
-      const res = await fetch(resolveUrl("/api/submit-otp"), {
+      const res = await instanceFetch(resolveUrl("/api/submit-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: otpCode })
@@ -655,7 +766,7 @@ export default function App() {
   // Cancel login sequence
   const handleCancelLogin = async () => {
     try {
-      await fetch(resolveUrl("/api/cancel-login"), { method: "POST" });
+      await instanceFetch(resolveUrl("/api/cancel-login"), { method: "POST" });
     } catch (_) {}
     setLoginStep("idle");
     setLoginStatusMessage("");
@@ -675,7 +786,7 @@ export default function App() {
   const handleRetrySingle = async (symbol: string) => {
     setIndividualLoading(prev => ({ ...prev, [symbol]: "retry" }));
     try {
-      const res = await fetch(resolveUrl("/api/retry-single"), {
+      const res = await instanceFetch(resolveUrl("/api/retry-single"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol })
@@ -685,10 +796,10 @@ export default function App() {
         fetchStats();
         fetchLogs();
       } else {
-        alert(data.error || "Manual retry failed.");
+        showToast(data.error || "Manual retry failed.", "error");
       }
     } catch (err) {
-      alert("Network error: " + (err as Error).message);
+      showToast("Network error: " + (err as Error).message, "error");
     } finally {
       setIndividualLoading(prev => ({ ...prev, [symbol]: null }));
     }
@@ -697,7 +808,7 @@ export default function App() {
   // Toggle runMode state
   const handleToggleRunMode = async (mode: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/set-run-mode"), {
+      const res = await instanceFetch(resolveUrl("/api/set-run-mode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode })
@@ -769,6 +880,32 @@ export default function App() {
                 <Globe className="h-3 w-3" /> CG Public
               </span>
             )}
+          </div>
+
+          {/* WORKSPACE INSTANCE SELECTOR */}
+          <div className="flex items-center gap-2 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-xs">
+            <span className="text-slate-400 font-mono pl-1 flex items-center gap-1">
+              <Layers className="h-3.5 w-3.5 text-emerald-400" />
+              Workspace:
+            </span>
+            <select
+              value={instanceId}
+              onChange={(e) => setInstanceId(e.target.value)}
+              className="bg-transparent text-white font-bold py-0.5 px-1 border-0 outline-none cursor-pointer focus:ring-0 text-xs"
+            >
+              {instancesList.map((id) => (
+                <option key={id} value={id} className="bg-slate-900 text-white font-semibold">
+                  {id === "default" ? "DEFAULT" : id.toUpperCase()}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setShowInstanceModal(true)}
+              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded transition duration-200"
+              title="Manage Workspaces"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
           </div>
 
           <button
@@ -2086,6 +2223,112 @@ export default function App() {
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <p className="tracking-wide">CoinMarketCap Automated Community Bot Control Panel © 2026. All rights reserved.</p>
       </footer>
+
+      {/* MODAL: WORKSPACE MANAGER */}
+      {showInstanceModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="p-5 pb-3 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
+                  <Layers className="h-4 w-4" />
+                </span>
+                <h3 className="font-bold text-white text-sm">
+                  Workspace Instance Manager
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowInstanceModal(false)}
+                className="text-slate-400 hover:text-white transition font-bold font-mono text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Workspaces allow multiple instances of the bot to run concurrently. Each workspace preserves its own browser cookies, account profile configurations, generated comments, posting states, and loop intervals completely independently.
+              </p>
+
+              {/* Workspace List */}
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                {instancesList.map((id) => (
+                  <div
+                    key={id}
+                    className={`flex items-center justify-between p-3 rounded-xl border transition ${
+                      id === instanceId
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-white"
+                        : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${id === instanceId ? "bg-emerald-500" : "bg-slate-600"}`} />
+                      <span className="font-semibold text-sm">
+                        {id === "default" ? "Default Workspace" : id.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {id !== instanceId && (
+                        <button
+                          onClick={() => setInstanceId(id)}
+                          className="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition"
+                        >
+                          Switch
+                        </button>
+                      )}
+                      {id !== "default" && (
+                        <button
+                          onClick={() => deleteInstance(id)}
+                          className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-900 rounded transition"
+                          title="Delete Workspace state"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Create Workspace Form */}
+              <div className="pt-3 border-t border-slate-800">
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                  Create New Custom Workspace
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newInstanceName}
+                    onChange={(e) => setNewInstanceName(e.target.value)}
+                    placeholder="e.g. Account2, Client_B"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/60"
+                  />
+                  <button
+                    onClick={() => createInstance(newInstanceName)}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-sm font-bold rounded-xl transition shadow-lg shadow-emerald-500/10"
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-950 border-t border-slate-800/80 flex justify-end">
+              <button
+                onClick={() => setShowInstanceModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition"
+              >
+                Close Manager
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: PASTE COOKIE SESSION OR LOGIN */}
       {showSessionModal && (
