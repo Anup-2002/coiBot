@@ -154,6 +154,18 @@ async function installPlaywrightChromium(): Promise<void> {
   }
 }
 
+class PlaywrightLock {
+  private static queue: Promise<any> = Promise.resolve();
+
+  static async acquire<T>(task: () => Promise<T>): Promise<T> {
+    const nextTask = this.queue.then(async () => {
+      return await task();
+    });
+    this.queue = nextTask.catch(() => {});
+    return nextTask;
+  }
+}
+
 async function launchBrowserResilient(options: any = {}): Promise<any> {
   // Inject highly aggressive memory-saving flags suitable for low-RAM containers like Render (512MB limit)
   const memoryArgs = [
@@ -465,21 +477,25 @@ async function clickResiliently(page: any, element: any, selectorDescription: st
     await removeBlockingOverlays(page).catch(() => {});
 
     // Try to scroll the element into view first so actionability is easier to pass
-    await element.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+    await element.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
     
-    // Attempt normal click with a shorter timeout of 5 seconds so it doesn't hang for 30s
-    await element.click({ timeout: 5000 });
+    // Attempt normal click with a short timeout of 2 seconds so it doesn't hang
+    await element.click({ timeout: 2000 });
   } catch (err) {
     addLog("warning", `Standard click failed on ${selectorDescription}: ${(err as Error).message}. Trying forced click fallback...`);
     try {
       // Attempt click with force: true
-      await element.click({ force: true, timeout: 3000 });
+      await element.click({ force: true, timeout: 1500 });
     } catch (err2) {
       addLog("warning", `Forced click failed on ${selectorDescription}: ${(err2 as Error).message}. Using dispatchEvent click fallback...`);
       // Fallback to dispatchEvent click (bypasses all visibility and actionability checks)
-      await element.dispatchEvent("click").catch((err3) => {
-        addLog("error", `All click attempts failed on ${selectorDescription}: ${(err3 as Error).message}`);
-        throw err3;
+      await element.dispatchEvent("click").catch(async (err3) => {
+        addLog("warning", `dispatchEvent click failed on ${selectorDescription}: ${(err3 as Error).message}. Trying evaluate click fallback...`);
+        // Final fail-safe: evaluate element.click() in browser context
+        await element.evaluate((el: any) => (el as HTMLElement).click()).catch((err4) => {
+          addLog("error", `All click attempts failed on ${selectorDescription}: ${(err4 as Error).message}`);
+          throw err4;
+        });
       });
     }
   }
@@ -555,9 +571,15 @@ async function locateAndPrepareCommentEditor(page: any): Promise<any> {
       const tab = await page.$(selector);
       if (tab && await tab.isVisible()) {
         addLog("info", `Clicking tab trigger to activate community section: "${selector}"`);
-        await clickResiliently(page, tab, "community tab button");
+        await clickResiliently(page, tab, `community tab button: ${selector}`);
         await page.waitForTimeout(1000);
-        break;
+        
+        // Dynamic verification: check if editor became visible after clicking this tab
+        const el = await page.$(robustSelector);
+        if (el && await el.isVisible()) {
+          addLog("success", `Comment editor became visible after clicking tab "${selector}"! Skipping remaining tabs/scrolls.`);
+          return el;
+        }
       }
     } catch {}
   }
@@ -908,167 +930,192 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
 }
 
 async function checkLoginReal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
-  const attempts = 3;
-  let lastResult: { status: "success" | "expired" | "captcha" | "failed"; message: string } = { status: "failed", message: "Not started" };
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      if (attempt > 1) {
-        addLog("warning", `[SESSION CONNECT RETRY] Session check or connection failed. Retrying connect (Attempt ${attempt}/${attempts}) in 3s...`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
+  return PlaywrightLock.acquire(async () => {
+    const attempts = 3;
+    let lastResult: { status: "success" | "expired" | "captcha" | "failed"; message: string } = { status: "failed", message: "Not started" };
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          addLog("warning", `[SESSION CONNECT RETRY] Session check or connection failed. Retrying connect (Attempt ${attempt}/${attempts}) in 3s...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+        lastResult = await withTimeout(
+          checkLoginRealInternal(),
+          120000,
+          "Playwright launch or session check timed out after 120 seconds"
+        );
+        if (lastResult.status === "success") {
+          return lastResult;
+        }
+        addLog("warning", `[SESSION CONNECT] Attempt ${attempt}/${attempts} returned status: ${lastResult.status} (${lastResult.message})`);
+      } catch (err) {
+        const errMsg = (err as Error).message;
+        addLog("error", `[SESSION CONNECT] Exception on attempt ${attempt}: ${errMsg}`);
+        lastResult = { status: "failed", message: errMsg };
       }
-      lastResult = await withTimeout(
-        checkLoginRealInternal(),
-        120000,
-        "Playwright launch or session check timed out after 120 seconds"
-      );
-      if (lastResult.status === "success") {
-        return lastResult;
-      }
-      addLog("warning", `[SESSION CONNECT] Attempt ${attempt}/${attempts} returned status: ${lastResult.status} (${lastResult.message})`);
-    } catch (err) {
-      const errMsg = (err as Error).message;
-      addLog("error", `[SESSION CONNECT] Exception on attempt ${attempt}: ${errMsg}`);
-      lastResult = { status: "failed", message: errMsg };
     }
-  }
-  return lastResult;
+    return lastResult;
+  });
 }
 
 async function executeStartLogin(email: string, password: string): Promise<{ status: "success" | "requires_otp" | "captcha" | "failed"; message: string }> {
-  if (activeLoginSession) {
-    addLog("warning", "An active login session exists in memory. Closing it before starting a new one...");
-    await activeLoginSession.browser.close().catch(() => {});
-    activeLoginSession = null;
-  }
-
-  addLog("info", `Starting automated credentials login flow for email: ${email}...`);
-  let browser: any = null;
-  try {
-    browser = await launchBrowserResilient({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-blink-features=AutomationControlled",
-      ]
-    });
-
-    const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      viewport: { width: 1366, height: 768 },
-      locale: "en-US",
-      timezoneId: "America/New_York",
-    });
-
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", {
-        get: () => undefined,
-      });
-    });
-
-    const page = await context.newPage();
-    await setupPageResourceBlocking(page);
-    addLog("info", "Navigating to CoinMarketCap Home page...");
-    await page.goto("https://coinmarketcap.com/", {
-      waitUntil: "domcontentloaded",
-      timeout: 45000
-    }).catch((err) => {
-      addLog("warning", `Failed to load home page: ${err.message}. Retrying with Bitcoin page...`);
-      return page.goto("https://coinmarketcap.com/currencies/bitcoin/", {
-        waitUntil: "domcontentloaded",
-        timeout: 45000
-      });
-    });
-
-    await page.waitForTimeout(4000);
-
-    // Dismiss any cookie banners or overlays that might block clicking the Log in button
-    addLog("info", "Checking for cookie banners or overlay pop-ups to dismiss...");
-    const dismissButtons = [
-      'button:has-text("Accept All")',
-      'button:has-text("Accept Cookies")',
-      'button:has-text("Accept")',
-      'button:has-text("Got it")',
-      'button:has-text("I agree")',
-      '#onetrust-accept-btn-handler',
-      '.optanon-allow-all',
-      '#accept-cookie-policy',
-      '.cmc-cookie-policy-banner__close',
-      'button[aria-label="Close"]',
-      '.close-btn',
-      '.close'
-    ];
-    for (const selector of dismissButtons) {
-      try {
-        const btn = await page.$(selector);
-        if (btn && await btn.isVisible()) {
-          await btn.click({ timeout: 2000 }).catch(() => {});
-          addLog("info", `Dismissed banner/pop-up using: ${selector}`);
-          await page.waitForTimeout(500);
-        }
-      } catch {}
+  return PlaywrightLock.acquire(async () => {
+    if (activeLoginSession) {
+      addLog("warning", "An active login session exists in memory. Closing it before starting a new one...");
+      await activeLoginSession.browser.close().catch(() => {});
+      activeLoginSession = null;
     }
 
-    addLog("info", "Searching for the 'Log In' button/link on the page header...");
-    let headerLoginBtn = null;
-    const loginButtonSelectors = [
-      'button:has-text("Log In")',
-      'button:has-text("Log in")',
-      'a:has-text("Log In")',
-      'a:has-text("Log in")',
-      'span:has-text("Log In")',
-      'span:has-text("Log in")',
-      '[data-testid="header-login-button"]',
-      '[class*="login" i]',
-      '[class*="log-in" i]',
-      'div:has-text("Log In")',
-      'div:has-text("Log in")'
-    ];
-    for (const sel of loginButtonSelectors) {
-      try {
-        const el = await page.$(sel);
-        if (el && await el.isVisible()) {
-          headerLoginBtn = el;
-          addLog("info", `Found Log in trigger element using selector: "${sel}"`);
-          break;
-        }
-      } catch {}
-    }
+    addLog("info", `Starting automated credentials login flow for email: ${email}...`);
+    let browser: any = null;
+    try {
+      browser = await launchBrowserResilient({
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-blink-features=AutomationControlled",
+        ]
+      });
 
-    if (!headerLoginBtn) {
-      // Robust heuristic fallback for finding the header/navigation login button
-      const clickables = await page.$$("button, a, div[role='button'], span");
-      for (const item of clickables) {
-        try {
-          if (await item.isVisible()) {
-            const text = (await item.innerText().catch(() => "")).trim().toLowerCase();
-            if (text === "log in" || text === "login" || text === "sign in" || text === "signin") {
-              headerLoginBtn = item;
-              addLog("info", `Found Log in trigger via innerText heuristic match: "${text}"`);
+      const context = await browser.newContext({
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        viewport: { width: 1366, height: 768 },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+      });
+
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", {
+          get: () => undefined,
+        });
+      });
+
+      const page = await context.newPage();
+      await setupPageResourceBlocking(page);
+
+      let loginFormLoadedDirectly = false;
+      addLog("info", "Attempting direct navigation to CoinMarketCap Login page...");
+      try {
+        await page.goto("https://coinmarketcap.com/login/", {
+          waitUntil: "domcontentloaded",
+          timeout: 30000
+        });
+        await page.waitForTimeout(3000);
+        
+        // Fast pre-verification: check if login fields are present
+        const hasEmail = await page.$('input[type="email"], input[placeholder*="email" i], input[name="email"], #email');
+        const hasPass = await page.$('input[type="password"], input[placeholder*="password" i], input[name="password"], #password');
+        if (hasEmail && hasPass) {
+          addLog("success", "Successfully loaded CoinMarketCap Login page directly!");
+          loginFormLoadedDirectly = true;
+        } else {
+          addLog("warning", "Direct login page did not present login input boxes. Redirecting to home page workflow...");
+        }
+      } catch (directErr) {
+        addLog("warning", `Direct login page navigation timed out or failed: ${(directErr as Error).message}. Using Home page workflow...`);
+      }
+
+      if (!loginFormLoadedDirectly) {
+        addLog("info", "Navigating to CoinMarketCap Home page...");
+        await page.goto("https://coinmarketcap.com/", {
+          waitUntil: "domcontentloaded",
+          timeout: 45000
+        }).catch((err) => {
+          addLog("warning", `Failed to load home page: ${err.message}. Retrying with Bitcoin page...`);
+          return page.goto("https://coinmarketcap.com/currencies/bitcoin/", {
+            waitUntil: "domcontentloaded",
+            timeout: 45000
+          });
+        });
+
+        await page.waitForTimeout(4000);
+
+        // Dismiss any cookie banners or overlays that might block clicking the Log in button
+        addLog("info", "Checking for cookie banners or overlay pop-ups to dismiss...");
+        const dismissButtons = [
+          'button:has-text("Accept All")',
+          'button:has-text("Accept Cookies")',
+          'button:has-text("Accept")',
+          'button:has-text("Got it")',
+          'button:has-text("I agree")',
+          '#onetrust-accept-btn-handler',
+          '.optanon-allow-all',
+          '#accept-cookie-policy',
+          '.cmc-cookie-policy-banner__close',
+          'button[aria-label="Close"]',
+          '.close-btn',
+          '.close'
+        ];
+        for (const selector of dismissButtons) {
+          try {
+            const btn = await page.$(selector);
+            if (btn && await btn.isVisible()) {
+              await btn.click({ timeout: 2000 }).catch(() => {});
+              addLog("info", `Dismissed banner/pop-up using: ${selector}`);
+              await page.waitForTimeout(500);
+            }
+          } catch {}
+        }
+
+        addLog("info", "Searching for the 'Log In' button/link on the page header...");
+        let headerLoginBtn = null;
+        const loginButtonSelectors = [
+          'button:has-text("Log In")',
+          'button:has-text("Log in")',
+          'a:has-text("Log In")',
+          'a:has-text("Log in")',
+          'span:has-text("Log In")',
+          'span:has-text("Log in")',
+          '[data-testid="header-login-button"]',
+          '[class*="login" i]',
+          '[class*="log-in" i]',
+          'div:has-text("Log In")',
+          'div:has-text("Log in")'
+        ];
+        for (const sel of loginButtonSelectors) {
+          try {
+            const el = await page.$(sel);
+            if (el && await el.isVisible()) {
+              headerLoginBtn = el;
+              addLog("info", `Found Log in trigger element using selector: "${sel}"`);
               break;
             }
+          } catch {}
+        }
+
+        if (!headerLoginBtn) {
+          // Robust heuristic fallback for finding the header/navigation login button
+          const clickables = await page.$$("button, a, div[role='button'], span");
+          for (const item of clickables) {
+            try {
+              if (await item.isVisible()) {
+                const text = (await item.innerText().catch(() => "")).trim().toLowerCase();
+                if (text === "log in" || text === "login" || text === "sign in" || text === "signin") {
+                  headerLoginBtn = item;
+                  addLog("info", `Found Log in trigger via innerText heuristic match: "${text}"`);
+                  break;
+                }
+              }
+            } catch {}
           }
-        } catch {}
+        }
+
+        if (headerLoginBtn) {
+          addLog("info", "Clicking the 'Log In' button/link to launch login popup...");
+          await clickResiliently(page, headerLoginBtn, "header login button");
+          addLog("info", "Waiting for login modal popup to open...");
+          await page.waitForTimeout(4000);
+        } else {
+          addLog("warning", "Could not locate a visible Log In button. Proceeding directly in case the modal/form is already present.");
+        }
       }
-    }
 
-    if (headerLoginBtn) {
-      addLog("info", "Clicking the 'Log In' button/link to launch login popup...");
-      await headerLoginBtn.click({ timeout: 5000 }).catch(async (clickErr: Error) => {
-        addLog("warning", `Standard click on header login button failed: ${clickErr.message}. Retrying via evaluate click...`);
-        await headerLoginBtn.evaluate((el: any) => (el as HTMLElement).click()).catch(() => {});
-      });
-      addLog("info", "Waiting for login modal popup to open...");
-      await page.waitForTimeout(4000);
-    } else {
-      addLog("warning", "Could not locate a visible Log In button. Proceeding directly in case the modal/form is already present.");
-    }
-
-    // Scan for email and password inputs
-    let emailInput = null;
-    let passwordInput = null;
+      // Scan for email and password inputs
+      let emailInput = null;
+      let passwordInput = null;
 
     // Retry finding elements up to 5 times with delay
     for (let i = 0; i < 5; i++) {
@@ -1325,9 +1372,11 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     }
     return { status: "failed", message: errMsg };
   }
+  });
 }
 
 async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "failed"; message: string }> {
+  return PlaywrightLock.acquire(async () => {
   if (!activeLoginSession) {
     addLog("error", "No active login session in memory to submit verification code.");
     return { status: "failed", message: "No active login session in progress." };
@@ -1471,6 +1520,7 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
     activeLoginSession = null;
     return { status: "failed", message: (error as Error).message };
   }
+  });
 }
 
 async function executeCancelLogin(): Promise<void> {
@@ -1821,31 +1871,33 @@ async function runRealPosting(url: string, message: string, sentiment: string, s
     return { status: "skipped", message: "Cannot post on DEX Scan pages" };
   }
 
-  const attempts = 2; // Reduced from 3 to 2 for faster execution cycle
-  let lastResult: { status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string } = { status: "failed", message: "Not started" };
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      if (attempt > 1) {
-        if (lastResult.status === "retry") {
-          addLog("warning", `[RATE LIMIT DELAY] Submission rate limited. Waiting 30s before retry attempt ${attempt}/${attempts} to clear CoinMarketCap rate limit...`);
-          await new Promise(resolve => setTimeout(resolve, 30000));
-        } else {
-          addLog("warning", `[POST CONNECT RETRY] Connection or load failed. Retrying connect and post (Attempt ${attempt}/${attempts}) in 5s...`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
+  return PlaywrightLock.acquire(async () => {
+    const attempts = 2; // Reduced from 3 to 2 for faster execution cycle
+    let lastResult: { status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string } = { status: "failed", message: "Not started" };
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          if (lastResult.status === "retry") {
+            addLog("warning", `[RATE LIMIT DELAY] Submission rate limited. Waiting 30s before retry attempt ${attempt}/${attempts} to clear CoinMarketCap rate limit...`);
+            await new Promise(resolve => setTimeout(resolve, 30000));
+          } else {
+            addLog("warning", `[POST CONNECT RETRY] Connection or load failed. Retrying connect and post (Attempt ${attempt}/${attempts}) in 5s...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
         }
+        const rawResult = await runRealPostingInternal(url, message, sentiment, sharedBrowser);
+        lastResult = rawResult as any;
+        if (lastResult.status === "success" || lastResult.status === "captcha" || lastResult.status === "expired" || lastResult.status === "skipped") {
+          return lastResult;
+        }
+        addLog("warning", `[POST CONNECT] Attempt ${attempt}/${attempts} returned status: ${lastResult.status} (${lastResult.message})`);
+      } catch (err) {
+        addLog("error", `[POST CONNECT] Exception on attempt ${attempt}: ${(err as Error).message}`);
+        lastResult = { status: "failed", message: (err as Error).message };
       }
-      const rawResult = await runRealPostingInternal(url, message, sentiment, sharedBrowser);
-      lastResult = rawResult as any;
-      if (lastResult.status === "success" || lastResult.status === "captcha" || lastResult.status === "expired" || lastResult.status === "skipped") {
-        return lastResult;
-      }
-      addLog("warning", `[POST CONNECT] Attempt ${attempt}/${attempts} returned status: ${lastResult.status} (${lastResult.message})`);
-    } catch (err) {
-      addLog("error", `[POST CONNECT] Exception on attempt ${attempt}: ${(err as Error).message}`);
-      lastResult = { status: "failed", message: (err as Error).message };
     }
-  }
-  return lastResult;
+    return lastResult;
+  });
 }
 
 // Load Helper Functions
@@ -2510,171 +2562,173 @@ app.post("/api/retry-single", async (req, res) => {
 });
 
 async function fetchTrendingByScrape(): Promise<Coin[]> {
-  addLog("info", "Launching Playwright to scrape real trending data from CoinMarketCap...");
-  let browser: any = null;
-  try {
-    browser = await launchBrowserResilient({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-blink-features=AutomationControlled",
-      ]
-    });
-
-    const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      viewport: { width: 1440, height: 900 },
-      locale: "en-US",
-    });
-
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
+  return PlaywrightLock.acquire(async () => {
+    addLog("info", "Launching Playwright to scrape real trending data from CoinMarketCap...");
+    let browser: any = null;
+    try {
+      browser = await launchBrowserResilient({
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-blink-features=AutomationControlled",
+        ]
       });
-    });
 
-    const page = await context.newPage();
-    await setupPageResourceBlocking(page);
-    addLog("info", "Navigating to: https://coinmarketcap.com/trending-cryptocurrencies/");
-    await page.goto("https://coinmarketcap.com/trending-cryptocurrencies/", {
-      waitUntil: "domcontentloaded",
-      timeout: 45000
-    });
+      const context = await browser.newContext({
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        viewport: { width: 1440, height: 900 },
+        locale: "en-US",
+      });
 
-    // Wait for the page/table to settle down
-    await page.waitForTimeout(3000);
-    
-    const title = await page.title().catch(() => "");
-    if (title.includes("Cloudflare") || title.includes("Just a moment")) {
-      throw new Error("Cloudflare challenge encountered during scraping.");
-    }
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+      });
 
-    addLog("info", "Scrolling page to load full trending table...");
-    await page.evaluate("window.scrollBy(0, 500)");
-    await page.waitForTimeout(1000);
-    await page.evaluate("window.scrollBy(0, 500)");
-    await page.waitForTimeout(1000);
+      const page = await context.newPage();
+      await setupPageResourceBlocking(page);
+      addLog("info", "Navigating to: https://coinmarketcap.com/trending-cryptocurrencies/");
+      await page.goto("https://coinmarketcap.com/trending-cryptocurrencies/", {
+        waitUntil: "domcontentloaded",
+        timeout: 45000
+      });
 
-    const coins = await page.evaluate(`(() => {
-      try {
-        const parseAbbreviatedNumber = (str) => {
-          if (!str) return 0;
-          const clean = str.replace(/[^0-9.KMBTkmbt]/g, '').toUpperCase();
-          let val = parseFloat(clean) || 0;
-          if (clean.endsWith('K')) val *= 1000;
-          else if (clean.endsWith('M')) val *= 1000000;
-          else if (clean.endsWith('B')) val *= 1000000000;
-          else if (clean.endsWith('T')) val *= 1000000000000;
-          return val;
-        };
-
-        const tables = Array.from(document.querySelectorAll("table"));
-        const mainTable = tables.find(t => t.querySelectorAll("tbody tr").length > 5);
-        if (!mainTable) return [];
-
-        const rows = Array.from(mainTable.querySelectorAll("tbody tr"));
-        const result = [];
-
-        for (const row of rows) {
-          const cells = Array.from(row.querySelectorAll("td"));
-          if (cells.length < 5) continue;
-
-          const rankText = cells[1] ? cells[1].textContent.trim() : "";
-          const rank = parseInt(rankText) || (result.length + 1);
-
-          const nameCell = cells[2];
-          if (!nameCell) continue;
-
-          const nameEl = nameCell.querySelector('.base-text');
-          const symbolEl = nameCell.querySelector('.sub-info');
-          
-          let name = nameEl ? nameEl.textContent.trim() : "";
-          let symbol = symbolEl ? symbolEl.textContent.trim() : "";
-
-          const link = nameCell.querySelector('a');
-          const href = link ? link.getAttribute('href') : "";
-
-          // If name/symbol not found via classes, try fallback parsing
-          if (!name) {
-            const text = nameCell.textContent.trim();
-            name = text;
-            symbol = text;
-          }
-
-          let url = "";
-          let slug = "";
-          if (href) {
-            if (href.startsWith("http")) {
-              url = href;
-              // Extract slug from URL if possible
-              const match = href.match(/\\/currencies\\/([^/]+)/) || href.match(/token\\/([^/]+)\\/([^/]+)/);
-              slug = match ? match[1] : name.toLowerCase().replace(/\\s+/g, '-');
-            } else {
-              url = "https://coinmarketcap.com" + href;
-              const match = href.match(/\\/currencies\\/([^/]+)/);
-              slug = match ? match[1] : name.toLowerCase().replace(/\\s+/g, '-');
-            }
-          } else {
-            slug = name.toLowerCase().replace(/\\s+/g, '-');
-            url = "https://coinmarketcap.com/currencies/" + slug + "/";
-          }
-
-          const priceText = cells[3] ? cells[3].textContent.trim() : "$0";
-          const price = parseFloat(priceText.replace(/[^0-9.]/g, '')) || 0;
-
-          const h1Text = cells[4] ? cells[4].textContent.trim() : "0%";
-          let change_1h = parseFloat(h1Text.replace(/[^0-9.]/g, '')) || 0;
-          if (cells[4] && (cells[4].innerHTML.includes('caret-down') || cells[4].innerHTML.includes('icon-Caret-down'))) {
-            change_1h = -change_1h;
-          }
-
-          const h24Text = cells[5] ? cells[5].textContent.trim() : "0%";
-          let change_24h = parseFloat(h24Text.replace(/[^0-9.]/g, '')) || 0;
-          if (cells[5] && (cells[5].innerHTML.includes('caret-down') || cells[5].innerHTML.includes('icon-Caret-down'))) {
-            change_24h = -change_24h;
-          }
-
-          const mcText = cells[6] ? cells[6].textContent.trim() : "$0";
-          const market_cap = parseAbbreviatedNumber(mcText);
-
-          const volText = cells[7] ? cells[7].textContent.trim() : "$0";
-          const volume_24h = parseAbbreviatedNumber(volText);
-
-          result.push({
-            name,
-            symbol,
-            price,
-            change_1h,
-            change_24h,
-            change_7d: 0,
-            market_cap,
-            volume_24h,
-            cmc_rank: rank,
-            slug,
-            url
-          });
-        }
-
-        return result;
-      } catch (e) {
-        return [];
+      // Wait for the page/table to settle down
+      await page.waitForTimeout(3000);
+      
+      const title = await page.title().catch(() => "");
+      if (title.includes("Cloudflare") || title.includes("Just a moment")) {
+        throw new Error("Cloudflare challenge encountered during scraping.");
       }
-    })()`) as Coin[];
 
-        if (coins && coins.length > 0) {
-      addLog("success", `Successfully scraped ${coins.length} trending coins directly from CoinMarketCap!`);
-      return coins;
-    } else {
-      throw new Error("Scraped page but found 0 coins in trending list.");
+      addLog("info", "Scrolling page to load full trending table...");
+      await page.evaluate("window.scrollBy(0, 500)");
+      await page.waitForTimeout(1000);
+      await page.evaluate("window.scrollBy(0, 500)");
+      await page.waitForTimeout(1000);
+
+      const coins = await page.evaluate(`(() => {
+        try {
+          const parseAbbreviatedNumber = (str) => {
+            if (!str) return 0;
+            const clean = str.replace(/[^0-9.KMBTkmbt]/g, '').toUpperCase();
+            let val = parseFloat(clean) || 0;
+            if (clean.endsWith('K')) val *= 1000;
+            else if (clean.endsWith('M')) val *= 1000000;
+            else if (clean.endsWith('B')) val *= 1000000000;
+            else if (clean.endsWith('T')) val *= 1000000000000;
+            return val;
+          };
+
+          const tables = Array.from(document.querySelectorAll("table"));
+          const mainTable = tables.find(t => t.querySelectorAll("tbody tr").length > 5);
+          if (!mainTable) return [];
+
+          const rows = Array.from(mainTable.querySelectorAll("tbody tr"));
+          const result = [];
+
+          for (const row of rows) {
+            const cells = Array.from(row.querySelectorAll("td"));
+            if (cells.length < 5) continue;
+
+            const rankText = cells[1] ? cells[1].textContent.trim() : "";
+            const rank = parseInt(rankText) || (result.length + 1);
+
+            const nameCell = cells[2];
+            if (!nameCell) continue;
+
+            const nameEl = nameCell.querySelector('.base-text');
+            const symbolEl = nameCell.querySelector('.sub-info');
+            
+            let name = nameEl ? nameEl.textContent.trim() : "";
+            let symbol = symbolEl ? symbolEl.textContent.trim() : "";
+
+            const link = nameCell.querySelector('a');
+            const href = link ? link.getAttribute('href') : "";
+
+            // If name/symbol not found via classes, try fallback parsing
+            if (!name) {
+              const text = nameCell.textContent.trim();
+              name = text;
+              symbol = text;
+            }
+
+            let url = "";
+            let slug = "";
+            if (href) {
+              if (href.startsWith("http")) {
+                url = href;
+                // Extract slug from URL if possible
+                const match = href.match(/\\/currencies\\/([^/]+)/) || href.match(/token\\/([^/]+)\\/([^/]+)/);
+                slug = match ? match[1] : name.toLowerCase().replace(/\\s+/g, '-');
+              } else {
+                url = "https://coinmarketcap.com" + href;
+                const match = href.match(/\\/currencies\\/([^/]+)/);
+                slug = match ? match[1] : name.toLowerCase().replace(/\\s+/g, '-');
+              }
+            } else {
+              slug = name.toLowerCase().replace(/\\s+/g, '-');
+              url = "https://coinmarketcap.com/currencies/" + slug + "/";
+            }
+
+            const priceText = cells[3] ? cells[3].textContent.trim() : "$0";
+            const price = parseFloat(priceText.replace(/[^0-9.]/g, '')) || 0;
+
+            const h1Text = cells[4] ? cells[4].textContent.trim() : "0%";
+            let change_1h = parseFloat(h1Text.replace(/[^0-9.]/g, '')) || 0;
+            if (cells[4] && (cells[4].innerHTML.includes('caret-down') || cells[4].innerHTML.includes('icon-Caret-down'))) {
+              change_1h = -change_1h;
+            }
+
+            const h24Text = cells[5] ? cells[5].textContent.trim() : "0%";
+            let change_24h = parseFloat(h24Text.replace(/[^0-9.]/g, '')) || 0;
+            if (cells[5] && (cells[5].innerHTML.includes('caret-down') || cells[5].innerHTML.includes('icon-Caret-down'))) {
+              change_24h = -change_24h;
+            }
+
+            const mcText = cells[6] ? cells[6].textContent.trim() : "$0";
+            const market_cap = parseAbbreviatedNumber(mcText);
+
+            const volText = cells[7] ? cells[7].textContent.trim() : "$0";
+            const volume_24h = parseAbbreviatedNumber(volText);
+
+            result.push({
+              name,
+              symbol,
+              price,
+              change_1h,
+              change_24h,
+              change_7d: 0,
+              market_cap,
+              volume_24h,
+              cmc_rank: rank,
+              slug,
+              url
+            });
+          }
+
+          return result;
+        } catch (e) {
+          return [];
+        }
+      })()`) as Coin[];
+
+      if (coins && coins.length > 0) {
+        addLog("success", `Successfully scraped ${coins.length} trending coins directly from CoinMarketCap!`);
+        return coins;
+      } else {
+        throw new Error("Scraped page but found 0 coins in trending list.");
+      }
+    } finally {
+      if (browser) {
+        await browser.close().catch(() => {});
+      }
     }
-  } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
-    }
-  }
+  });
 }
 
 async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: number }> {
