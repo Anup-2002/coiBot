@@ -682,14 +682,24 @@ function normalizeStateJson(stateJsonStr: string): string {
     // Normalize Authorization cookie: CoinMarketCap expects 'BearereyJ...' WITHOUT any space.
     // If a space exists (e.g. "Bearer eyJ..."), we MUST remove it to ensure the cookie format is correct.
     if (state && Array.isArray(state.cookies)) {
+      const farFuture = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60; // 1 year in the future
       state.cookies = state.cookies.map((c: any) => {
-        if (c && c.name === "Authorization" && typeof c.value === "string") {
+        if (!c || typeof c !== "object") return c;
+
+        if (c.name === "Authorization" && typeof c.value === "string") {
           if (c.value.startsWith("Bearer eyJ")) {
             c.value = "Bearer" + c.value.substring(7); // "Bearer " is 7 characters
             changed = true;
             addLog("info", "Automatically normalized 'Authorization' cookie value (removed space to match CoinMarketCap's BearereyJ standard).");
           }
         }
+        
+        // Push cookie expiration far into the future (1 year) so Playwright/Chromium never discards them
+        if (typeof c.expires !== "number" || c.expires < farFuture) {
+          c.expires = farFuture;
+          changed = true;
+        }
+
         return c;
       });
     }
@@ -922,6 +932,19 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
 
     addLog("success", "Successfully found and verified comment editor and active session state!");
     addLog("success", "Session active! Authentication is fully verified.");
+
+    // Save refreshed storageState back to maintain session longevity
+    try {
+      await context.storageState({ path: AUTH_STATE_FILE });
+      if (fs.existsSync(AUTH_STATE_FILE)) {
+        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        await saveSessionStateCloud(cookiesStr);
+        autoSyncSessionToProfiles(cookiesStr);
+      }
+    } catch (e) {
+      console.error("Failed to update and sync storage state after successful session check:", (e as Error).message);
+    }
+
     return { status: "success", message: "Session active" };
   } catch (error) {
     addLog("error", `Playwright login check execution failed: ${(error as Error).message}`);
