@@ -8,23 +8,74 @@ let db: any = null;
 function getDb() {
   if (db) return db;
   try {
-    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-    if (!fs.existsSync(configPath)) {
-      console.error("[FIREBASE] Config file not found at:", configPath);
+    let firebaseConfig: any = null;
+    let databaseId: string = "(default)";
+
+    // 1. Check if single JSON environment variable is provided
+    if (process.env.FIREBASE_CONFIG) {
+      try {
+        const parsed = JSON.parse(process.env.FIREBASE_CONFIG);
+        firebaseConfig = {
+          apiKey: parsed.apiKey,
+          authDomain: parsed.authDomain,
+          projectId: parsed.projectId,
+          storageBucket: parsed.storageBucket,
+          messagingSenderId: parsed.messagingSenderId,
+          appId: parsed.appId,
+        };
+        if (parsed.firestoreDatabaseId) {
+          databaseId = parsed.firestoreDatabaseId;
+        } else if (process.env.FIREBASE_DATABASE_ID) {
+          databaseId = process.env.FIREBASE_DATABASE_ID;
+        }
+        console.log("[FIREBASE] Initializing from FIREBASE_CONFIG environment variable.");
+      } catch (e) {
+        console.error("[FIREBASE] Failed to parse FIREBASE_CONFIG env variable:", e);
+      }
+    }
+
+    // 2. Check if individual environment variables are provided
+    if (!firebaseConfig && process.env.FIREBASE_API_KEY) {
+      firebaseConfig = {
+        apiKey: process.env.FIREBASE_API_KEY,
+        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+        appId: process.env.FIREBASE_APP_ID,
+      };
+      if (process.env.FIREBASE_DATABASE_ID) {
+        databaseId = process.env.FIREBASE_DATABASE_ID;
+      }
+      console.log("[FIREBASE] Initializing from individual FIREBASE_* environment variables.");
+    }
+
+    // 3. Fallback to local firebase-applet-config.json file
+    if (!firebaseConfig) {
+      const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        firebaseConfig = {
+          apiKey: config.apiKey,
+          authDomain: config.authDomain,
+          projectId: config.projectId,
+          storageBucket: config.storageBucket,
+          messagingSenderId: config.messagingSenderId,
+          appId: config.appId,
+        };
+        databaseId = config.firestoreDatabaseId || "(default)";
+        console.log("[FIREBASE] Initializing from local firebase-applet-config.json file.");
+      }
+    }
+
+    if (!firebaseConfig) {
+      console.warn("[FIREBASE] No Firebase configuration found (neither in environment variables nor in firebase-applet-config.json). Cloud synchronization will be disabled.");
       return null;
     }
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    const firebaseConfig = {
-      apiKey: config.apiKey,
-      authDomain: config.authDomain,
-      projectId: config.projectId,
-      storageBucket: config.storageBucket,
-      messagingSenderId: config.messagingSenderId,
-      appId: config.appId,
-    };
+
     const app = initializeApp(firebaseConfig);
-    db = getFirestore(app, config.firestoreDatabaseId || "(default)");
-    console.log("[FIREBASE] Firestore initialized successfully with db ID:", config.firestoreDatabaseId || "(default)");
+    db = getFirestore(app, databaseId);
+    console.log("[FIREBASE] Firestore initialized successfully with db ID:", databaseId);
     return db;
   } catch (err) {
     console.error("[FIREBASE] Initialization error:", err);

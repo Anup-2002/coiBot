@@ -578,13 +578,25 @@ export default function App() {
     if (activeTab === "coins") {
       fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
-        .then(data => setCoinsList(Array.isArray(data) ? data : []))
-        .catch(() => setCoinsList([]));
+        .then(data => {
+          const arr = Array.isArray(data) ? data : [];
+          setCoinsList(prev => {
+            if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+            return arr;
+          });
+        })
+        .catch(() => {});
     } else if (activeTab === "comments" || activeTab === "reports") {
       fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
-        .then(data => setMessagesList(Array.isArray(data) ? data : []))
-        .catch(() => setMessagesList([]));
+        .then(data => {
+          const arr = Array.isArray(data) ? data : [];
+          setMessagesList(prev => {
+            if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+            return arr;
+          });
+        })
+        .catch(() => {});
     }
   }, [activeTab, status]);
 

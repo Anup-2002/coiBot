@@ -58,10 +58,38 @@ const app = express();
 app.set("trust proxy", true);
 const PORT = Number(process.env.PORT) || 3000;
 
-const OUTPUT_DIR = path.join(process.cwd(), "output");
-const AUTH_DIR = path.join(process.cwd(), "auth");
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
+let OUTPUT_DIR = path.join(process.cwd(), "output");
+let AUTH_DIR = path.join(process.cwd(), "auth");
+
+try {
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+  const testFile = path.join(OUTPUT_DIR, ".write-test");
+  fs.writeFileSync(testFile, "test");
+  fs.unlinkSync(testFile);
+} catch (err) {
+  console.warn("[SERVER] Root output directory is not writable. Falling back to /tmp/bot-output for AWS/Serverless compatibility.");
+  OUTPUT_DIR = "/tmp/bot-output";
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+}
+
+try {
+  if (!fs.existsSync(AUTH_DIR)) {
+    fs.mkdirSync(AUTH_DIR, { recursive: true });
+  }
+  const testFile = path.join(AUTH_DIR, ".write-test");
+  fs.writeFileSync(testFile, "test");
+  fs.unlinkSync(testFile);
+} catch (err) {
+  console.warn("[SERVER] Root auth directory is not writable. Falling back to /tmp/bot-auth for AWS/Serverless compatibility.");
+  AUTH_DIR = "/tmp/bot-auth";
+  if (!fs.existsSync(AUTH_DIR)) {
+    fs.mkdirSync(AUTH_DIR, { recursive: true });
+  }
+}
 
 app.use(express.json({ limit: "50mb" }));
 
@@ -97,12 +125,16 @@ let LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
 let GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
 let RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
 let POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
-const AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
-const PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
+let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
+let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
 
 // Ensure PROFILES_FILE exists
 if (!fs.existsSync(PROFILES_FILE)) {
-  fs.writeFileSync(PROFILES_FILE, JSON.stringify([], null, 2), "utf-8");
+  try {
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify([], null, 2), "utf-8");
+  } catch (err) {
+    console.error("[SERVER] Error creating initial profiles file:", err);
+  }
 }
 
 function getActiveProfileId(): string | null {
