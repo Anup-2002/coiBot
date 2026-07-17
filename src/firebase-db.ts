@@ -62,103 +62,104 @@ async function writeDoc(docPath: string, data: any): Promise<boolean> {
   }
 }
 
-// Helper to determine path based on instance ID
-function resolvePath(basePath: string, instanceId?: string): string {
-  if (!instanceId || instanceId === "default") {
-    return basePath;
-  }
-  const normalized = basePath.replace("/", "_");
-  return `instances/${instanceId}/${normalized}`;
-}
-
 // Session State Sync
-export async function getSessionStateCloud(instanceId?: string): Promise<string | null> {
-  const data = await fetchDoc(resolvePath("bot/session", instanceId));
+export async function getSessionStateCloud(profileId?: string): Promise<string | null> {
+  const docPath = profileId ? `bot/session_${profileId}` : "bot/session";
+  const data = await fetchDoc(docPath);
   return data ? data.stateJson : null;
 }
 
-export async function saveSessionStateCloud(stateJson: string, instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("bot/session", instanceId), {
+export async function saveSessionStateCloud(stateJson: string, profileId?: string): Promise<void> {
+  const docPath = profileId ? `bot/session_${profileId}` : "bot/session";
+  await writeDoc(docPath, {
     stateJson,
     updatedAt: new Date().toISOString()
   });
 }
 
 // Trending Coins Sync
-export async function getTrendingCoinsCloud(instanceId?: string): Promise<any[]> {
-  const data = await fetchDoc(resolvePath("coins/trending", instanceId), { list: [] });
+export async function getTrendingCoinsCloud(profileId?: string): Promise<any[]> {
+  const docPath = profileId ? `coins/trending_${profileId}` : "coins/trending";
+  const data = await fetchDoc(docPath, { list: [] });
   return data.list;
 }
 
-export async function saveTrendingCoinsCloud(coins: any[], instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("coins/trending", instanceId), {
+export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): Promise<void> {
+  const docPath = profileId ? `coins/trending_${profileId}` : "coins/trending";
+  await writeDoc(docPath, {
     list: coins,
     lastUpdated: new Date().toISOString()
   });
 }
 
 // Generated Messages Sync
-export async function getGeneratedMessagesCloud(instanceId?: string): Promise<any[]> {
-  const data = await fetchDoc(resolvePath("messages/generated", instanceId), { list: [] });
+export async function getGeneratedMessagesCloud(profileId?: string): Promise<any[]> {
+  const docPath = profileId ? `messages/generated_${profileId}` : "messages/generated";
+  const data = await fetchDoc(docPath, { list: [] });
   return data.list;
 }
 
-export async function saveGeneratedMessagesCloud(messages: any[], instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("messages/generated", instanceId), {
+export async function saveGeneratedMessagesCloud(messages: any[], profileId?: string): Promise<void> {
+  const docPath = profileId ? `messages/generated_${profileId}` : "messages/generated";
+  await writeDoc(docPath, {
     list: messages,
     lastUpdated: new Date().toISOString()
   });
 }
 
 // Post Results Sync
-export async function getPostResultsCloud(instanceId?: string): Promise<any[]> {
-  const data = await fetchDoc(resolvePath("results/all", instanceId), { list: [] });
+export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
+  const docPath = profileId ? `results/all_${profileId}` : "results/all";
+  const data = await fetchDoc(docPath, { list: [] });
   return data.list;
 }
 
-export async function savePostResultsCloud(results: any[], instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("results/all", instanceId), {
+export async function savePostResultsCloud(results: any[], profileId?: string): Promise<void> {
+  const docPath = profileId ? `results/all_${profileId}` : "results/all";
+  await writeDoc(docPath, {
     list: results,
     lastUpdated: new Date().toISOString()
   });
 }
 
 // Bot Progress Sync
-export async function getBotProgressCloud(instanceId?: string): Promise<{ next_index: number } | null> {
-  const data = await fetchDoc(resolvePath("bot/progress", instanceId));
+export async function getBotProgressCloud(profileId?: string): Promise<{ next_index: number } | null> {
+  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  const data = await fetchDoc(docPath);
   return data ? { next_index: data.next_index } : null;
 }
 
-export async function saveBotProgressCloud(next_index: number, instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("bot/progress", instanceId), {
+export async function saveBotProgressCloud(next_index: number, profileId?: string): Promise<void> {
+  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  await writeDoc(docPath, {
     next_index,
     lastUpdated: new Date().toISOString()
   });
 }
 
 // Circular System Logs Sync (saves last 200 logs)
-export async function getSystemLogsCloud(instanceId?: string): Promise<any[]> {
-  const data = await fetchDoc(resolvePath("logs/all", instanceId), { list: [] });
+export async function getSystemLogsCloud(): Promise<any[]> {
+  const data = await fetchDoc("logs/all", { list: [] });
   return data.list;
 }
 
-export async function saveSystemLogsCloud(logs: any[], instanceId?: string): Promise<void> {
+export async function saveSystemLogsCloud(logs: any[]): Promise<void> {
   // Take last 200 logs to prevent exceeding document size limit
   const recentLogs = logs.slice(-200);
-  await writeDoc(resolvePath("logs/all", instanceId), {
+  await writeDoc("logs/all", {
     list: recentLogs,
     lastUpdated: new Date().toISOString()
   });
 }
 
 // Multi-profile Support Sync
-export async function getProfilesCloud(instanceId?: string): Promise<any[]> {
-  const data = await fetchDoc(resolvePath("bot/profiles", instanceId), { list: [] });
+export async function getProfilesCloud(): Promise<any[]> {
+  const data = await fetchDoc("bot/profiles", { list: [] });
   return data.list || [];
 }
 
-export async function saveProfilesCloud(profiles: any[], instanceId?: string): Promise<void> {
-  await writeDoc(resolvePath("bot/profiles", instanceId), {
+export async function saveProfilesCloud(profiles: any[]): Promise<void> {
+  await writeDoc("bot/profiles", {
     list: profiles,
     lastUpdated: new Date().toISOString()
   });

@@ -87,33 +87,6 @@ const parseResponseJson = async (res: Response, defaultVal: any = {}): Promise<a
 };
 
 export default function App() {
-  // Workspace Instance State
-  const [instanceId, setInstanceId] = useState<string>(() => {
-    return localStorage.getItem("cmc_bot_instance_id") || "default";
-  });
-  const [instancesList, setInstancesList] = useState<string[]>(["default"]);
-  const [newInstanceName, setNewInstanceName] = useState<string>("");
-  const [showInstanceModal, setShowInstanceModal] = useState<boolean>(false);
-
-  // Sync selected instanceId to localStorage
-  useEffect(() => {
-    localStorage.setItem("cmc_bot_instance_id", instanceId);
-  }, [instanceId]);
-
-  // Custom fetch wrapper to pass instance headers
-  const instanceFetch = (url: string, options: RequestInit = {}) => {
-    const headers = {
-      ...(options.headers || {}),
-      "X-Instance-Id": instanceId,
-    };
-    let targetUrl = url;
-    if (url.includes("/output/")) {
-      const separator = url.includes("?") ? "&" : "?";
-      targetUrl = `${url}${separator}instanceId=${instanceId}`;
-    }
-    return fetch(targetUrl, { ...options, headers });
-  };
-
   // Application State
   const [status, setStatus] = useState<string>("Idle");
   const [runMode, setRunMode] = useState<string>("Real Browser");
@@ -138,6 +111,8 @@ export default function App() {
   const [sessionDetails, setSessionDetails] = useState<any>(null);
   const [showSessionModal, setShowSessionModal] = useState<boolean>(false);
   const [activeSessionContent, setActiveSessionContent] = useState<string>("");
+  const [showConfirmFetchModal, setShowConfirmFetchModal] = useState<boolean>(false);
+  const [showConfirmGenerateModal, setShowConfirmGenerateModal] = useState<boolean>(false);
 
   // Account Profiles support
   const [profilesList, setProfilesList] = useState<any[]>([]);
@@ -155,70 +130,6 @@ export default function App() {
     setTimeout(() => {
       setToast(prev => prev?.message === message ? null : prev);
     }, 4500);
-  };
-
-  // Fetch workspace instances
-  const fetchInstances = async () => {
-    try {
-      const res = await fetch(resolveUrl("/api/instances"));
-      if (res.ok) {
-        const data = await parseResponseJson(res, { list: ["default"] });
-        setInstancesList(data.list || ["default"]);
-      }
-    } catch (_) {}
-  };
-
-  const createInstance = async (name: string) => {
-    if (!name.trim()) return;
-    try {
-      const res = await fetch(resolveUrl("/api/instances/create"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (res.ok) {
-        const data = await parseResponseJson(res, {});
-        if (data.success) {
-          setInstancesList(data.list || ["default"]);
-          setInstanceId(data.instanceId);
-          showToast(`Successfully created workspace instance: "${data.instanceId}"`, "success");
-          setNewInstanceName("");
-          setShowInstanceModal(false);
-        } else {
-          showToast(data.error || "Failed to create instance", "error");
-        }
-      }
-    } catch (err) {
-      showToast((err as Error).message, "error");
-    }
-  };
-
-  const deleteInstance = async (idToDelete: string) => {
-    if (idToDelete === "default") {
-      showToast("Cannot delete the default instance", "error");
-      return;
-    }
-    try {
-      const res = await fetch(resolveUrl("/api/instances/delete"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceId: idToDelete }),
-      });
-      if (res.ok) {
-        const data = await parseResponseJson(res, {});
-        if (data.success) {
-          setInstancesList(data.list || ["default"]);
-          if (instanceId === idToDelete) {
-            setInstanceId("default");
-          }
-          showToast(`Successfully deleted instance "${idToDelete}"`, "success");
-        } else {
-          showToast(data.error || "Failed to delete instance", "error");
-        }
-      }
-    } catch (err) {
-      showToast((err as Error).message, "error");
-    }
   };
 
   // Interactive Login State
@@ -261,6 +172,31 @@ export default function App() {
     clear: false,
   });
 
+  const [isRefreshingData, setIsRefreshingData] = useState<boolean>(false);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshingData(true);
+    try {
+      await fetchStats();
+      await fetchProfiles();
+      await fetchSessionDetails();
+      
+      const coinsRes = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`));
+      const coinsData = coinsRes.ok ? await coinsRes.json() : [];
+      setCoinsList(Array.isArray(coinsData) ? coinsData : []);
+
+      const msgsRes = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`));
+      const msgsData = msgsRes.ok ? await msgsRes.json() : [];
+      setMessagesList(Array.isArray(msgsData) ? msgsData : []);
+
+      showToast("Data storage refreshed successfully!", "success");
+    } catch (err) {
+      showToast("Failed to refresh data: " + (err as Error).message, "error");
+    } finally {
+      setIsRefreshingData(false);
+    }
+  };
+
   const isBusy =
     status === "Fetching" ||
     status === "Generating" ||
@@ -278,10 +214,10 @@ export default function App() {
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
   const lastLogsLength = useRef(0);
+  const lastRequestTimestamp = useRef<number>(0);
 
   // Fetch initial stats and list on page load
   useEffect(() => {
-    fetchInstances();
     fetchStats();
     fetchLogs();
     fetchSessionDetails();
@@ -289,53 +225,46 @@ export default function App() {
     checkSystemHealth();
     
     // Initial fetch of lists
-    instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+    fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
       .then(res => (res.ok ? res.json() : []))
       .then(data => setCoinsList(Array.isArray(data) ? data : []))
       .catch(() => {});
-    instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+    fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
       .then(res => (res.ok ? res.json() : []))
       .then(data => setMessagesList(Array.isArray(data) ? data : []))
       .catch(() => {});
 
     // Setup periodic polling for status & logs
     const interval = setInterval(() => {
-      fetchInstances();
       fetchStats();
       fetchLogs();
       fetchProfiles(); // Keep profiles list sync'd across instances
       fetchSessionDetails(); // Update session configuration details in real time
-      // Poll data lists to keep them synchronized
-      instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      // Poll data lists to keep them synchronized (only update state if actually changed to prevent re-renders)
+      fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
-        .then(data => setCoinsList(Array.isArray(data) ? data : []))
+        .then(data => {
+          const arr = Array.isArray(data) ? data : [];
+          setCoinsList(prev => {
+            if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+            return arr;
+          });
+        })
         .catch(() => {});
-      instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
-        .then(data => setMessagesList(Array.isArray(data) ? data : []))
+        .then(data => {
+          const arr = Array.isArray(data) ? data : [];
+          setMessagesList(prev => {
+            if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+            return arr;
+          });
+        })
         .catch(() => {});
-    }, 2000);
+    }, 3000); // Poll every 3s instead of 2s to minimize CPU/render overhead
 
     return () => clearInterval(interval);
   }, []);
-
-  // Trigger instant refetch when instanceId changes
-  useEffect(() => {
-    fetchStats();
-    fetchLogs();
-    fetchSessionDetails();
-    fetchProfiles();
-    checkSystemHealth();
-    
-    instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
-      .then(res => (res.ok ? res.json() : []))
-      .then(data => setCoinsList(Array.isArray(data) ? data : []))
-      .catch(() => {});
-    instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
-      .then(res => (res.ok ? res.json() : []))
-      .then(data => setMessagesList(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, [instanceId]);
 
   // Sync Simulator with current posting state
   useEffect(() => {
@@ -377,10 +306,14 @@ export default function App() {
   // Fetch Current logs
   const fetchLogs = async () => {
     try {
-      const res = await instanceFetch(resolveUrl("/api/logs"));
+      const res = await fetch(resolveUrl("/api/logs"));
       if (res.ok) {
         const data = await parseResponseJson(res, { logs: [] });
-        setLogsList(data.logs || []);
+        const list = data.logs || [];
+        setLogsList(prev => {
+          if (prev.length === list.length && JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          return list;
+        });
       }
     } catch (_) {}
   };
@@ -388,12 +321,15 @@ export default function App() {
   // Fetch Session details
   const fetchSessionDetails = async () => {
     try {
-      const res = await instanceFetch(resolveUrl("/api/get-session"));
+      const res = await fetch(resolveUrl("/api/get-session"));
       if (res.ok) {
         const data = await parseResponseJson(res, { exists: false });
         setSessionExists(data.exists);
-        setSessionDetails(data.details);
-        setActiveSessionContent(data.content || "");
+        setSessionDetails(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(data.details)) return prev;
+          return data.details;
+        });
+        setActiveSessionContent(prev => prev === (data.content || "") ? prev : (data.content || ""));
       }
     } catch (_) {}
   };
@@ -401,12 +337,21 @@ export default function App() {
   // Fetch account profiles
   const fetchProfiles = async () => {
     try {
-      const res = await instanceFetch(resolveUrl("/api/profiles"));
+      const res = await fetch(resolveUrl("/api/profiles"));
       if (res.ok) {
         const data = await parseResponseJson(res, { profiles: [] });
-        setProfilesList(data.profiles || []);
-        const active = (data.profiles || []).find((p: any) => p.isActive);
-        setActiveProfile(active || null);
+        const list = data.profiles || [];
+        setProfilesList(prev => {
+          if (prev.length === list.length && JSON.stringify(prev) === JSON.stringify(list)) return prev;
+          return list;
+        });
+        const active = list.find((p: any) => p.isActive);
+        setActiveProfile(prev => {
+          if (prev && active && prev.id === active.id && prev.name === active.name && prev.stateJson === active.stateJson && prev.isActive === active.isActive) {
+            return prev;
+          }
+          return active || null;
+        });
       }
     } catch (e) {
       console.error("Error fetching profiles:", e);
@@ -419,7 +364,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await instanceFetch(resolveUrl("/api/save-profile"), {
+      const res = await fetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, stateJson })
@@ -441,8 +386,12 @@ export default function App() {
   };
 
   const handleActivateProfile = async (id: string) => {
+    if (isBusy || isContinuousLoopActive) {
+      showToast("Cannot switch accounts while a background automation run is in progress.", "error");
+      return;
+    }
     try {
-      const res = await instanceFetch(resolveUrl("/api/activate-profile"), {
+      const res = await fetch(resolveUrl("/api/activate-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -462,8 +411,12 @@ export default function App() {
   };
 
   const handleDeleteProfile = async (id: string) => {
+    if (isBusy || isContinuousLoopActive) {
+      showToast("Cannot delete profile while a background automation run is in progress.", "error");
+      return;
+    }
     try {
-      const res = await instanceFetch(resolveUrl("/api/delete-profile"), {
+      const res = await fetch(resolveUrl("/api/delete-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -483,9 +436,14 @@ export default function App() {
 
   // Fetch Status Stats
   const fetchStats = async () => {
+    const reqTime = Date.now();
     try {
-      const res = await instanceFetch(resolveUrl("/api/status"));
+      const res = await fetch(resolveUrl("/api/status"));
       if (res.ok) {
+        if (reqTime < lastRequestTimestamp.current) {
+          return; // Skip stale out-of-order poll response
+        }
+        lastRequestTimestamp.current = reqTime;
         const data = await parseResponseJson(res, {});
         setStatus(data.status || "Idle");
         setRunMode(data.runMode || "Real Browser");
@@ -493,11 +451,19 @@ export default function App() {
         setGeneratedCount(data.generatedMessages || 0);
         setPostedCount(data.postedCount || 0);
         setFailedCount(data.failedCount || 0);
-        setResults(data.results || []);
+        const resList = data.results || [];
+        setResults(prev => {
+          if (prev.length === resList.length && JSON.stringify(prev) === JSON.stringify(resList)) return prev;
+          return resList;
+        });
         setProgressIndex(data.progressIndex || 0);
         setCurrentCoin(data.currentCoin || "N/A");
         setSessionStatus(data.sessionStatus || "Not Checked");
-        setApiStatus(data.apiStatus || { openai: false, cmc: false });
+        const apiStat = data.apiStatus || { openai: false, cmc: false };
+        setApiStatus(prev => {
+          if (prev.openai === apiStat.openai && prev.cmc === apiStat.cmc) return prev;
+          return apiStat;
+        });
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
         setNextCycleStartTime(data.nextCycleStartTime);
         if (data.continuousLoopIntervalMinutes !== undefined && !isInitialIntervalLoaded.current) {
@@ -540,7 +506,7 @@ export default function App() {
   const toggleContinuousLoop = async (active: boolean, intervalMins?: number) => {
     const targetMins = intervalMins !== undefined ? intervalMins : continuousInterval;
     try {
-      const res = await instanceFetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active, intervalMinutes: targetMins }),
@@ -558,7 +524,7 @@ export default function App() {
 
   const saveIntervalToServer = async (mins: number) => {
     try {
-      const res = await instanceFetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intervalMinutes: mins }),
@@ -577,7 +543,7 @@ export default function App() {
   const checkSystemHealth = async () => {
     setIsCheckingSystem(true);
     try {
-      const res = await instanceFetch(resolveUrl("/api/check-system"));
+      const res = await fetch(resolveUrl("/api/check-system"));
       if (res.ok) {
         const data = await res.json();
         setSystemCheckResult(data);
@@ -610,12 +576,12 @@ export default function App() {
   // Lazy Load Data lists based on Active Tab
   useEffect(() => {
     if (activeTab === "coins") {
-      instanceFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setCoinsList(Array.isArray(data) ? data : []))
         .catch(() => setCoinsList([]));
     } else if (activeTab === "comments" || activeTab === "reports") {
-      instanceFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => setMessagesList(Array.isArray(data) ? data : []))
         .catch(() => setMessagesList([]));
@@ -644,14 +610,20 @@ export default function App() {
   // Execute Endpoint Commands
   const runCommand = async (endpoint: string, pendingKey: keyof typeof isPending, bodyData?: any) => {
     setIsPending(prev => ({ ...prev, [pendingKey]: true }));
+    lastRequestTimestamp.current = Date.now(); // Invalidate any pending polls
     try {
       const options: RequestInit = { method: "POST" };
       if (bodyData !== undefined) {
         options.headers = { "Content-Type": "application/json" };
         options.body = JSON.stringify(bodyData);
       }
-      const res = await instanceFetch(resolveUrl(endpoint), options);
+      const res = await fetch(resolveUrl(endpoint), options);
       const data = await parseResponseJson(res, {});
+      if (data && data.error) {
+        showToast(data.error, "error");
+      }
+      // Set timestamp after execution to invalidate poll requests sent during command
+      lastRequestTimestamp.current = Date.now();
       if (endpoint.includes("stop-posting")) {
         setIsContinuousLoopActive(false);
         setNextCycleStartTime(null);
@@ -668,6 +640,30 @@ export default function App() {
         setFailedCount(0);
         setProgressIndex(0);
         setCurrentCoin("N/A");
+      }
+      if (endpoint.includes("fetch-trending") || endpoint.includes("generate-messages") || endpoint.includes("full-flow") || endpoint.includes("clear-all")) {
+        setTimeout(() => {
+          fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+            .then(r => (r.ok ? r.json() : []))
+            .then(data => {
+              const arr = Array.isArray(data) ? data : [];
+              setCoinsList(prev => {
+                if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+                return arr;
+              });
+            })
+            .catch(() => {});
+          fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+            .then(r => (r.ok ? r.json() : []))
+            .then(data => {
+              const arr = Array.isArray(data) ? data : [];
+              setMessagesList(prev => {
+                if (prev.length === arr.length && JSON.stringify(prev) === JSON.stringify(arr)) return prev;
+                return arr;
+              });
+            })
+            .catch(() => {});
+        }, 1000);
       }
       fetchStats();
       fetchLogs();
@@ -686,7 +682,7 @@ export default function App() {
     if (!sessionJson.trim()) return;
     setIsPending(prev => ({ ...prev, login: true }));
     try {
-      const res = await instanceFetch(resolveUrl("/api/save-session"), {
+      const res = await fetch(resolveUrl("/api/save-session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stateJson: sessionJson })
@@ -695,13 +691,14 @@ export default function App() {
         setSessionJson("");
         setShowSessionModal(false);
         fetchSessionDetails();
+        fetchProfiles();
         fetchStats();
       } else {
         const data = await parseResponseJson(res, { error: "Failed to parse session state JSON." });
-        showToast(data.error || "Failed to parse session state JSON.", "error");
+        alert(data.error || "Failed to parse session state JSON.");
       }
     } catch (error) {
-      showToast("Error saving session: " + (error as Error).message, "error");
+      alert("Error saving session: " + (error as Error).message);
     } finally {
       setIsPending(prev => ({ ...prev, login: false }));
     }
@@ -710,13 +707,13 @@ export default function App() {
   // Start credential-based login
   const handleStartLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      showToast("Please fill in both email and password.", "error");
+      alert("Please fill in both email and password.");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Initializing secure browser, navigating to CoinMarketCap and entering credentials...");
     try {
-      const res = await instanceFetch(resolveUrl("/api/start-login"), {
+      const res = await fetch(resolveUrl("/api/start-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
@@ -738,13 +735,13 @@ export default function App() {
   // Submit OTP / Verification code
   const handleSubmitOtp = async () => {
     if (!otpCode.trim() || otpCode.length < 4) {
-      showToast("Please enter a valid verification code.", "error");
+      alert("Please enter a valid verification code.");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Submitting 6-digit code and verifying active session, please wait...");
     try {
-      const res = await instanceFetch(resolveUrl("/api/submit-otp"), {
+      const res = await fetch(resolveUrl("/api/submit-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: otpCode })
@@ -766,7 +763,7 @@ export default function App() {
   // Cancel login sequence
   const handleCancelLogin = async () => {
     try {
-      await instanceFetch(resolveUrl("/api/cancel-login"), { method: "POST" });
+      await fetch(resolveUrl("/api/cancel-login"), { method: "POST" });
     } catch (_) {}
     setLoginStep("idle");
     setLoginStatusMessage("");
@@ -786,7 +783,7 @@ export default function App() {
   const handleRetrySingle = async (symbol: string) => {
     setIndividualLoading(prev => ({ ...prev, [symbol]: "retry" }));
     try {
-      const res = await instanceFetch(resolveUrl("/api/retry-single"), {
+      const res = await fetch(resolveUrl("/api/retry-single"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol })
@@ -796,10 +793,10 @@ export default function App() {
         fetchStats();
         fetchLogs();
       } else {
-        showToast(data.error || "Manual retry failed.", "error");
+        alert(data.error || "Manual retry failed.");
       }
     } catch (err) {
-      showToast("Network error: " + (err as Error).message, "error");
+      alert("Network error: " + (err as Error).message);
     } finally {
       setIndividualLoading(prev => ({ ...prev, [symbol]: null }));
     }
@@ -808,7 +805,7 @@ export default function App() {
   // Toggle runMode state
   const handleToggleRunMode = async (mode: string) => {
     try {
-      const res = await instanceFetch(resolveUrl("/api/set-run-mode"), {
+      const res = await fetch(resolveUrl("/api/set-run-mode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode })
@@ -880,32 +877,6 @@ export default function App() {
                 <Globe className="h-3 w-3" /> CG Public
               </span>
             )}
-          </div>
-
-          {/* WORKSPACE INSTANCE SELECTOR */}
-          <div className="flex items-center gap-2 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-xs">
-            <span className="text-slate-400 font-mono pl-1 flex items-center gap-1">
-              <Layers className="h-3.5 w-3.5 text-emerald-400" />
-              Workspace:
-            </span>
-            <select
-              value={instanceId}
-              onChange={(e) => setInstanceId(e.target.value)}
-              className="bg-transparent text-white font-bold py-0.5 px-1 border-0 outline-none cursor-pointer focus:ring-0 text-xs"
-            >
-              {instancesList.map((id) => (
-                <option key={id} value={id} className="bg-slate-900 text-white font-semibold">
-                  {id === "default" ? "DEFAULT" : id.toUpperCase()}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => setShowInstanceModal(true)}
-              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded transition duration-200"
-              title="Manage Workspaces"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
           </div>
 
           <button
@@ -1152,8 +1123,14 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => runCommand("/api/fetch-trending", "fetch")}
-                  disabled={isPending.fetch || isBusy || isContinuousLoopActive}
+                  onClick={async () => {
+                    if (coinsList.length > 0) {
+                      setShowConfirmFetchModal(true);
+                    } else {
+                      await runCommand("/api/fetch-trending", "fetch");
+                    }
+                  }}
+                  disabled={isPending.fetch || isPending.clear || isBusy || isContinuousLoopActive}
                   className="w-full text-left p-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between group disabled:opacity-50"
                   id="btn-fetch"
                 >
@@ -1174,8 +1151,18 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => runCommand("/api/generate-messages", "generate")}
-                  disabled={isPending.generate || isBusy || isContinuousLoopActive || totalCoins === 0}
+                  onClick={async () => {
+                    if (coinsList.length === 0) {
+                      showToast("Cannot generate comments: Trending coins list is empty. Please fetch trending data first.", "error");
+                      return;
+                    }
+                    if (messagesList.length > 0) {
+                      setShowConfirmGenerateModal(true);
+                    } else {
+                      await runCommand("/api/generate-messages", "generate");
+                    }
+                  }}
+                  disabled={isPending.generate || isBusy || isContinuousLoopActive}
                   className="w-full text-left p-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between group disabled:opacity-50"
                   id="btn-generate"
                 >
@@ -1195,22 +1182,49 @@ export default function App() {
                   )}
                 </button>
 
-                {(status === "Posting" || status === "Fetching" || status === "Generating" || isContinuousLoopActive) ? (
+                {(status === "Posting" || isContinuousLoopActive) ? (
                   <button
                     onClick={() => runCommand("/api/stop-posting", "post")}
-                    className="w-full p-3.5 rounded-xl bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-400 hover:text-red-300 transition flex items-center justify-center gap-2.5 font-semibold text-sm cursor-pointer animate-pulse"
+                    disabled={isPending.post}
+                    className="w-full p-3.5 rounded-xl bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-400 hover:text-red-300 transition flex items-center justify-center gap-2.5 font-semibold text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     id="btn-pause"
                   >
-                    <Pause className="h-4.5 w-4.5" /> Stop posting sequence
+                    {isPending.post ? (
+                      <>
+                        <RefreshCw className="h-4.5 w-4.5 animate-spin" /> Stopping...
+                      </>
+                    ) : (
+                      <>
+                        <Pause className="h-4.5 w-4.5" /> Stop posting sequence
+                      </>
+                    )}
                   </button>
                 ) : (
                   <button
-                    onClick={() => runCommand("/api/post-chat", "post")}
-                    disabled={isPending.post || isBusy || isContinuousLoopActive || generatedCount === 0}
+                    onClick={async () => {
+                      if (coinsList.length === 0) {
+                        showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
+                        return;
+                      }
+                      if (messagesList.length === 0) {
+                        showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
+                        return;
+                      }
+                      await runCommand("/api/post-chat", "post");
+                    }}
+                    disabled={isPending.post || isBusy || isContinuousLoopActive}
                     className="w-full p-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition flex items-center justify-center gap-2.5 font-bold text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     id="btn-start"
                   >
-                    <Play className="h-4.5 w-4.5 fill-slate-950" /> Start posting sequence
+                    {isPending.post ? (
+                      <>
+                        <RefreshCw className="h-4.5 w-4.5 animate-spin text-slate-950" /> Starting...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4.5 w-4.5 fill-slate-950" /> Start posting sequence
+                      </>
+                    )}
                   </button>
                 )}
               </div>
@@ -1375,7 +1389,7 @@ export default function App() {
                 <div className="space-y-2">
                   <button
                     onClick={() => setShowSessionModal(true)}
-                    disabled={isBusy}
+                    disabled={isBusy || isContinuousLoopActive}
                     className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition flex items-center justify-center gap-2 font-semibold text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Upload className="h-3.5 w-3.5" /> Configure Cookie Session
@@ -1384,7 +1398,7 @@ export default function App() {
                   {sessionExists && (
                     <button
                       onClick={() => runCommand("/api/clear-session", "login")}
-                      disabled={isBusy}
+                      disabled={isBusy || isContinuousLoopActive}
                       className="w-full py-2 px-4 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/10 transition flex items-center justify-center gap-2 font-medium text-[11px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Delete auth/state.json
@@ -1513,7 +1527,8 @@ export default function App() {
                 </h2>
                 <button
                   onClick={() => runCommand("/api/clear-all", "clear")}
-                  className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition"
+                  disabled={isPending.clear || isBusy || isContinuousLoopActive}
+                  className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500"
                   title="Clear console"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -1646,77 +1661,106 @@ export default function App() {
             
             {/* TAB 1: COINS LIST */}
             {activeTab === "coins" && (
-              <div className="overflow-x-auto rounded-xl border border-slate-850">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-850 font-mono">
-                    <tr>
-                      <th className="py-3 px-4">Rank</th>
-                      <th className="py-3 px-4">Slug / Asset</th>
-                      <th className="py-3 px-4">Price</th>
-                      <th className="py-3 px-4">1h Change</th>
-                      <th className="py-3 px-4">24h Change</th>
-                      <th className="py-3 px-4">7d Change</th>
-                      <th className="py-3 px-4">Market Cap</th>
-                      <th className="py-3 px-4">24h Volume</th>
-                      <th className="py-3 px-4 text-right">Interactive link</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-850/60 bg-slate-900/40">
-                    {coinsList.length === 0 ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-850">
+                  <span className="text-xs text-slate-400 font-mono">
+                    Showing {coinsList.length} trending assets for the active profile
+                  </span>
+                  <button
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshingData}
+                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                    Refresh Coins
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-850">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-850 font-mono">
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-500 italic">
-                          No coin data present in storage. Trigger "Fetch Trending" to populate!
-                        </td>
+                        <th className="py-3 px-4">Rank</th>
+                        <th className="py-3 px-4">Slug / Asset</th>
+                        <th className="py-3 px-4">Price</th>
+                        <th className="py-3 px-4">1h Change</th>
+                        <th className="py-3 px-4">24h Change</th>
+                        <th className="py-3 px-4">7d Change</th>
+                        <th className="py-3 px-4">Market Cap</th>
+                        <th className="py-3 px-4">24h Volume</th>
+                        <th className="py-3 px-4 text-right">Interactive link</th>
                       </tr>
-                    ) : (
-                      coinsList.map((coin, index) => (
-                        <tr key={index} className="hover:bg-slate-800/20 transition-all">
-                          <td className="py-3.5 px-4 font-mono font-semibold text-slate-400">
-                            #{coin.cmc_rank || index + 1}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-white leading-none">{coin.name}</div>
-                            <span className="text-[10px] font-mono text-slate-500 tracking-wide uppercase">{coin.symbol}</span>
-                          </td>
-                          <td className="py-3.5 px-4 font-mono font-medium text-slate-200">
-                            ${coin.price >= 1 ? coin.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : coin.price.toFixed(6)}
-                          </td>
-                          <td className={`py-3.5 px-4 font-mono font-semibold ${
-                            (coin.change_1h || 0) >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}>
-                            {(coin.change_1h || 0) >= 0 ? "+" : ""}{(coin.change_1h || 0).toFixed(2)}%
-                          </td>
-                          <td className={`py-3.5 px-4 font-mono font-semibold ${
-                            coin.change_24h >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}>
-                            {coin.change_24h >= 0 ? "+" : ""}{coin.change_24h.toFixed(2)}%
-                          </td>
-                          <td className={`py-3.5 px-4 font-mono font-semibold ${
-                            (coin.change_7d || 0) >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}>
-                            {(coin.change_7d || 0) >= 0 ? "+" : ""}{(coin.change_7d || 0).toFixed(2)}%
-                          </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-300">
-                            ${coin.market_cap.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-300">
-                            ${coin.volume_24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <a
-                              href={coin.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-emerald-400 hover:text-emerald-300 hover:underline inline-flex items-center gap-1 font-semibold"
-                            >
-                              Open Market <ChevronRight className="h-3 w-3" />
-                            </a>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850/60 bg-slate-900/40">
+                      {coinsList.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-12 px-4 text-center text-slate-400">
+                            <div className="space-y-3 max-w-md mx-auto">
+                              <p className="text-slate-500 font-medium">No trending coins found in storage for this profile.</p>
+                              <p className="text-[11px] text-slate-400">
+                                If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Coins"</strong> above, or trigger <strong>"Fetch Trending"</strong> in the Control Center to populate.
+                              </p>
+                              <button
+                                onClick={handleManualRefresh}
+                                disabled={isRefreshingData}
+                                className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                                Refresh Now
+                              </button>
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        coinsList.map((coin, index) => (
+                          <tr key={index} className="hover:bg-slate-800/20 transition-all">
+                            <td className="py-3.5 px-4 font-mono font-semibold text-slate-400">
+                              #{coin.cmc_rank || index + 1}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="font-bold text-white leading-none">{coin.name}</div>
+                              <span className="text-[10px] font-mono text-slate-500 tracking-wide uppercase">{coin.symbol}</span>
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-medium text-slate-200">
+                              ${coin.price >= 1 ? coin.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : coin.price.toFixed(6)}
+                            </td>
+                            <td className={`py-3.5 px-4 font-mono font-semibold ${
+                              (coin.change_1h || 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}>
+                              {(coin.change_1h || 0) >= 0 ? "+" : ""}{(coin.change_1h || 0).toFixed(2)}%
+                            </td>
+                            <td className={`py-3.5 px-4 font-mono font-semibold ${
+                              coin.change_24h >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}>
+                              {coin.change_24h >= 0 ? "+" : ""}{coin.change_24h.toFixed(2)}%
+                            </td>
+                            <td className={`py-3.5 px-4 font-mono font-semibold ${
+                              (coin.change_7d || 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}>
+                              {(coin.change_7d || 0) >= 0 ? "+" : ""}{(coin.change_7d || 0).toFixed(2)}%
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-slate-300">
+                              ${coin.market_cap.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-slate-300">
+                              ${coin.volume_24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <a
+                                href={coin.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-emerald-400 hover:text-emerald-300 hover:underline inline-flex items-center gap-1 font-semibold"
+                              >
+                                Open Market <ChevronRight className="h-3 w-3" />
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -1725,13 +1769,44 @@ export default function App() {
               const pendingCoins = messagesList.filter(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
               const failedCoins = messagesList.filter(msgItem => results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase() && r.status !== "success"));
               return (
-                <div className="space-y-8">
-                  {/* Active Automated Posting Queue */}
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                      Active Automated Posting Queue ({pendingCoins.length} coins pending)
-                    </h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-850">
+                    <span className="text-xs text-slate-400 font-mono">
+                      Showing {messagesList.length} generated comments ({pendingCoins.length} pending, {failedCoins.length} failed)
+                    </span>
+                    <button
+                      onClick={handleManualRefresh}
+                      disabled={isRefreshingData}
+                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                      Refresh Comments
+                    </button>
+                  </div>
+
+                  {messagesList.length === 0 ? (
+                    <div className="p-12 bg-slate-950/60 border border-slate-850 rounded-2xl text-center text-slate-400 space-y-3">
+                      <div className="text-slate-500 font-medium">No generated comments found in storage for this profile.</div>
+                      <div className="text-xs text-slate-400 max-w-md mx-auto">
+                        Comments must be generated before they can be posted. If you recently switched profiles or expect data, click the <strong className="text-emerald-400">"Refresh Comments"</strong> button above, or trigger <strong className="text-purple-400">"Generate Comments"</strong> in the Control Center.
+                      </div>
+                      <button
+                        onClick={handleManualRefresh}
+                        disabled={isRefreshingData}
+                        className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                        Refresh Now
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-8">
+                      {/* Active Automated Posting Queue */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                          Active Automated Posting Queue ({pendingCoins.length} coins pending)
+                        </h3>
                     <div className="overflow-x-auto rounded-xl border border-slate-850">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-850 font-mono">
@@ -1883,32 +1958,62 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              );
-            })()}
+              )}
+            </div>
+          );
+        })()}
 
             {/* TAB 3: SUBMISSION RESULTS */}
             {activeTab === "results" && (
-              <div className="overflow-x-auto rounded-xl border border-slate-850">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-850 font-mono">
-                    <tr>
-                      <th className="py-3 px-4">Time</th>
-                      <th className="py-3 px-4">Asset</th>
-                      <th className="py-3 px-4">Sentiment</th>
-                      <th className="py-3 px-4">Log Status</th>
-                      <th className="py-3 px-4">Execution Message / Details</th>
-                      <th className="py-3 px-4 text-center">Interactive Controls</th>
-                      <th className="py-3 px-4 text-right">Target Link</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-850/60 bg-slate-900/40">
-                    {messagesList.length === 0 ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-850">
+                  <span className="text-xs text-slate-400 font-mono">
+                    Showing submission history and queue status ({results.length} posted results)
+                  </span>
+                  <button
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshingData}
+                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                    Refresh Submissions
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-850">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-850 font-mono">
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-500 italic">
-                          No generated comments found. Trigger "Generate Comments" or "Full automated cycle" above!
-                        </td>
+                        <th className="py-3 px-4">Time</th>
+                        <th className="py-3 px-4">Asset</th>
+                        <th className="py-3 px-4">Sentiment</th>
+                        <th className="py-3 px-4">Log Status</th>
+                        <th className="py-3 px-4">Execution Message / Details</th>
+                        <th className="py-3 px-4 text-center">Interactive Controls</th>
+                        <th className="py-3 px-4 text-right">Target Link</th>
                       </tr>
-                    ) : (() => {
+                    </thead>
+                    <tbody className="divide-y divide-slate-850/60 bg-slate-900/40">
+                      {messagesList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
+                            <div className="space-y-3 max-w-md mx-auto">
+                              <p className="text-slate-500 font-medium">No generated comments or submissions found for this profile.</p>
+                              <p className="text-[11px] text-slate-400">
+                                If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> or <strong>"Full Cycle"</strong> in the Control Center to populate.
+                              </p>
+                              <button
+                                onClick={handleManualRefresh}
+                                disabled={isRefreshingData}
+                                className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                                Refresh Now
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (() => {
                       const pendingItems = messagesList.filter(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
                       return messagesList.map((msgItem, index) => {
                         const item = results.find(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
@@ -2003,11 +2108,27 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
-            )}
+            </div>
+          )}
 
             {/* TAB 4: CSV EXPORTS & REPORTS */}
             {activeTab === "reports" && (
-              <div className="space-y-8">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-850">
+                  <span className="text-xs text-slate-400 font-mono">
+                    Download analytical reports and raw data sheets for external use
+                  </span>
+                  <button
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshingData}
+                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                    Refresh Reports
+                  </button>
+                </div>
+
+                <div className="space-y-8">
                 {/* 4.1. CSV Exporters Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   
@@ -2212,7 +2333,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
           </div>
         </section>
@@ -2223,112 +2345,6 @@ export default function App() {
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <p className="tracking-wide">CoinMarketCap Automated Community Bot Control Panel © 2026. All rights reserved.</p>
       </footer>
-
-      {/* MODAL: WORKSPACE MANAGER */}
-      {showInstanceModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
-            
-            {/* Header */}
-            <div className="p-5 pb-3 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
-                  <Layers className="h-4 w-4" />
-                </span>
-                <h3 className="font-bold text-white text-sm">
-                  Workspace Instance Manager
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowInstanceModal(false)}
-                className="text-slate-400 hover:text-white transition font-bold font-mono text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Workspaces allow multiple instances of the bot to run concurrently. Each workspace preserves its own browser cookies, account profile configurations, generated comments, posting states, and loop intervals completely independently.
-              </p>
-
-              {/* Workspace List */}
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                {instancesList.map((id) => (
-                  <div
-                    key={id}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition ${
-                      id === instanceId
-                        ? "bg-emerald-500/10 border-emerald-500/30 text-white"
-                        : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${id === instanceId ? "bg-emerald-500" : "bg-slate-600"}`} />
-                      <span className="font-semibold text-sm">
-                        {id === "default" ? "Default Workspace" : id.toUpperCase()}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {id !== instanceId && (
-                        <button
-                          onClick={() => setInstanceId(id)}
-                          className="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition"
-                        >
-                          Switch
-                        </button>
-                      )}
-                      {id !== "default" && (
-                        <button
-                          onClick={() => deleteInstance(id)}
-                          className="p-1 text-slate-400 hover:text-red-400 hover:bg-slate-900 rounded transition"
-                          title="Delete Workspace state"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Create Workspace Form */}
-              <div className="pt-3 border-t border-slate-800">
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">
-                  Create New Custom Workspace
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newInstanceName}
-                    onChange={(e) => setNewInstanceName(e.target.value)}
-                    placeholder="e.g. Account2, Client_B"
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/60"
-                  />
-                  <button
-                    onClick={() => createInstance(newInstanceName)}
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-sm font-bold rounded-xl transition shadow-lg shadow-emerald-500/10"
-                  >
-                    Create
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800/80 flex justify-end">
-              <button
-                onClick={() => setShowInstanceModal(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition"
-              >
-                Close Manager
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL: PASTE COOKIE SESSION OR LOGIN */}
       {showSessionModal && (
@@ -2360,7 +2376,8 @@ export default function App() {
             <div className="px-5 pt-3 flex gap-4 border-b border-slate-800 bg-slate-950/20">
               <button
                 onClick={() => setLoginTab("credentials")}
-                className={`pb-3 text-xs font-bold transition-all relative ${
+                disabled={isBusy || isContinuousLoopActive}
+                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed ${
                   loginTab === "credentials" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -2368,7 +2385,8 @@ export default function App() {
               </button>
               <button
                 onClick={() => setLoginTab("cookies")}
-                className={`pb-3 text-xs font-bold transition-all relative ${
+                disabled={isBusy || isContinuousLoopActive}
+                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed ${
                   loginTab === "cookies" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -2376,7 +2394,8 @@ export default function App() {
               </button>
               <button
                 onClick={() => setLoginTab("profiles")}
-                className={`pb-3 text-xs font-bold transition-all relative ${
+                disabled={isBusy || isContinuousLoopActive}
+                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed ${
                   loginTab === "profiles" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -2540,9 +2559,10 @@ export default function App() {
                     <textarea
                       rows={8}
                       value={sessionJson}
+                      disabled={isBusy || isContinuousLoopActive}
                       onChange={(e) => setSessionJson(e.target.value)}
                       placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
-                      className="w-full bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700"
+                      className="w-full bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -2550,29 +2570,37 @@ export default function App() {
 
               {loginTab === "profiles" && (
                 <div className="space-y-4 text-xs text-slate-300">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <p className="text-[11px] text-slate-400">
-                      Save multiple CoinMarketCap accounts and easily swap between them. Different users can use their own profiles.
+                      Save up to 5 CoinMarketCap account profiles and swap between them seamlessly. Delete one first if you need to add an extra profile.
                     </p>
                     <button
-                      onClick={() => setShowProfileAddForm(!showProfileAddForm)}
-                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1"
+                      onClick={() => {
+                        if (!showProfileAddForm && profilesList.length >= 5) {
+                          showToast("Maximum of 5 profiles allowed. Please delete one first.", "error");
+                        } else {
+                          setShowProfileAddForm(!showProfileAddForm);
+                        }
+                      }}
+                      disabled={isBusy || isContinuousLoopActive}
+                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1 flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {showProfileAddForm ? "✕ Close Form" : "➕ Add Account Profile"}
                     </button>
                   </div>
 
                   {showProfileAddForm && (
-                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3.5">
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3.5 opacity-[0.99]">
                       <h4 className="font-bold text-white text-[11px] uppercase tracking-wider">New Account Profile</h4>
                       <div className="space-y-1.5">
                         <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Profile Name / Owner</label>
                         <input
                           type="text"
                           value={newProfileName}
+                          disabled={isBusy || isContinuousLoopActive}
                           onChange={(e) => setNewProfileName(e.target.value)}
                           placeholder="e.g. Anup Main Account, Vineet Bot"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-xs"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -2580,14 +2608,16 @@ export default function App() {
                         <textarea
                           rows={4}
                           value={newProfileJson}
+                          disabled={isBusy || isContinuousLoopActive}
                           onChange={(e) => setNewProfileJson(e.target.value)}
                           placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                       </div>
                       <button
                         onClick={() => handleSaveProfile(newProfileName, newProfileJson)}
-                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs"
+                        disabled={isBusy || isContinuousLoopActive}
+                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Save Account Profile
                       </button>
@@ -2612,11 +2642,27 @@ export default function App() {
                             }`}
                           >
                             <div className="space-y-1 pr-4 min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-bold text-white text-xs truncate">{p.name}</span>
                                 {p.isActive && (
                                   <span className="bg-emerald-500/15 text-emerald-400 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
                                     Active
+                                  </span>
+                                )}
+                                {p.loginStatus === "logged_in" ? (
+                                  <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                    Logged In
+                                  </span>
+                                ) : p.loginStatus === "expired" ? (
+                                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                                    Logged Out
+                                  </span>
+                                ) : (
+                                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                                    Unverified
                                   </span>
                                 )}
                               </div>
@@ -2628,7 +2674,8 @@ export default function App() {
                               {!p.isActive && (
                                 <button
                                   onClick={() => handleActivateProfile(p.id)}
-                                  className="py-1 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold rounded-lg transition"
+                                  disabled={isBusy || isContinuousLoopActive}
+                                  className="py-1 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   Activate
                                 </button>
@@ -2649,7 +2696,8 @@ export default function App() {
                                       handleDeleteProfile(p.id);
                                       setDeletingId(null);
                                     }}
-                                    className="py-1 px-2.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+                                    disabled={isBusy || isContinuousLoopActive}
+                                    className="py-1 px-2.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     Confirm
                                   </button>
@@ -2663,7 +2711,8 @@ export default function App() {
                               ) : (
                                 <button
                                   onClick={() => setDeletingId(p.id)}
-                                  className="py-1 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium rounded-lg border border-rose-500/10 transition cursor-pointer"
+                                  disabled={isBusy || isContinuousLoopActive}
+                                  className="py-1 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium rounded-lg border border-rose-500/10 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   Delete
                                 </button>
@@ -2725,6 +2774,83 @@ export default function App() {
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM FETCH COINS MODAL */}
+      {showConfirmFetchModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col justify-between p-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <span className="p-3 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 flex-shrink-0">
+                <AlertTriangle className="h-6 w-6" />
+              </span>
+              <div className="space-y-1.5 flex-1">
+                <h3 className="font-bold text-white text-base">
+                  Refetch Trending Coins?
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Trending coins have already been fetched. Refetching will clear current trending data, reset generated comments, and clear posting statistics first.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmFetchModal(false)}
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowConfirmFetchModal(false);
+                  await runCommand("/api/clear-all", "clear");
+                  await runCommand("/api/fetch-trending", "fetch");
+                }}
+                className="py-2 px-5 bg-blue-500 hover:bg-blue-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Yes, Reset & Fetch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM GENERATE COMMENTS MODAL */}
+      {showConfirmGenerateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col justify-between p-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <span className="p-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 flex-shrink-0">
+                <BookOpen className="h-6 w-6" />
+              </span>
+              <div className="space-y-1.5 flex-1">
+                <h3 className="font-bold text-white text-base">
+                  Regenerate Comments?
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Comments have already been generated. Regenerating will overwrite existing comments and reset your current posting sequence progress.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmGenerateModal(false)}
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowConfirmGenerateModal(false);
+                  await runCommand("/api/generate-messages", "generate");
+                }}
+                className="py-2 px-5 bg-purple-500 hover:bg-purple-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Yes, Regenerate
+              </button>
+            </div>
           </div>
         </div>
       )}
