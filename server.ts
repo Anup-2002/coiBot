@@ -95,6 +95,12 @@ app.use(express.json({ limit: "50mb" }));
 
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", async (req, res) => {
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  if (!activeId || !sessionExists) {
+    return res.json([]);
+  }
+
   try {
     await syncLocalFromCloudIfStale();
   } catch (err) {
@@ -107,6 +113,12 @@ app.get("/output/last_trending.json", async (req, res) => {
 });
 
 app.get("/output/generated_messages.json", async (req, res) => {
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  if (!activeId || !sessionExists) {
+    return res.json([]);
+  }
+
   try {
     await syncLocalFromCloudIfStale();
   } catch (err) {
@@ -413,6 +425,9 @@ let currentPostingIndex = 0;
 let isPostingRunning = false;
 let isGeneratingRunning = false;
 const runMode = "Real Browser";
+
+let lastOpenAiError: string | null = null;
+let lastGeminiError: string | null = null;
 
 let isContinuousLoopActive = false;
 let isFullFlowAborted = false;
@@ -2614,14 +2629,41 @@ app.post("/api/delete-profile", async (req, res) => {
 
 // 4. Status endpoint
 app.get("/api/status", async (req, res) => {
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+
+  if (!activeId || !sessionExists) {
+    return res.json({
+      status: "Idle",
+      loginState: { status: "idle", message: "" },
+      runMode,
+      totalCoins: 0,
+      generatedMessages: 0,
+      postedCount: 0,
+      failedCount: 0,
+      results: [],
+      progressIndex: 0,
+      currentCoin: "N/A",
+      sessionStatus: "Session expired / Not found",
+      apiStatus: {
+        openai: isOpenAiConfigured,
+        gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        cmc: isCmcConfigured,
+        openaiError: lastOpenAiError,
+        geminiError: lastGeminiError,
+      },
+      isContinuousLoopActive: false,
+      nextCycleStartTime: null,
+      continuousLoopIntervalMinutes,
+    });
+  }
+
   await syncLocalFromCloudIfStale();
 
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
   const progress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
-
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
 
   res.json({
     status: botStatus,
@@ -2634,10 +2676,13 @@ app.get("/api/status", async (req, res) => {
     results,
     progressIndex: progress.next_index,
     currentCoin: currentCoinName,
-    sessionStatus: sessionExists ? "Session active" : "Session expired / Not found",
+    sessionStatus: "Session active",
     apiStatus: {
       openai: isOpenAiConfigured,
+      gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
       cmc: isCmcConfigured,
+      openaiError: lastOpenAiError,
+      geminiError: lastGeminiError,
     },
     isContinuousLoopActive,
     nextCycleStartTime,
@@ -3322,6 +3367,7 @@ async function executeGenerateMessages(): Promise<number> {
 
   if (process.env.OPENAI_API_KEY) {
     try {
+      lastOpenAiError = null; // Reset previous error if we have a key and are trying again
       const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
       addLog("info", "Initializing OpenAI SDK with gpt-4o-mini...");
       const openai = new OpenAI({
@@ -3390,7 +3436,9 @@ async function executeGenerateMessages(): Promise<number> {
         }
       }
     } catch (apiError) {
-      addLog("error", `OpenAI API Call failed: ${(apiError as Error).message}.`);
+      const errMsg = (apiError as Error).message;
+      addLog("error", `OpenAI API Call failed: ${errMsg}.`);
+      lastOpenAiError = errMsg;
       openAiFailed = true;
     }
   }
@@ -3400,6 +3448,7 @@ async function executeGenerateMessages(): Promise<number> {
 
   if ((!process.env.OPENAI_API_KEY || openAiFailed) && geminiKey) {
     try {
+      lastGeminiError = null; // Reset previous error if we have a key and are trying again
       addLog("info", "Using Gemini API (gemini-3.5-flash) as the primary AI fallback...");
       const ai = new GoogleGenAI({
         apiKey: geminiKey,
@@ -3490,7 +3539,9 @@ async function executeGenerateMessages(): Promise<number> {
         }
       }
     } catch (geminiError) {
-      addLog("error", `Gemini API Call failed: ${(geminiError as Error).message}.`);
+      const errMsg = (geminiError as Error).message;
+      addLog("error", `Gemini API Call failed: ${errMsg}.`);
+      lastGeminiError = errMsg;
       geminiFailed = true;
     }
   }
@@ -3999,7 +4050,9 @@ app.get("/api/logs", (req, res) => {
 // CSV DOWNLOAD EXPORTERS
 // ============================================================================
 app.get("/api/download/trending_coins.csv", (req, res) => {
-  const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   let csv = "Name,Symbol,Price,Change_1h,Change_24h,Change_7d,Market_Cap,Volume_24h,Rank,Slug,Url\n";
   coins.forEach(c => {
     csv += `"${c.name}","${c.symbol}",${c.price},${c.change_1h || 0},${c.change_24h},${c.change_7d || 0},${c.market_cap},${c.volume_24h},${c.cmc_rank || ""},"${c.slug}","${c.url}"\n`;
@@ -4010,7 +4063,9 @@ app.get("/api/download/trending_coins.csv", (req, res) => {
 });
 
 app.get("/api/download/generated_comments.csv", (req, res) => {
-  const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   let csv = "Asset Name,Symbol,Sentiment,Generated Comment,Target URL\n";
   messages.forEach(m => {
     const cleanMsg = (m.message || "").replace(/"/g, '""').replace(/\n/g, ' ');
@@ -4022,7 +4077,9 @@ app.get("/api/download/generated_comments.csv", (req, res) => {
 });
 
 app.get("/api/download/post_submissions.csv", (req, res) => {
-  const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const results = (!activeId || !sessionExists) ? [] : readJsonFile<PostResult[]>(RESULTS_FILE, []);
   let csv = "Timestamp,Asset Name,Symbol,Sentiment,Post Status,Log Message,Target URL\n";
   results.forEach(r => {
     const cleanMsg = (r.message || "").replace(/"/g, '""').replace(/\n/g, ' ');
@@ -4034,9 +4091,11 @@ app.get("/api/download/post_submissions.csv", (req, res) => {
 });
 
 app.get("/api/download/overall_report.csv", (req, res) => {
-  const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
-  const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-  const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const results = (!activeId || !sessionExists) ? [] : readJsonFile<PostResult[]>(RESULTS_FILE, []);
   const successCount = results.filter(r => r.status === "success").length;
   const failedCount = results.filter(r => r.status !== "success").length;
   const successRate = results.length > 0 ? ((successCount / results.length) * 100).toFixed(1) : "0.0";

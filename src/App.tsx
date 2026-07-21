@@ -98,7 +98,13 @@ export default function App() {
   const [progressIndex, setProgressIndex] = useState<number>(0);
   const [currentCoin, setCurrentCoin] = useState<string>("N/A");
   const [sessionStatus, setSessionStatus] = useState<string>("Not Checked");
-  const [apiStatus, setApiStatus] = useState({ openai: false, cmc: false });
+  const [apiStatus, setApiStatus] = useState<{
+    openai: boolean;
+    gemini: boolean;
+    cmc: boolean;
+    openaiError?: string | null;
+    geminiError?: string | null;
+  }>({ openai: false, gemini: false, cmc: false, openaiError: null, geminiError: null });
   const [isContinuousLoopActive, setIsContinuousLoopActive] = useState<boolean>(false);
   const [nextCycleStartTime, setNextCycleStartTime] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -354,7 +360,7 @@ export default function App() {
         });
       }
     } catch (e) {
-      console.error("Error fetching profiles:", e);
+      console.warn("Could not fetch profiles (transient network check):", (e as Error).message);
     }
   };
 
@@ -461,7 +467,7 @@ export default function App() {
         setSessionStatus(data.sessionStatus || "Not Checked");
         const apiStat = data.apiStatus || { openai: false, cmc: false };
         setApiStatus(prev => {
-          if (prev.openai === apiStat.openai && prev.cmc === apiStat.cmc) return prev;
+          if (JSON.stringify(prev) === JSON.stringify(apiStat)) return prev;
           return apiStat;
         });
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
@@ -1485,7 +1491,7 @@ export default function App() {
           </section>
 
           {/* SECRETS DIRECTORY GRID (3 cols) */}
-          <section className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+          <section className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between animate-fade-in">
             <div>
               <h2 className="font-bold text-white tracking-tight flex items-center gap-2 mb-4">
                 <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
@@ -1495,18 +1501,68 @@ export default function App() {
               </h2>
 
               <div className="space-y-3.5">
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-mono text-slate-500 block uppercase">Variable name</span>
-                    <span className="text-xs font-semibold text-slate-200 font-mono">OPENAI_API_KEY</span>
+                {/* OpenAI Block */}
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-500 block uppercase">Variable name</span>
+                      <span className="text-xs font-semibold text-slate-200 font-mono">OPENAI_API_KEY</span>
+                    </div>
+                    {apiStatus.openaiError ? (
+                      <span className="text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                        Quota Limit
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] px-2.5 py-1 rounded font-bold uppercase tracking-wider ${
+                        apiStatus.openai ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-slate-800 text-slate-500 border border-slate-750"
+                      }`}>
+                        {apiStatus.openai ? "Active" : "Unset"}
+                      </span>
+                    )}
                   </div>
-                  <span className={`text-[10px] px-2.5 py-1 rounded font-bold uppercase tracking-wider ${
-                    apiStatus.openai ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-slate-800 text-slate-500 border border-slate-750"
-                  }`}>
-                    {apiStatus.openai ? "Active" : "Unset"}
-                  </span>
+                  {apiStatus.openaiError && (
+                    <div className="text-[10px] bg-rose-950/30 text-rose-300 p-2 rounded-lg border border-rose-500/15 leading-relaxed">
+                      <p className="font-semibold text-rose-400 mb-0.5">Error Details:</p>
+                      <p className="font-mono text-[9px] break-words">{apiStatus.openaiError}</p>
+                      <p className="text-slate-400 mt-1">💡 <strong className="text-slate-300">Fix:</strong> Your OpenAI account has exceeded its current budget or has no credits left. Upgrade plan or top-up credit.</p>
+                    </div>
+                  )}
                 </div>
 
+                {/* Gemini Block */}
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-500 block uppercase">Variable name</span>
+                      <span className="text-xs font-semibold text-slate-200 font-mono">GEMINI_API_KEY</span>
+                    </div>
+                    {apiStatus.geminiError ? (
+                      <span className="text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                        Key Leaked
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] px-2.5 py-1 rounded font-bold uppercase tracking-wider ${
+                        apiStatus.gemini ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-slate-800 text-slate-500 border border-slate-750"
+                      }`}>
+                        {apiStatus.gemini ? "Active" : "Unset"}
+                      </span>
+                    )}
+                  </div>
+                  {apiStatus.geminiError && (
+                    <div className="text-[10px] bg-rose-950/30 text-rose-300 p-2 rounded-lg border border-rose-500/15 leading-relaxed">
+                      <p className="font-semibold text-rose-400 mb-0.5">Error Details:</p>
+                      <p className="font-mono text-[9px] break-words">{apiStatus.geminiError}</p>
+                      <p className="text-slate-400 mt-1">💡 <strong className="text-slate-300">Fix:</strong> Google automatically revoked this key because it was flagged as leaked/compromised. Please generate a new key on Google AI Studio.</p>
+                    </div>
+                  )}
+                  {(!apiStatus.openai || apiStatus.openaiError) && !apiStatus.geminiError && (
+                    <div className="text-[10px] bg-blue-950/20 text-blue-300 p-2 rounded-lg border border-blue-500/10 leading-relaxed">
+                      <p className="text-slate-400">💡 <strong className="text-slate-300">Note:</strong> Gemini is used as the primary fallback when OpenAI is unavailable.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* CoinMarketCap Block */}
                 <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-mono text-slate-500 block uppercase">Variable name</span>
