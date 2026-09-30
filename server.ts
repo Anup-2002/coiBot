@@ -2920,6 +2920,52 @@ app.get("/api/check-system", async (req, res) => {
   }
 });
 
+// 4.7. Full Environment & Configuration Verification Endpoint
+app.get("/api/verify-env", (req, res) => {
+  const hasOpenAi = !!process.env.OPENAI_API_KEY;
+  const hasGemini = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const hasCmc = !!process.env.CMC_API_KEY;
+  const hasFirebaseConfig = !!(process.env.FIREBASE_CONFIG || process.env.FIREBASE_API_KEY || fs.existsSync(path.join(process.cwd(), "firebase-applet-config.json")));
+  const hasMongo = !!process.env.MONGO_URI;
+  const hasAuthState = !!(process.env.AUTH_STATE_JSON || (fs.existsSync(AUTH_STATE_FILE) && fs.statSync(AUTH_STATE_FILE).size > 100));
+
+  res.json({
+    status: "ok",
+    nodeEnv: process.env.NODE_ENV || "development",
+    port: PORT,
+    playwrightBrowsersPath: process.env.PLAYWRIGHT_BROWSERS_PATH || "default",
+    aiProviders: {
+      openai: {
+        configured: hasOpenAi,
+        maskedKey: hasOpenAi ? `${process.env.OPENAI_API_KEY!.slice(0, 7)}...${process.env.OPENAI_API_KEY!.slice(-4)}` : null,
+        model: "gpt-4o-mini"
+      },
+      gemini: {
+        configured: hasGemini,
+        maskedKey: hasGemini ? `${(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!.slice(0, 6)}...` : null,
+        model: "gemini-3.5-flash"
+      },
+      activeAiModel: hasOpenAi ? "OpenAI (gpt-4o-mini)" : hasGemini ? "Gemini (gemini-3.5-flash)" : "Rule-based templates (No AI Key)"
+    },
+    dataSources: {
+      coinMarketCapApi: {
+        configured: hasCmc,
+        mode: hasCmc ? "Pro API" : "Free Public Community Feed (Automatic Fallback)"
+      }
+    },
+    database: {
+      primary: "Firebase Firestore",
+      firebaseConfigured: hasFirebaseConfig,
+      fallback: hasMongo ? "MongoDB Atlas" : "Local Disk Only",
+      mongoConfigured: hasMongo
+    },
+    session: {
+      sessionImported: hasAuthState,
+      sessionFileExists: fs.existsSync(AUTH_STATE_FILE)
+    }
+  });
+});
+
 // 5. Check login session (Runs real headless Playwright against CoinMarketCap)
 app.post("/api/check-login", async (req, res) => {
   if (isContinuousLoopActive) {
