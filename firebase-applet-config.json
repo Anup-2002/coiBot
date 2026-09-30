@@ -1,10 +1,11 @@
 {
-  "projectId": "gen-lang-client-0042253687",
-  "appId": "1:403163075518:web:087f2e5b09e0968b211fef",
-  "apiKey": "AIzaSyALa4SlnxWttT0dzyBDQj51SwcbT6tH9Nw",
-  "authDomain": "gen-lang-client-0042253687.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-coinmarketcapbot-6befefbd-71cd-4997-9a30-e9ebe7193378",
-  "storageBucket": "gen-lang-client-0042253687.firebasestorage.app",
-  "messagingSenderId": "403163075518",
-  "measurementId": ""
+  "projectId": "cmc-bot-project2",
+  "appId": "1:1035058754010:web:8038d6776f5a5a49dad0e3",
+  "apiKey": "AIzaSyADgd9kq0YUFjSjVgOaZXMMJmo2Ye8PWls",
+  "authDomain": "cmc-bot-project2.firebaseapp.com",
+  "databaseURL": "https://cmc-bot-project2-default-rtdb.firebaseio.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "cmc-bot-project2.firebasestorage.app",
+  "messagingSenderId": "1035058754010",
+  "measurementId": "G-J81TX46MQ6"
 }

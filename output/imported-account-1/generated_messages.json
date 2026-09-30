@@ -1,0 +1,520 @@
+[
+  {
+    "message": "XRP is showing strong momentum at $1.49 with a 24-hour increase of 0.2%, which makes me think we're just getting started on this bull run.",
+    "name": "XRP",
+    "sentiment": "bullish",
+    "symbol": "XRP",
+    "url": "https://coinmarketcap.com/currencies/xrp/"
+  },
+  {
+    "message": "With Midnight surging 15.19% to $0.03252, it feels like we're witnessing the beginning of something big; this could be a great time to dive in.",
+    "name": "Midnight",
+    "sentiment": "bullish",
+    "symbol": "NIGHT",
+    "url": "https://coinmarketcap.com/currencies/midnight-network/"
+  },
+  {
+    "message": "Doppler Finance at $0.02362 is slightly up with a 1.69% change, but I'm cautious about its overall market volatility right now.",
+    "name": "Doppler Finance",
+    "sentiment": "bearish",
+    "symbol": "XDP",
+    "url": "https://coinmarketcap.com/currencies/doppler-finance/"
+  },
+  {
+    "message": "Pump.fun is on fire at $0.005692, jumping 19.16% in just 24 hours; definitely keeping my eyes on this one for potential gains.",
+    "name": "Pump.fun",
+    "sentiment": "bullish",
+    "symbol": "PUMP",
+    "url": "https://coinmarketcap.com/currencies/pump-fun/"
+  },
+  {
+    "message": "At $0.3283 and a 12.42% rise, 0G is proving its potential; I can't help but feel optimistic about where it's headed.",
+    "name": "0G",
+    "sentiment": "bullish",
+    "symbol": "0G",
+    "url": "https://coinmarketcap.com/currencies/zero-gravity/"
+  },
+  {
+    "message": "Ribbita by Virtuals has seen a modest increase of 0.84% to $0.3232, but I'm not convinced it has the momentum to keep attracting buyers.",
+    "name": "Ribbita by Virtuals",
+    "sentiment": "bearish",
+    "symbol": "TIBBIR",
+    "url": "https://coinmarketcap.com/currencies/ribbita-by-virtuals/"
+  },
+  {
+    "message": "Teller is holding strong at $1.85 with a 2.35% rise; it looks like it’s building a solid foundation for future growth.",
+    "name": "Teller",
+    "sentiment": "bullish",
+    "symbol": "DEBIT",
+    "url": "https://coinmarketcap.com/currencies/teller/"
+  },
+  {
+    "message": "KiiChain's 6.01% increase to $0.09327 is encouraging; I'm feeling good about its potential to break through resistance soon.",
+    "name": "KiiChain",
+    "sentiment": "bullish",
+    "symbol": "KII",
+    "url": "https://coinmarketcap.com/currencies/kiichain/"
+  },
+  {
+    "message": "NVIDIA tokenized stock has dipped slightly to $228.29 with a small decline; it's hard to be optimistic with this kind of movement.",
+    "name": "NVIDIA tokenized stock (xStock)",
+    "sentiment": "bearish",
+    "symbol": "NVDAX",
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-xstock/"
+  },
+  {
+    "message": "CEA Industries Tokenized bStocks climbing 3.66% to $5.81 shows promising signs; I think it's a good time to watch it closely.",
+    "name": "CEA Industries Tokenized bStocks",
+    "sentiment": "bullish",
+    "symbol": "BNCB",
+    "url": "https://coinmarketcap.com/currencies/cea-industries-tokenized-bstocks/"
+  },
+  {
+    "message": "Aster is gaining momentum with a 5.49% rise today, and holding strong at rank 11 makes it an exciting pick for the long haul.",
+    "name": "Aster",
+    "sentiment": "bullish",
+    "symbol": "ASTER",
+    "url": "https://coinmarketcap.com/currencies/aster/"
+  },
+  {
+    "message": "With NVIDIA Tokenized Stock dipping slightly by 0.24% at $227.99, it feels like we might need to see more bullish signs before jumping back in.",
+    "name": "NVIDIA Tokenized Stock (Robinhood)",
+    "sentiment": "bearish",
+    "symbol": "NVDA",
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "Paimon Polymarket SPV Token is struggling a bit with a 0.49% decline; it's hard to feel optimistic right now.",
+    "name": "Paimon Polymarket SPV Token",
+    "sentiment": "bearish",
+    "symbol": "PPOLY",
+    "url": "https://coinmarketcap.com/currencies/paimon-polymarket-spv-token/"
+  },
+  {
+    "message": "Artificial Inu's steep drop of 13.62% makes me question its current viability; is it time to step back and reassess?",
+    "name": "Artificial Inu",
+    "sentiment": "bearish",
+    "symbol": "AI",
+    "url": "https://coinmarketcap.com/currencies/artificial-inu-ai/"
+  },
+  {
+    "message": "Pons is showing a nice uptick of 1.53% today, which gives me hope that it might be gearing up for something bigger.",
+    "name": "Pons",
+    "sentiment": "bullish",
+    "symbol": "PONS",
+    "url": "https://coinmarketcap.com/currencies/pons/"
+  },
+  {
+    "message": "Wow, STONK is on fire with a whopping 28.71% increase! This could be the start of a serious trend.",
+    "name": "STONK (stonkfun.xyz)",
+    "sentiment": "bullish",
+    "symbol": "STONK",
+    "url": "https://coinmarketcap.com/currencies/stonk-fun/"
+  },
+  {
+    "message": "Aave's 7.32% rise today at $159.51 has me feeling confident; it seems to be on a solid upward trajectory.",
+    "name": "Aave",
+    "sentiment": "bullish",
+    "symbol": "AAVE",
+    "url": "https://coinmarketcap.com/currencies/aave/"
+  },
+  {
+    "message": "Canopy's 3.44% decline feels concerning; I’m holding off on any new positions for now.",
+    "name": "Canopy",
+    "sentiment": "bearish",
+    "symbol": "CNPY",
+    "url": "https://coinmarketcap.com/currencies/canopy/"
+  },
+  {
+    "message": "The slight drop of 0.31% in iShares China Large-Cap Tokenized ETF makes me hesitant; we need some positive momentum soon.",
+    "name": "iShares China Large-Cap Tokenized ETF (Ondo)",
+    "sentiment": "bearish",
+    "symbol": "FXIon",
+    "url": "https://coinmarketcap.com/currencies/ishares-china-large-cap-tokenized-etf-ondo/"
+  },
+  {
+    "message": "Aerodrome Finance is down by 2.03%, and that doesn’t inspire much confidence; I might wait for a better entry point.",
+    "name": "Aerodrome Finance",
+    "sentiment": "bearish",
+    "symbol": "AERO",
+    "url": "https://coinmarketcap.com/currencies/aerodrome-finance/"
+  },
+  {
+    "message": "With SpaceX Tokenized Stock climbing to $149.26 and a solid 2.33% rise in the last 24 hours, the excitement around space exploration seems to be fueling investor confidence.",
+    "name": "SpaceX Tokenized Stock (Robinhood)",
+    "sentiment": "bullish",
+    "symbol": "SPCX",
+    "url": "https://coinmarketcap.com/currencies/spacex-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "Solana is holding strong at $119.67, up 1.56% today; looks like the network is gaining traction again with its speed and scalability.",
+    "name": "Solana",
+    "sentiment": "bullish",
+    "symbol": "SOL",
+    "url": "https://coinmarketcap.com/currencies/solana/"
+  },
+  {
+    "message": "The Invesco QQQ Trust Tokenized bStocks at $738.46 is showing resilience with a 0.53% uptick, indicating continued interest in tech stocks.",
+    "name": "Invesco QQQ Trust Tokenized bStocks",
+    "sentiment": "bullish",
+    "symbol": "QQQB",
+    "url": "https://coinmarketcap.com/currencies/invesco-qqq-trust-tokenized-bstocks/"
+  },
+  {
+    "message": "Zcash is making waves at $1406.61 with a 2.37% rise; privacy coins are likely getting a boost as more people focus on security.",
+    "name": "Zcash",
+    "sentiment": "bullish",
+    "symbol": "ZEC",
+    "url": "https://coinmarketcap.com/currencies/zcash/"
+  },
+  {
+    "message": "Cash Cat jumped to $0.1744 with an impressive 3.39% increase in the last day; looks like the community is really rallying behind this one.",
+    "name": "Cash Cat",
+    "sentiment": "bullish",
+    "symbol": "CASHCAT",
+    "url": "https://coinmarketcap.com/currencies/cash-cat/"
+  },
+  {
+    "message": "SOON is skyrocketing at $0.4055 with a fantastic 35.24% surge; this kind of momentum has definitely got traders buzzing.",
+    "name": "SOON",
+    "sentiment": "bullish",
+    "symbol": "SOON",
+    "url": "https://coinmarketcap.com/currencies/soon/"
+  },
+  {
+    "message": "c8ntinuum is struggling a bit at $0.2289, down 0.38%; seems like it might need a new catalyst to regain some momentum.",
+    "name": "c8ntinuum",
+    "sentiment": "bearish",
+    "symbol": "CTM",
+    "url": "https://coinmarketcap.com/currencies/c8ntinuum/"
+  },
+  {
+    "message": "SpaceX tokenized stock (xStock) is also up to $149.20 with a 2.4% rise, showcasing that the space sector is captivating investors across the board.",
+    "name": "SpaceX tokenized stock (xStock)",
+    "sentiment": "bullish",
+    "symbol": "SPCXx",
+    "url": "https://coinmarketcap.com/currencies/spacex-tokenized-stock-xtock/"
+  },
+  {
+    "message": "Virtuals Protocol is down to $0.7789 after a 2.85% drop; it could be time for the team to shake things up a bit to regain interest.",
+    "name": "Virtuals Protocol",
+    "sentiment": "bearish",
+    "symbol": "VIRTUAL",
+    "url": "https://coinmarketcap.com/currencies/virtual-protocol/"
+  },
+  {
+    "message": "Unitas is showing promise at $0.2502 with a 5.29% increase; this could be a sign that more people are starting to take notice.",
+    "name": "Unitas",
+    "sentiment": "bullish",
+    "symbol": "UP",
+    "url": "https://coinmarketcap.com/currencies/unitas/"
+  },
+  {
+    "message": "DGrid AI's recent drop to $0.9543 with a 5.26% decrease has me a bit concerned about its short-term momentum.",
+    "name": "DGrid AI",
+    "sentiment": "bearish",
+    "symbol": "DGAI",
+    "url": "https://coinmarketcap.com/currencies/dgrid-ai/"
+  },
+  {
+    "message": "Raydium is holding strong at $1.88 with a slight 0.48% gain; looks like it might be gearing up for a breakout soon.",
+    "name": "Raydium",
+    "sentiment": "bullish",
+    "symbol": "RAY",
+    "url": "https://coinmarketcap.com/currencies/raydium/"
+  },
+  {
+    "message": "The SPDR S&P 500 Trust Tokenized ETF at $765.25 is showing resilience with a tiny gain of 0.12%, which could indicate stability in a volatile market.",
+    "name": "SPDR S&P 500 Trust Tokenized ETF (Robinhood)",
+    "sentiment": "bullish",
+    "symbol": "SPY",
+    "url": "https://coinmarketcap.com/currencies/spdr-sp-500-trust-tokenized-etf-robinhood/"
+  },
+  {
+    "message": "Venice Token's price of $26.8 is on the rise with a 0.24% increase; it feels like there’s some positive momentum building here.",
+    "name": "Venice Token",
+    "sentiment": "bullish",
+    "symbol": "VVV",
+    "url": "https://coinmarketcap.com/currencies/venice-token/"
+  },
+  {
+    "message": "Paid's steep decline to $0.01025 and a staggering 31.08% drop is hard to ignore; I’m wary about this one for now.",
+    "name": "Paid",
+    "sentiment": "bearish",
+    "symbol": "PAID",
+    "url": "https://coinmarketcap.com/currencies/paid/"
+  },
+  {
+    "message": "Jupiter Perps LP is at $4.84, up by 0.66%; it seems to be gaining traction and could be a good watch.",
+    "name": "Jupiter Perps LP",
+    "sentiment": "bullish",
+    "symbol": "JLP",
+    "url": "https://coinmarketcap.com/currencies/jupiter-perps-lp/"
+  },
+  {
+    "message": "With Meta Platforms trading at $737.02 and a 2.77% gain, it looks like there’s potential for more upward movement.",
+    "name": "Meta Platforms Tokenized Stock (Robinhood)",
+    "sentiment": "bullish",
+    "symbol": "META",
+    "url": "https://coinmarketcap.com/currencies/meta-platforms-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "Quant is absolutely soaring at $289.71 with a massive 26.23% jump; definitely one to keep an eye on!",
+    "name": "Quant",
+    "sentiment": "bullish",
+    "symbol": "QNT",
+    "url": "https://coinmarketcap.com/currencies/quant/"
+  },
+  {
+    "message": "HYPE's slight drop to $85.84 with a 1.06% decrease is a bit concerning; hoping to see a turnaround soon.",
+    "name": "HYPE",
+    "sentiment": "bearish",
+    "symbol": "HYPE",
+    "url": "https://coinmarketcap.com/currencies/hype/"
+  },
+  {
+    "message": "OFFICIAL TRUMP's price at $2.05 with a 4.16% increase shows some solid interest; might be worth exploring further.",
+    "name": "OFFICIAL TRUMP",
+    "sentiment": "bullish",
+    "symbol": "TRUMP",
+    "url": "https://coinmarketcap.com/currencies/official-trump/"
+  },
+  {
+    "message": "With Chainlink at $14.35 and a 3.96% drop in the last 24 hours, it seems like the bears are taking control for now.",
+    "name": "Chainlink",
+    "sentiment": "bearish",
+    "symbol": "LINK",
+    "url": "https://coinmarketcap.com/currencies/chainlink/"
+  },
+  {
+    "message": "Jupiter is showing some resilience at $0.3292 with a 0.64% increase—could this be the start of a nice upward trend?",
+    "name": "Jupiter",
+    "sentiment": "bullish",
+    "symbol": "JUP",
+    "url": "https://coinmarketcap.com/currencies/jupiter-ag/"
+  },
+  {
+    "message": "Pudgy Penguins are bouncing back with a 6.92% rise to $0.009825, and I'm excited to see where this momentum leads.",
+    "name": "Pudgy Penguins",
+    "sentiment": "bullish",
+    "symbol": "PENGU",
+    "url": "https://coinmarketcap.com/currencies/pudgy-penguins/"
+  },
+  {
+    "message": "Collector Crypt is struggling at $0.1947 after a 6.39% decline; it might be time for some critical re-evaluation.",
+    "name": "Collector Crypt",
+    "sentiment": "bearish",
+    "symbol": "CARDS",
+    "url": "https://coinmarketcap.com/currencies/collector-crypt/"
+  },
+  {
+    "message": "The CoinMarketCap 20 Index DTF is holding steady at $173.16, but with no change, it feels a bit stagnant right now.",
+    "name": "CoinMarketCap 20 Index DTF",
+    "sentiment": "bullish",
+    "symbol": "CMC20",
+    "url": "https://coinmarketcap.com/currencies/coinmarketcap-20-index/"
+  },
+  {
+    "message": "The Frog has jumped to $0.0003744 with a whopping 262.55% surge—this could be a hidden gem on everyone's radar.",
+    "name": "The Frog",
+    "sentiment": "bullish",
+    "symbol": "SAPIJIJU",
+    "url": "https://coinmarketcap.com/currencies/the-frog/"
+  },
+  {
+    "message": "Useless Coin is making a small but positive move to $0.2376 with a 1.99% rise; I’d keep an eye on this one.",
+    "name": "Useless Coin",
+    "sentiment": "bullish",
+    "symbol": "USELESS",
+    "url": "https://coinmarketcap.com/currencies/theuselesscoin/"
+  },
+  {
+    "message": "Shiba Inu is on fire at $0.0002803, skyrocketing with a 614.04% increase—definitely a surprising player in the game right now.",
+    "name": "Shiba Inu",
+    "sentiment": "bullish",
+    "symbol": "SI",
+    "url": "https://coinmarketcap.com/currencies/shiba-inu/"
+  },
+  {
+    "message": "SP500 tokenized ETF (xStock) is creeping up to $768.63 with a slight 0.21% change; it's stable but nothing to get too excited about.",
+    "name": "SP500 tokenized ETF (xStock)",
+    "sentiment": "bullish",
+    "symbol": "SPYX",
+    "url": "https://coinmarketcap.com/currencies/sp500-tokenized-stock-xstock/"
+  },
+  {
+    "message": "Quack AI is dipping at $0.02274 with a 3.23% drop; it’s looking like a tough time for this project.",
+    "name": "Quack AI",
+    "sentiment": "bearish",
+    "symbol": "Q",
+    "url": "https://coinmarketcap.com/currencies/quack-ai/"
+  },
+  {
+    "message": "AEON is showing a nice bounce with a 3.16% rise in the last 24 hours, solidifying its position at rank 62. I think there's room for this one to climb higher!",
+    "name": "AEON",
+    "sentiment": "bullish",
+    "symbol": "AEON",
+    "url": "https://coinmarketcap.com/currencies/aeon-xyz/"
+  },
+  {
+    "message": "Zypher Network (POP) is up 3.19% and holding rank 65—looks like it's gaining some traction. I wouldn’t be surprised to see more attention on this one soon.",
+    "name": "Zypher Network",
+    "sentiment": "bullish",
+    "symbol": "POP",
+    "url": "https://coinmarketcap.com/currencies/zypher-network/"
+  },
+  {
+    "message": "Shiba Inu's slight 2.45% increase has got me feeling optimistic as it holds rank 66. The community love for SHIB is still strong!",
+    "name": "Shiba Inu",
+    "sentiment": "bullish",
+    "symbol": "SHIB",
+    "url": "https://coinmarketcap.com/currencies/shiba-inu/"
+  },
+  {
+    "message": "SpaceX Tokenized bStocks at $149.2 with a 2.29% uptick feels like it's getting ready for a breakout, especially with the buzz around space exploration.",
+    "name": "SpaceX Tokenized bStocks",
+    "sentiment": "bullish",
+    "symbol": "SPCXB",
+    "url": "https://coinmarketcap.com/currencies/spacex-tokenized-bstocks/"
+  },
+  {
+    "message": "apM Fashion has dipped 2.77%, bringing it down to rank 69. I’m wary of where this one is headed unless it can turn things around quickly.",
+    "name": "apM Fashion",
+    "sentiment": "bearish",
+    "symbol": "APM",
+    "url": "https://coinmarketcap.com/currencies/apm-fashion/"
+  },
+  {
+    "message": "SPDR Gold Shares Tokenized ETF (GLD) is holding steady at $382.59 with a slight 0.8% increase. Gold-backed assets are looking appealing in these uncertain times.",
+    "name": "SPDR Gold Shares Tokenized ETF (Robinhood)",
+    "sentiment": "bullish",
+    "symbol": "GLD",
+    "url": "https://coinmarketcap.com/currencies/spdr-gold-shares-tokenized-etf-robinhood/"
+  },
+  {
+    "message": "MarsCoin is down 3.76%, and at rank 74, it seems to be struggling a bit. I hope it finds a solid support level soon.",
+    "name": "MarsCoin",
+    "sentiment": "bearish",
+    "symbol": "MARSCOIN",
+    "url": "https://coinmarketcap.com/currencies/marscoin-meme-bsc/"
+  },
+  {
+    "message": "Kamino's 1.9% increase is encouraging for those watching at rank 75. I think it has potential as the project develops.",
+    "name": "Kamino",
+    "sentiment": "bullish",
+    "symbol": "KMNO",
+    "url": "https://coinmarketcap.com/currencies/kamino-finance/"
+  },
+  {
+    "message": "Gstock has taken quite a hit with a 19.47% drop, now sitting at rank 77. That's a tough pill to swallow for investors.",
+    "name": "Gstock",
+    "sentiment": "bearish",
+    "symbol": "GSTOCK",
+    "url": "https://coinmarketcap.com/currencies/gstock/"
+  },
+  {
+    "message": "Sky is up 4.52% and climbing, currently at rank 80. This momentum could spark some serious interest in the project.",
+    "name": "Sky",
+    "sentiment": "bullish",
+    "symbol": "SKY",
+    "url": "https://coinmarketcap.com/currencies/sky/"
+  },
+  {
+    "message": "RHEA is seeing a rough patch with a 20.71% drop in the last 24 hours; it might be wise to keep an eye on developments before diving back in.",
+    "name": "RHEA Finance",
+    "sentiment": "bearish",
+    "symbol": "RHEA",
+    "url": "https://coinmarketcap.com/currencies/rhea-finance/"
+  },
+  {
+    "message": "With USO down 4.12% today, it's clear the oil market is facing some headwinds; let's see if this trend reverses soon.",
+    "name": "United States Oil Fund Tokenized Commodity (Robinhood)",
+    "sentiment": "bearish",
+    "symbol": "USO",
+    "url": "https://coinmarketcap.com/currencies/united-states-oil-fund-tokenized-commodity-robinhood/"
+  },
+  {
+    "message": "AMC's 5.81% dip shows that the hype isn't holding up; I think we need more positive catalysts to regain momentum.",
+    "name": "AMC Entertainment Holdings Tokenized Stock (Robinhood)",
+    "sentiment": "bearish",
+    "symbol": "AMC",
+    "url": "https://coinmarketcap.com/currencies/amc-entertainment-holdings-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "ANSEM's 3.24% decline is concerning; I wonder if it can bounce back quickly or if this trend will continue.",
+    "name": "The Black Bull",
+    "sentiment": "bearish",
+    "symbol": "ANSEM",
+    "url": "https://coinmarketcap.com/currencies/the-black-bull/"
+  },
+  {
+    "message": "GRASS is making waves with a 16.7% rise; the momentum might just be starting, and I'm ready to ride the wave.",
+    "name": "Grass",
+    "sentiment": "bullish",
+    "symbol": "GRASS",
+    "url": "https://coinmarketcap.com/currencies/grass/"
+  },
+  {
+    "message": "CAKE's slight uptick of 0.59% is a good sign; it might just be gearing up for a more significant breakout.",
+    "name": "PancakeSwap",
+    "sentiment": "bullish",
+    "symbol": "CAKE",
+    "url": "https://coinmarketcap.com/currencies/pancakeswap/"
+  },
+  {
+    "message": "With 龙虾 down 22.43%, I'm a bit cautious now; let's see if it can stabilize before making any moves.",
+    "name": "龙虾 (Lobster)",
+    "sentiment": "bearish",
+    "symbol": "龙虾",
+    "url": "https://coinmarketcap.com/currencies/lobster-2/"
+  },
+  {
+    "message": "The 3.16% increase in METAX is promising, and I'm optimistic it will continue to climb with the right market support.",
+    "name": "Meta tokenized stock (xStock)",
+    "sentiment": "bullish",
+    "symbol": "METAX",
+    "url": "https://coinmarketcap.com/currencies/meta-tokenized-stock-xstock/"
+  },
+  {
+    "message": "GLDX's small but steady rise of 1% shows resilience; I'm hopeful for a stronger uptrend in the days to come.",
+    "name": "Gold tokenized ETF (xStock)",
+    "sentiment": "bullish",
+    "symbol": "GLDX",
+    "url": "https://coinmarketcap.com/currencies/gold-tokenized-stock-xstock/"
+  },
+  {
+    "message": "CBXRP is up 0.45%, which might not seem like much, but every little gain counts in this volatile market.",
+    "name": "Coinbase Wrapped XRP",
+    "sentiment": "bullish",
+    "symbol": "CBXRP",
+    "url": "https://coinmarketcap.com/currencies/coinbase-wrapped-xrp/"
+  },
+  {
+    "message": "United Stables is hanging around the $0.9991 mark with a slight dip of 0.04% over the last 24 hours, making it feel a bit stagnant right now.",
+    "name": "United Stables",
+    "sentiment": "bearish",
+    "symbol": "U",
+    "url": "https://coinmarketcap.com/currencies/united-stables/"
+  },
+  {
+    "message": "With a stunning 35.1% jump to $0.3904, UP is really gaining momentum; it seems like the community is buzzing with excitement!",
+    "name": "up",
+    "sentiment": "bullish",
+    "symbol": "UP",
+    "url": "https://coinmarketcap.com/currencies/up/"
+  },
+  {
+    "message": "Hims & Hers is currently priced at $28.55 and down by 0.37%, showing some signs of struggle despite its previous highs.",
+    "name": "Hims & Hers Health Tokenized Stock (Robinhood)",
+    "sentiment": "bearish",
+    "symbol": "HIMS",
+    "url": "https://coinmarketcap.com/currencies/hims-hers-health-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "Morpho is on the rise at $2.53, up 3.66% recently, which might signal that investors are starting to take notice again.",
+    "name": "Morpho",
+    "sentiment": "bullish",
+    "symbol": "MORPHO",
+    "url": "https://coinmarketcap.com/currencies/morpho/"
+  }
+]

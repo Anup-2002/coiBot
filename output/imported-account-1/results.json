@@ -1,0 +1,38 @@
+[
+  {
+    "message": "Posted successfully",
+    "name": "XRP",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "XRP",
+    "timestamp": "3:42:39 AM",
+    "url": "https://coinmarketcap.com/currencies/xrp/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Midnight",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "NIGHT",
+    "timestamp": "3:43:26 AM",
+    "url": "https://coinmarketcap.com/currencies/midnight-network/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Doppler Finance",
+    "sentiment": "bearish",
+    "status": "success",
+    "symbol": "XDP",
+    "timestamp": "3:44:10 AM",
+    "url": "https://coinmarketcap.com/currencies/doppler-finance/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Pump.fun",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "PUMP",
+    "timestamp": "3:44:53 AM",
+    "url": "https://coinmarketcap.com/currencies/pump-fun/"
+  }
+]

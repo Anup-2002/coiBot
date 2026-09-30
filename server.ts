@@ -41,8 +41,10 @@ import {
   getSystemLogsCloud,
   saveSystemLogsCloud,
   getProfilesCloud,
-  saveProfilesCloud
-} from "./src/firebase-db";
+  saveProfilesCloud,
+  getActiveStoreName,
+  isMongoEnabled
+} from "./src/storage";
 
 import express from "express";
 import OpenAI from "openai";
@@ -1207,12 +1209,17 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
         await page.waitForTimeout(4000);
 
-        // Dismiss any cookie banners or overlays that might block clicking the Log in button
+        // Dismiss any cookie banners, trading disclaimers, or overlays that might block clicking the Log in button
         addLog("info", "Checking for cookie banners or overlay pop-ups to dismiss...");
         const dismissButtons = [
+          'button:has-text("Start Trading")',
+          'button:has-text("Skip")',
+          'button:has-text("Continue")',
+          'button:has-text("Next")',
           'button:has-text("Accept All")',
           'button:has-text("Accept Cookies")',
           'button:has-text("Accept")',
+          'button:has-text("Allow All")',
           'button:has-text("Got it")',
           'button:has-text("I agree")',
           '#onetrust-accept-btn-handler',
@@ -1287,151 +1294,224 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
       }
 
-      // Scan for email and password inputs
+      // Ensure the "Log In" tab is active inside the modal (CoinMarketCap sometimes defaults to "Sign Up" or "Create an account")
+      try {
+        const modalContainer = await page.$('div[role="dialog"], [class*="modal" i]');
+        if (modalContainer) {
+          const loginTab = await modalContainer.$('button:has-text("Log In"), [role="tab"]:has-text("Log In"), span:has-text("Log In")');
+          if (loginTab && await loginTab.isVisible()) {
+            await loginTab.click().catch(() => {});
+            await page.waitForTimeout(500);
+          }
+        }
+      } catch {}
+
+      // Scan for email and password inputs specifically targeting visible inputs
       let emailInput = null;
       let passwordInput = null;
 
-    // Retry finding elements up to 5 times with delay
-    for (let i = 0; i < 5; i++) {
-      const emailSelectors = [
-        '[data-test="email-input"]',
-        'input.email-input',
-        '.email-input',
-        'input[type="email"]',
-        'input[placeholder*="email" i]',
-        'input[placeholder*="Email" i]',
-        'input[name="email"]',
-        '#email',
-        '#username'
-      ];
-      for (const sel of emailSelectors) {
-        try {
-          const el = await page.$(sel);
-          if (el && await el.isVisible()) {
-            emailInput = el;
-            break;
-          }
-        } catch {}
-      }
+      // Retry finding elements up to 5 times with delay
+      for (let i = 0; i < 5; i++) {
+        const emailSelectors = [
+          'div[role="dialog"] input[type="email"]',
+          'div[role="dialog"] input[placeholder*="email" i]',
+          '[data-test="email-input"]',
+          'input[type="email"]',
+          'input.email-input',
+          '.email-input',
+          'input[placeholder*="email" i]',
+          'input[placeholder*="Email" i]',
+          'input[name="email"]',
+          '#email',
+          '#username'
+        ];
+        for (const sel of emailSelectors) {
+          try {
+            const els = await page.$$(sel);
+            for (const el of els) {
+              if (await el.isVisible()) {
+                emailInput = el;
+                break;
+              }
+            }
+            if (emailInput) break;
+          } catch {}
+        }
 
-      const passwordSelectors = [
-        '[data-test="password-input"]',
-        'input.password-input',
-        '.password-input',
-        'input[type="password"]',
-        'input[placeholder*="password" i]',
-        'input[placeholder*="Password" i]',
-        'input[name="password"]',
-        '#password'
-      ];
-      for (const sel of passwordSelectors) {
-        try {
-          const el = await page.$(sel);
-          if (el && await el.isVisible()) {
-            passwordInput = el;
-            break;
-          }
-        } catch {}
-      }
+        const passwordSelectors = [
+          'div[role="dialog"] input[type="password"]',
+          'div[role="dialog"] input[placeholder*="password" i]',
+          '[data-test="password-input"]',
+          'input[type="password"]',
+          'input.password-input',
+          '.password-input',
+          'input[placeholder*="password" i]',
+          'input[placeholder*="Password" i]',
+          'input[name="password"]',
+          '#password'
+        ];
+        for (const sel of passwordSelectors) {
+          try {
+            const els = await page.$$(sel);
+            for (const el of els) {
+              if (await el.isVisible()) {
+                passwordInput = el;
+                break;
+              }
+            }
+            if (passwordInput) break;
+          } catch {}
+        }
 
-      if (emailInput && passwordInput) {
-        break;
-      }
-      
-      addLog("info", `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...`);
-      loginState = { status: "authenticating", message: `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...` };
-      await page.waitForTimeout(2000);
-    }
-
-    // Subframe fallback scanning
-    if (!emailInput || !passwordInput) {
-      addLog("info", "Inputs not found on main frame. Scanning subframes...");
-      loginState = { status: "authenticating", message: "Inputs not found on main frame. Scanning subframes..." };
-      for (const frame of page.frames()) {
-        try {
-          const elEmail = await frame.$('[data-test="email-input"], input.email-input, .email-input, input[type="email"], input[placeholder*="email" i]');
-          const elPass = await frame.$('[data-test="password-input"], input.password-input, .password-input, input[type="password"], input[placeholder*="password" i]');
-          if (elEmail && elPass) {
-            emailInput = elEmail;
-            passwordInput = elPass;
-            addLog("info", "Located login inputs inside a subframe!");
-            break;
-          }
-        } catch {}
-      }
-    }
-
-    if (!emailInput || !passwordInput) {
-      addLog("error", "Failed to locate login credentials input boxes.");
-      await browser.close().catch(() => {});
-      return { status: "failed", message: "Login form inputs (email/password) not found on page." };
-    }
-
-    addLog("info", "Entering email and password securely...");
-    loginState = { status: "authenticating", message: "Entering email and password securely..." };
-    await fillInputResiliently(page, emailInput, email);
-    await page.waitForTimeout(400);
-    await fillInputResiliently(page, passwordInput, password);
-    await page.waitForTimeout(400);
-
-    let loginBtn = null;
-    const btnSelectors = [
-      '[data-test="login-btn"]',
-      'button[type="submit"]',
-      'button:has-text("Log In")',
-      'button:has-text("Log in")',
-      'form button',
-      '.cmc-login-btn',
-    ];
-    for (const sel of btnSelectors) {
-      loginBtn = await page.$(sel);
-      if (loginBtn) break;
-    }
-
-    // Button search fallback
-    if (!loginBtn) {
-      const buttons = await page.$$("button, input[type='submit']");
-      for (const btn of buttons) {
-        const text = (await btn.innerText().catch(() => "")).toLowerCase();
-        const type = (await btn.getAttribute("type") || "").toLowerCase();
-        if (text.includes("log in") || text.includes("login") || type === "submit") {
-          loginBtn = btn;
+        if (emailInput && passwordInput) {
           break;
         }
+        
+        addLog("info", `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...`);
+        loginState = { status: "authenticating", message: `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...` };
+        await page.waitForTimeout(2000);
       }
-    }
 
-    if (!loginBtn) {
-      addLog("error", "Failed to locate login button.");
-      await browser.close().catch(() => {});
-      return { status: "failed", message: "Login submit button not found on page." };
-    }
+      // Subframe fallback scanning
+      if (!emailInput || !passwordInput) {
+        addLog("info", "Inputs not found on main frame. Scanning subframes...");
+        loginState = { status: "authenticating", message: "Inputs not found on main frame. Scanning subframes..." };
+        for (const frame of page.frames()) {
+          try {
+            const elEmail = await frame.$('[data-test="email-input"], input.email-input, .email-input, input[type="email"], input[placeholder*="email" i]');
+            const elPass = await frame.$('[data-test="password-input"], input.password-input, .password-input, input[type="password"], input[placeholder*="password" i]');
+            if (elEmail && elPass && await elEmail.isVisible() && await elPass.isVisible()) {
+              emailInput = elEmail;
+              passwordInput = elPass;
+              addLog("info", "Located login inputs inside a subframe!");
+              break;
+            }
+          } catch {}
+        }
+      }
 
-    addLog("info", "Submitting login form...");
-    loginState = { status: "authenticating", message: "Submitting login form..." };
-    try {
-      await loginBtn.click({ timeout: 5000 });
-    } catch (clickErr) {
-      addLog("warning", `Standard click on login submit button failed: ${(clickErr as Error).message}. Trying forced click...`);
+      if (!emailInput || !passwordInput) {
+        addLog("error", "Failed to locate login credentials input boxes.");
+        await browser.close().catch(() => {});
+        return { status: "failed", message: "Login form inputs (email/password) not found on page." };
+      }
+
+      addLog("info", "Entering email and password securely...");
+      loginState = { status: "authenticating", message: "Entering email and password securely..." };
+      await fillInputResiliently(page, emailInput, email);
+      await page.waitForTimeout(400);
+      await fillInputResiliently(page, passwordInput, password);
+      await page.waitForTimeout(400);
+
+      // Locate the submit button strictly inside the login dialog/modal or enclosing form
+      let loginBtn = null;
       try {
-        await loginBtn.click({ force: true, timeout: 5000 });
-      } catch (forceErr) {
-        addLog("warning", `Forced click failed: ${(forceErr as Error).message}. Trying evaluate click fallback...`);
-        await loginBtn.evaluate((el: any) => (el as HTMLElement).click()).catch(() => {});
+        const modalContainer = await page.$('div[role="dialog"], [class*="modal" i], form:has(input[type="password"])');
+        if (modalContainer) {
+          const candidateBtns = await modalContainer.$$('button[type="submit"], [data-test="login-btn"], button:has-text("Log In"), button:has-text("Log in"), button:has-text("Sign In"), button:has-text("Sign in"), form button');
+          for (const btn of candidateBtns) {
+            if (await btn.isVisible()) {
+              loginBtn = btn;
+              break;
+            }
+          }
+        }
+      } catch {}
+
+      if (!loginBtn) {
+        const btnSelectors = [
+          '[data-test="login-btn"]',
+          'form button[type="submit"]',
+          'button[type="submit"]',
+          '.cmc-login-btn',
+        ];
+        for (const sel of btnSelectors) {
+          loginBtn = await page.$(sel);
+          if (loginBtn && await loginBtn.isVisible()) break;
+        }
       }
-    }
+
+      if (!loginBtn) {
+        addLog("error", "Failed to locate login button inside the credentials form.");
+        await browser.close().catch(() => {});
+        return { status: "failed", message: "Login submit button not found on page." };
+      }
+
+      // Listen for network API responses to capture exact backend error messages
+      let apiErrorMsg = "";
+      const apiResponseListener = async (response: any) => {
+        try {
+          const u = response.url();
+          if (u.includes("/login") || u.includes("/auth/") || u.includes("/user/")) {
+            const body = await response.json().catch(() => null);
+            if (body) {
+              if (body.status && body.status.error_message) {
+                apiErrorMsg = body.status.error_message;
+              } else if (body.message) {
+                apiErrorMsg = body.message;
+              } else if (body.error) {
+                apiErrorMsg = typeof body.error === "string" ? body.error : JSON.stringify(body.error);
+              }
+            }
+          }
+        } catch {}
+      };
+      page.on("response", apiResponseListener);
+
+      addLog("info", "Submitting login form...");
+      loginState = { status: "authenticating", message: "Submitting login form..." };
+      try {
+        await loginBtn.click({ timeout: 5000 });
+      } catch (clickErr) {
+        addLog("warning", `Standard click on login submit button failed: ${(clickErr as Error).message}. Trying forced click...`);
+        try {
+          await loginBtn.click({ force: true, timeout: 5000 });
+        } catch (forceErr) {
+          addLog("warning", `Forced click failed: ${(forceErr as Error).message}. Trying evaluate click fallback...`);
+          await loginBtn.evaluate((el: any) => (el as HTMLElement).click()).catch(() => {});
+        }
+      }
     
     addLog("info", "Waiting for login feedback or redirect (8 seconds)...");
     loginState = { status: "authenticating", message: "Waiting for login feedback or security redirects (8s)..." };
     await page.waitForTimeout(8000);
 
+    // 1. Check for visible form error messages inside the modal immediately
+    let modalErrorMessage = "";
+    try {
+      const errorSelectors = [
+        '.error-message',
+        '.errorMessage',
+        '[class*="error-message" i]',
+        '[class*="errorMessage" i]',
+        '[class*="form-error" i]',
+        '[class*="FormError" i]',
+        '.sc-1cf4148-0',
+        '.sc-acb6320-0',
+        'div[style*="color: rgb(234, 84, 85)"]',
+        'span[style*="color: rgb(234, 84, 85)"]',
+        '[role="alert"]',
+      ];
+      for (const sel of errorSelectors) {
+        const errorEl = await page.$(sel);
+        if (errorEl && await errorEl.isVisible()) {
+          const text = (await errorEl.innerText().catch(() => "")).trim();
+          if (text) {
+            modalErrorMessage = text;
+            addLog("error", `CoinMarketCap rejected login: "${text}"`);
+            break;
+          }
+        }
+      }
+    } catch {}
+
     const pageText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
     const title = await page.title().catch(() => "");
-    if (title.includes("Cloudflare") || title.includes("Just a moment") || pageText.includes("cloudflare") || pageText.includes("security challenge") || pageText.includes("captcha")) {
-      addLog("error", "Cloudflare Captcha Challenge detected during login.");
+    if (title.includes("Cloudflare") || title.includes("Just a moment") || pageText.includes("cloudflare") || pageText.includes("security challenge") || pageText.includes("captcha") || (await page.$('iframe[src*="cloudflare"], iframe[src*="turnstile"], .geetest_holder, [class*="captcha" i]')) !== null) {
+      addLog("error", "Cloudflare Captcha Challenge or Slide Puzzle detected during login.");
       await browser.close().catch(() => {});
-      loginState = { status: "failed", message: "Cloudflare Captcha challenge intercepted login." };
-      return { status: "captcha", message: "Cloudflare Captcha challenge intercepted login." };
+      loginState = { status: "failed", message: "Cloudflare Captcha or Bot Protection challenge intercepted login." };
+      return { status: "captcha", message: "Cloudflare Captcha or Bot Protection challenge intercepted login." };
     }
 
     // Check if OTP code is required
@@ -1451,15 +1531,46 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
     }
 
+    if (modalErrorMessage) {
+      await browser.close().catch(() => {});
+      loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
+      return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
+    }
+
+    // Check if cookies indicate we are authenticated
+    const initialCookies = await context.cookies().catch(() => []);
+    const hasInitialAuth = initialCookies.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
+
     // Otherwise, check if successfully logged in by checking comments editor on bitcoin page
-    addLog("info", "No verification challenge found. Preparing to check login outcome...");
-    loginState = { status: "authenticating", message: "Credentials accepted. Navigating to verify community editor access..." };
+    addLog("info", "Form submitted. Navigating to verify community editor access...");
+    loginState = { status: "authenticating", message: "Navigating to verify community editor access..." };
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
     // Use our robust locateAndPrepareCommentEditor to check if we can access the editor
     const editor = await locateAndPrepareCommentEditor(page);
     
+    // Check if the editor submit button actually allows posting or requires logging in
+    let isPostButtonReady = false;
+    if (editor) {
+      const postButtonSelectors = [
+        '[data-test="editor-post-button"]',
+        'button[data-test="editor-post-button"]',
+        'button:has-text("Post")',
+        '.editor-post-button'
+      ];
+      for (const selector of postButtonSelectors) {
+        const postBtn = await page.$(selector);
+        if (postBtn) {
+          const btnText = await postBtn.innerText().catch(() => "");
+          if (btnText && !btnText.toLowerCase().includes("log in") && !btnText.toLowerCase().includes("signin")) {
+            isPostButtonReady = true;
+          }
+          break;
+        }
+      }
+    }
+
     // Also check if any header Log In buttons are visible on the page
     let isHeaderLoginVisible = false;
     const headerLoginSelectors = [
@@ -1484,7 +1595,9 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     const hasUprodCookie = cookiesList.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
     const hasEitherCookie = hasAuthCookie || hasUprodCookie;
 
-    if (editor || (!isHeaderLoginVisible && hasEitherCookie)) {
+    const isFullyAuthenticated = isPostButtonReady || (!isHeaderLoginVisible && hasEitherCookie);
+
+    if (isFullyAuthenticated) {
       addLog("success", "Successfully logged in and verified community editor access!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
@@ -1502,8 +1615,10 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       loginState = { status: "success", message: "Login successful! Session cookies saved." };
       return { status: "success", message: "Login successful! Session cookies saved." };
     } else {
-      if (!hasEitherCookie) {
-        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}) and comment editor is missing. It was likely blocked by Cloudflare or AWS WAF.`);
+      if (!isPostButtonReady) {
+        addLog("error", "Login did not complete: CoinMarketCap comment editor still displays 'Log In' instead of 'Post'. This occurs when Cloudflare, CAPTCHA challenge, or email verification is required by CoinMarketCap.");
+      } else if (!hasEitherCookie) {
+        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}). It was likely blocked by Cloudflare or AWS WAF.`);
       } else {
         addLog("error", "Login did not succeed. Still appears logged out.");
       }
@@ -1833,8 +1948,9 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
 
     addLog("success", "Session check passed! Comment editor located successfully on posting page.");
     
+    const finalComment = message;
     // Focus, write message naturally
-    addLog("info", `Editor field focused. Typing comment: "${message}"`);
+    addLog("info", `Editor field focused. Typing comment: "${finalComment}"`);
     await clickResiliently(page, editor, "comment editor input box");
     await page.waitForTimeout(300);
     
@@ -1846,7 +1962,11 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     } catch {}
     
     try {
-      await editor.type(message, { delay: 15 });
+      await editor.type(finalComment, { delay: 15 });
+      // CoinMarketCap displays a coin tag autocomplete popup when "$" is typed.
+      // Pressing Escape or space dismisses the autocomplete popup while retaining the $TAG.
+      await page.waitForTimeout(300);
+      await page.keyboard.press("Escape").catch(() => {});
     } catch (e) {
       addLog("warning", `Direct typing failed: ${(e as Error).message}. Using page.evaluate fallback...`);
       try {
@@ -1860,7 +1980,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           }
           element.dispatchEvent(new Event('input', { bubbles: true }));
           element.dispatchEvent(new Event('change', { bubbles: true }));
-        }, message);
+        }, finalComment);
       } catch (errEval) {
         addLog("error", `Fallback typing failed: ${(errEval as Error).message}`);
         throw errEval;
@@ -3356,6 +3476,27 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
   return { coins: resolvedCoins, creditCount };
 }
 
+export function formatCommentWithCashtag(comment: string, symbol: string): string {
+  if (!symbol) return comment;
+  const sym = symbol.trim().toUpperCase();
+  const cashtag = `$${sym}`;
+  
+  // If the cashtag is already present as a distinct tag, keep as is
+  if (comment.toUpperCase().includes(cashtag)) {
+    return comment;
+  }
+  
+  // If the symbol appears as a standalone word without $, replace the first occurrence
+  const escapedSym = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordRegex = new RegExp(`\\b${escapedSym}\\b`, "i");
+  if (wordRegex.test(comment)) {
+    return comment.replace(wordRegex, cashtag);
+  }
+  
+  // Otherwise, prepend the cashtag to ensure CoinMarketCap tags the token
+  return `${cashtag} - ${comment}`;
+}
+
 async function executeGenerateMessages(): Promise<number> {
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
@@ -3389,9 +3530,9 @@ async function executeGenerateMessages(): Promise<number> {
           Requirements:
           - 1 to 2 short sentences.
           - Write in a natural, human-like voice of an active crypto community trader (sometimes casual, sometimes analytical).
-          - Mention the coin name or symbol naturally.
+          - MANDATORY: ALWAYS include the coin's cashtag tag ($SYMBOL, e.g. $BTC, $ETH, $PONS) inside the comment so CoinMarketCap automatically tags and indexes the comment.
           - Incorporate the provided market price, rank or change percentage naturally.
-          - Do NOT use emojis. Do NOT use hashtags.
+          - Do NOT use emojis. Do NOT use hashtags (#).
           - No generic templates or identical sentence structures. Keep comments varied!
           - Never offer professional financial advice. Do not say "this is not financial advice".
 
@@ -3424,11 +3565,12 @@ async function executeGenerateMessages(): Promise<number> {
           parsed.messages.forEach((msg: any) => {
             const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
             if (matchCoin) {
+              const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
               generatedMessages.push({
                 name: matchCoin.name,
                 symbol: matchCoin.symbol,
                 url: matchCoin.url,
-                message: msg.message,
+                message: formattedComment,
                 sentiment: msg.sentiment === "bearish" ? "bearish" : "bullish",
               });
             }
@@ -3474,9 +3616,9 @@ async function executeGenerateMessages(): Promise<number> {
           Requirements:
           - 1 to 2 short sentences.
           - Write in a natural, human-like voice of an active crypto community trader (sometimes casual, sometimes analytical).
-          - Mention the coin name or symbol naturally.
+          - MANDATORY: ALWAYS include the coin's cashtag tag ($SYMBOL, e.g. $BTC, $ETH, $PONS) inside the comment so CoinMarketCap automatically tags and indexes the comment.
           - Incorporate the provided market price, rank or change percentage naturally.
-          - Do NOT use emojis. Do NOT use hashtags.
+          - Do NOT use emojis. Do NOT use hashtags (#).
           - No generic templates or identical sentence structures. Keep comments varied!
           - Never offer professional financial advice. Do not say "this is not financial advice".
 
@@ -3527,11 +3669,12 @@ async function executeGenerateMessages(): Promise<number> {
           parsed.messages.forEach((msg: any) => {
             const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
             if (matchCoin) {
+              const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
               generatedMessages.push({
                 name: matchCoin.name,
                 symbol: matchCoin.symbol,
                 url: matchCoin.url,
-                message: msg.message,
+                message: formattedComment,
                 sentiment: msg.sentiment === "bearish" ? "bearish" : "bullish",
               });
             }
@@ -3551,16 +3694,16 @@ async function executeGenerateMessages(): Promise<number> {
     
     const templates = {
       bullish: [
-        (c: Coin) => `${c.symbol} is looking extremely strong right now. Holding support beautifully and volume is accelerating. Next target looks very interesting!`,
-        (c: Coin) => `A strong 24h gain of ${c.change_24h}% for ${c.symbol}. The consolidation phase seems finished, expecting higher levels very soon.`,
-        (c: Coin) => `Volume on ${c.symbol} is absolutely popping. If we break this local resistance, we could easily see another leg up.`,
-        (c: Coin) => `Loving the price action on ${c.symbol} lately. Steady accumulation going on in this range.`,
+        (c: Coin) => `$${c.symbol} is looking extremely strong right now. Holding support beautifully and volume is accelerating. Next target looks very interesting!`,
+        (c: Coin) => `A strong 24h gain of ${c.change_24h}% for $${c.symbol}. The consolidation phase seems finished, expecting higher levels very soon.`,
+        (c: Coin) => `Volume on $${c.symbol} is absolutely popping. If we break this local resistance, we could easily see another leg up.`,
+        (c: Coin) => `Loving the price action on $${c.symbol} lately. Steady accumulation going on in this range.`,
       ],
       bearish: [
-        (c: Coin) => `${c.symbol} has some short-term pressure. Volume is declining, let's see if the key support holds.`,
-        (c: Coin) => `Slight pullback for ${c.symbol} at ${c.price}. Good opportunity to DCA before the next bounce.`,
-        (c: Coin) => `A ${c.change_24h}% pullback on ${c.symbol}. Watching the 4h charts closely for a reversal sign.`,
-        (c: Coin) => `Momentum is flat for ${c.symbol} today. Waiting for a breakout trigger before entering more positions.`,
+        (c: Coin) => `$${c.symbol} has some short-term pressure. Volume is declining, let's see if the key support holds.`,
+        (c: Coin) => `Slight pullback for $${c.symbol} at ${c.price}. Good opportunity to DCA before the next bounce.`,
+        (c: Coin) => `A ${c.change_24h}% pullback on $${c.symbol}. Watching the 4h charts closely for a reversal sign.`,
+        (c: Coin) => `Momentum is flat for $${c.symbol} today. Waiting for a breakout trigger before entering more positions.`,
       ]
     };
 
@@ -3568,11 +3711,12 @@ async function executeGenerateMessages(): Promise<number> {
       const isBullish = coin.change_24h >= 0;
       const list = isBullish ? templates.bullish : templates.bearish;
       const fn = list[index % list.length];
+      const formattedComment = formatCommentWithCashtag(fn(coin), coin.symbol);
       generatedMessages.push({
         name: coin.name,
         symbol: coin.symbol,
         url: coin.url,
-        message: fn(coin),
+        message: formattedComment,
         sentiment: isBullish ? "bullish" : "bearish",
       });
     });
@@ -4186,7 +4330,7 @@ function synchronizeSessionsAndProfilesOnStartup() {
 }
 
 async function hydrateLocalFromCloud() {
-  addLog("info", "[FIREBASE] Hydrating local ephemeral storage from Firestore cloud database...");
+  addLog("info", `[STORAGE] Hydrating local ephemeral storage from ${getActiveStoreName()} cloud database...`);
   try {
     // 1. Session cookies
     const cloudSession = await getSessionStateCloud();

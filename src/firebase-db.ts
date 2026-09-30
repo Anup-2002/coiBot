@@ -4,9 +4,23 @@ import fs from "fs";
 import path from "path";
 
 let db: any = null;
+let isFirebaseInitialized = false;
+
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyADgd9kq0YUFjSjVgOaZXMMJmo2Ye8PWls",
+  authDomain: "cmc-bot-project2.firebaseapp.com",
+  projectId: "cmc-bot-project2",
+  storageBucket: "cmc-bot-project2.firebasestorage.app",
+  messagingSenderId: "1035058754010",
+  appId: "1:1035058754010:web:8038d6776f5a5a49dad0e3",
+  measurementId: "G-J81TX46MQ6",
+  databaseURL: "https://cmc-bot-project2-default-rtdb.firebaseio.com",
+  firestoreDatabaseId: "(default)",
+};
 
 function getDb() {
-  if (db) return db;
+  if (isFirebaseInitialized) return db;
+  isFirebaseInitialized = true;
   try {
     let firebaseConfig: any = null;
     let databaseId: string = "(default)";
@@ -22,11 +36,15 @@ function getDb() {
           storageBucket: parsed.storageBucket,
           messagingSenderId: parsed.messagingSenderId,
           appId: parsed.appId,
+          measurementId: parsed.measurementId,
+          databaseURL: parsed.databaseURL || "https://cmc-bot-project2-default-rtdb.firebaseio.com",
         };
-        if (parsed.firestoreDatabaseId) {
-          databaseId = parsed.firestoreDatabaseId;
-        } else if (process.env.FIREBASE_DATABASE_ID) {
-          databaseId = process.env.FIREBASE_DATABASE_ID;
+        const rawDbId = parsed.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID;
+        if (rawDbId && (rawDbId.startsWith("http://") || rawDbId.startsWith("https://"))) {
+          firebaseConfig.databaseURL = rawDbId;
+          databaseId = "(default)";
+        } else if (rawDbId) {
+          databaseId = rawDbId;
         }
         console.log("[FIREBASE] Initializing from FIREBASE_CONFIG environment variable.");
       } catch (e) {
@@ -38,14 +56,20 @@ function getDb() {
     if (!firebaseConfig && process.env.FIREBASE_API_KEY) {
       firebaseConfig = {
         apiKey: process.env.FIREBASE_API_KEY,
-        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-        appId: process.env.FIREBASE_APP_ID,
+        authDomain: process.env.FIREBASE_AUTH_DOMAIN || "cmc-bot-project2.firebaseapp.com",
+        projectId: process.env.FIREBASE_PROJECT_ID || "cmc-bot-project2",
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "cmc-bot-project2.firebasestorage.app",
+        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "1035058754010",
+        appId: process.env.FIREBASE_APP_ID || "1:1035058754010:web:8038d6776f5a5a49dad0e3",
+        measurementId: process.env.FIREBASE_MEASUREMENT_ID || "G-J81TX46MQ6",
+        databaseURL: process.env.FIREBASE_DATABASE_URL || "https://cmc-bot-project2-default-rtdb.firebaseio.com",
       };
-      if (process.env.FIREBASE_DATABASE_ID) {
-        databaseId = process.env.FIREBASE_DATABASE_ID;
+      const rawDbId = process.env.FIREBASE_DATABASE_ID;
+      if (rawDbId && (rawDbId.startsWith("http://") || rawDbId.startsWith("https://"))) {
+        firebaseConfig.databaseURL = rawDbId;
+        databaseId = "(default)";
+      } else if (rawDbId) {
+        databaseId = rawDbId;
       }
       console.log("[FIREBASE] Initializing from individual FIREBASE_* environment variables.");
     }
@@ -62,20 +86,35 @@ function getDb() {
           storageBucket: config.storageBucket,
           messagingSenderId: config.messagingSenderId,
           appId: config.appId,
+          measurementId: config.measurementId,
+          databaseURL: config.databaseURL || "https://cmc-bot-project2-default-rtdb.firebaseio.com",
         };
-        databaseId = config.firestoreDatabaseId || "(default)";
+        const rawDbId = config.firestoreDatabaseId;
+        if (rawDbId && (rawDbId.startsWith("http://") || rawDbId.startsWith("https://"))) {
+          firebaseConfig.databaseURL = rawDbId;
+          databaseId = "(default)";
+        } else {
+          databaseId = config.firestoreDatabaseId || "(default)";
+        }
         console.log("[FIREBASE] Initializing from local firebase-applet-config.json file.");
       }
     }
 
+    // 4. Default fallback to verified application config
     if (!firebaseConfig) {
-      console.warn("[FIREBASE] No Firebase configuration found (neither in environment variables nor in firebase-applet-config.json). Cloud synchronization will be disabled.");
-      return null;
+      firebaseConfig = { ...DEFAULT_FIREBASE_CONFIG };
+      databaseId = DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId;
+      console.log("[FIREBASE] Initializing from DEFAULT_FIREBASE_CONFIG.");
     }
 
     const app = initializeApp(firebaseConfig);
-    db = getFirestore(app, databaseId);
-    console.log("[FIREBASE] Firestore initialized successfully with db ID:", databaseId);
+    const enableFirestore = process.env.FIREBASE_ENABLE_FIRESTORE === "true";
+    if (enableFirestore) {
+      db = getFirestore(app, databaseId);
+      console.log("[FIREBASE] Firestore initialized with db ID:", databaseId);
+    } else {
+      console.log("[FIREBASE] Connected to Firebase Realtime Database at:", getRtdbUrl());
+    }
     return db;
   } catch (err) {
     console.error("[FIREBASE] Initialization error:", err);
@@ -83,34 +122,110 @@ function getDb() {
   }
 }
 
+// Low-level Realtime Database REST helpers
+export function getRtdbUrl(): string | null {
+  if (process.env.FIREBASE_DATABASE_URL) return process.env.FIREBASE_DATABASE_URL.replace(/\/+$/, "");
+  if (process.env.FIREBASE_DATABASE_ID && process.env.FIREBASE_DATABASE_ID.startsWith("http")) {
+    return process.env.FIREBASE_DATABASE_ID.replace(/\/+$/, "");
+  }
+  return DEFAULT_FIREBASE_CONFIG.databaseURL || "https://cmc-bot-project2-default-rtdb.firebaseio.com";
+}
+
+async function fetchFromRtdb(docPath: string): Promise<any> {
+  const rtdbUrl = getRtdbUrl();
+  if (!rtdbUrl) return null;
+  try {
+    const sanitizedPath = docPath.replace(/[^a-zA-Z0-9_\-\/]/g, "_");
+    const res = await fetch(`${rtdbUrl}/${sanitizedPath}.json`, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function writeToRtdb(docPath: string, data: any): Promise<boolean> {
+  const rtdbUrl = getRtdbUrl();
+  if (!rtdbUrl) return false;
+  try {
+    const sanitizedPath = docPath.replace(/[^a-zA-Z0-9_\-\/]/g, "_");
+    const res = await fetch(`${rtdbUrl}/${sanitizedPath}.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(4000)
+    });
+    return res.ok;
+  } catch (_) {}
+  return false;
+}
+
+let firestoreUnavailable = false;
+let lastFirestoreCheck = 0;
+
 // Low-level helper to get a document data
 async function fetchDoc(docPath: string, defaultVal: any = null): Promise<any> {
-  const firestore = getDb();
-  if (!firestore) return defaultVal;
-  try {
-    const docRef = doc(firestore, docPath);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      return snap.data();
+  // 1. Try Firestore if not known to be unprovisioned
+  if (!firestoreUnavailable || (Date.now() - lastFirestoreCheck > 300000)) {
+    const firestore = getDb();
+    if (firestore) {
+      try {
+        const docRef = doc(firestore, docPath);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          return snap.data();
+        }
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes("client is offline") || msg.includes("NOT_FOUND") || msg.includes("5")) {
+          if (!firestoreUnavailable) {
+            console.warn(`[FIREBASE] Cloud Firestore not provisioned in project; using Realtime Database & MongoDB storage.`);
+            firestoreUnavailable = true;
+            lastFirestoreCheck = Date.now();
+          }
+        } else {
+          console.error(`[FIREBASE] Error fetching document ${docPath}:`, msg);
+        }
+      }
     }
-  } catch (err) {
-    console.error(`[FIREBASE] Error fetching document ${docPath}:`, err);
   }
+
+  // 2. Fallback to Realtime Database
+  const rtdbData = await fetchFromRtdb(docPath);
+  if (rtdbData !== null && rtdbData !== undefined) {
+    return rtdbData;
+  }
+
   return defaultVal;
 }
 
 // Low-level helper to write a document data
 async function writeDoc(docPath: string, data: any): Promise<boolean> {
-  const firestore = getDb();
-  if (!firestore) return false;
-  try {
-    const docRef = doc(firestore, docPath);
-    await setDoc(docRef, data, { merge: true });
-    return true;
-  } catch (err) {
-    console.error(`[FIREBASE] Error writing document ${docPath}:`, err);
-    return false;
+  let success = false;
+
+  // 1. Save to Realtime Database
+  const rtdbOk = await writeToRtdb(docPath, data);
+  if (rtdbOk) success = true;
+
+  // 2. Save to Firestore if available
+  if (!firestoreUnavailable) {
+    const firestore = getDb();
+    if (firestore) {
+      try {
+        const docRef = doc(firestore, docPath);
+        await setDoc(docRef, data, { merge: true });
+        success = true;
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes("client is offline") || msg.includes("NOT_FOUND") || msg.includes("5")) {
+          firestoreUnavailable = true;
+          lastFirestoreCheck = Date.now();
+        }
+      }
+    }
   }
+
+  return success;
 }
 
 // Session State Sync
