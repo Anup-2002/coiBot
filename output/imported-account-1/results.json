@@ -34,5 +34,122 @@
     "symbol": "PUMP",
     "timestamp": "3:44:53 AM",
     "url": "https://coinmarketcap.com/currencies/pump-fun/"
+  },
+  {
+    "name": "0G",
+    "symbol": "0G",
+    "url": "https://coinmarketcap.com/currencies/zero-gravity/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:47:47 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "Ribbita by Virtuals",
+    "symbol": "TIBBIR",
+    "url": "https://coinmarketcap.com/currencies/ribbita-by-virtuals/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:48:35 AM",
+    "sentiment": "bearish"
+  },
+  {
+    "name": "Teller",
+    "symbol": "DEBIT",
+    "url": "https://coinmarketcap.com/currencies/teller/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:49:23 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "KiiChain",
+    "symbol": "KII",
+    "url": "https://coinmarketcap.com/currencies/kiichain/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:50:15 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "NVIDIA tokenized stock (xStock)",
+    "symbol": "NVDAX",
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-xstock/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:51:03 AM",
+    "sentiment": "bearish"
+  },
+  {
+    "name": "CEA Industries Tokenized bStocks",
+    "symbol": "BNCB",
+    "url": "https://coinmarketcap.com/currencies/cea-industries-tokenized-bstocks/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:51:49 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "Aster",
+    "symbol": "ASTER",
+    "url": "https://coinmarketcap.com/currencies/aster/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:52:36 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "NVIDIA Tokenized Stock (Robinhood)",
+    "symbol": "NVDA",
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-robinhood/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:53:28 AM",
+    "sentiment": "bearish"
+  },
+  {
+    "name": "Paimon Polymarket SPV Token",
+    "symbol": "PPOLY",
+    "url": "https://coinmarketcap.com/currencies/paimon-polymarket-spv-token/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:54:15 AM",
+    "sentiment": "bearish"
+  },
+  {
+    "name": "Artificial Inu",
+    "symbol": "AI",
+    "url": "https://coinmarketcap.com/currencies/artificial-inu-ai/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:55:06 AM",
+    "sentiment": "bearish"
+  },
+  {
+    "name": "Pons",
+    "symbol": "PONS",
+    "url": "https://coinmarketcap.com/currencies/pons/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:55:51 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "STONK (stonkfun.xyz)",
+    "symbol": "STONK",
+    "url": "https://coinmarketcap.com/currencies/stonk-fun/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:56:38 AM",
+    "sentiment": "bullish"
+  },
+  {
+    "name": "Aave",
+    "symbol": "AAVE",
+    "url": "https://coinmarketcap.com/currencies/aave/",
+    "status": "success",
+    "message": "Posted successfully",
+    "timestamp": "4:57:26 AM",
+    "sentiment": "bullish"
   }
 ]

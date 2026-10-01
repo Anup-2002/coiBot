@@ -777,31 +777,23 @@ async function locateAndPrepareCommentEditor(page: any): Promise<any> {
 }
 
 async function setupPageResourceBlocking(page: any): Promise<void> {
-  addLog("info", "Setting up highly optimized asset and tracker blocking for page...");
   try {
     await page.route("**/*", async (route: any) => {
       const request = route.request();
       const resourceType = request.resourceType();
       const url = request.url();
       
-      const blockedTypes = ["image", "media", "font"];
+      // Minimum safe optimization: only block heavy media (video/audio) and third-party trackers.
+      // KEEP images and fonts enabled so login captchas, slide puzzles, and UI buttons render properly!
+      const blockedTypes = ["media"];
       const blockedDomains = [
         "google-analytics.com",
         "googletagmanager.com",
         "doubleclick.net",
         "facebook.net",
-        "facebook.com",
         "hotjar.com",
-        "scorecardresearch.com",
-        "quantserve.com",
-        "intercom.io",
-        "mixpanel.com",
-        "amplitude.com",
-        "adsystem.com",
-        "ads-twitter.com",
-        "smartadserver.com",
-        "adnxs.com",
-        "pubmatic.com"
+        "clarity.ms",
+        "scorecardresearch.com"
       ];
       
       const shouldBlock = blockedTypes.includes(resourceType) || 
@@ -814,7 +806,7 @@ async function setupPageResourceBlocking(page: any): Promise<void> {
       }
     });
   } catch (err) {
-    addLog("warning", `Could not set up page resource blocking: ${(err as Error).message}`);
+    console.error("Resource routing error:", err);
   }
 }
 
@@ -1298,10 +1290,10 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       try {
         const modalContainer = await page.$('div[role="dialog"], [class*="modal" i]');
         if (modalContainer) {
-          const loginTab = await modalContainer.$('button:has-text("Log In"), [role="tab"]:has-text("Log In"), span:has-text("Log In")');
+          const loginTab = await modalContainer.$('[data-test="user-modal__login-tab"], div[data-test="user-modal__login-tab"], button:has-text("Log In"), [role="tab"]:has-text("Log In"), span:has-text("Log In"), div:has-text("Log In")');
           if (loginTab && await loginTab.isVisible()) {
             await loginTab.click().catch(() => {});
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(600);
           }
         }
       } catch {}
@@ -1313,12 +1305,12 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       // Retry finding elements up to 5 times with delay
       for (let i = 0; i < 5; i++) {
         const emailSelectors = [
-          'div[role="dialog"] input[type="email"]',
-          'div[role="dialog"] input[placeholder*="email" i]',
           '[data-test="email-input"]',
-          'input[type="email"]',
           'input.email-input',
           '.email-input',
+          'div[role="dialog"] input[type="email"]',
+          'div[role="dialog"] input[placeholder*="email" i]',
+          'input[type="email"]',
           'input[placeholder*="email" i]',
           'input[placeholder*="Email" i]',
           'input[name="email"]',
@@ -1339,12 +1331,12 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
 
         const passwordSelectors = [
-          'div[role="dialog"] input[type="password"]',
-          'div[role="dialog"] input[placeholder*="password" i]',
           '[data-test="password-input"]',
-          'input[type="password"]',
           'input.password-input',
           '.password-input',
+          'div[role="dialog"] input[type="password"]',
+          'div[role="dialog"] input[placeholder*="password" i]',
+          'input[type="password"]',
           'input[placeholder*="password" i]',
           'input[placeholder*="Password" i]',
           'input[name="password"]',
@@ -1408,11 +1400,30 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       try {
         const modalContainer = await page.$('div[role="dialog"], [class*="modal" i], form:has(input[type="password"])');
         if (modalContainer) {
-          const candidateBtns = await modalContainer.$$('button[type="submit"], [data-test="login-btn"], button:has-text("Log In"), button:has-text("Log in"), button:has-text("Sign In"), button:has-text("Sign in"), form button');
-          for (const btn of candidateBtns) {
-            if (await btn.isVisible()) {
-              loginBtn = btn;
-              break;
+          // Priority 1: Explicit type="submit" or specific login data-test attributes (NEVER tab headers)
+          const explicitSubmit = await modalContainer.$('button[type="submit"], form button[type="submit"], [data-test="user-modal__login-btn"], [data-test="login-btn"], [data-test="login-button"]');
+          if (explicitSubmit && await explicitSubmit.isVisible()) {
+            loginBtn = explicitSubmit;
+          } else {
+            // Priority 2: Scan candidate buttons, strictly skipping Tab elements
+            const candidateBtns = await modalContainer.$$('button, div[role="button"]');
+            for (const btn of candidateBtns) {
+              if (await btn.isVisible()) {
+                const isTab = await btn.evaluate((el: HTMLElement) => {
+                  const role = el.getAttribute('role');
+                  const dt = el.getAttribute('data-test') || '';
+                  const ariaSel = el.getAttribute('aria-selected');
+                  const cl = el.className || '';
+                  return role === 'tab' || dt.includes('tab') || ariaSel !== null || (typeof cl === 'string' && cl.includes('tab'));
+                }).catch(() => false);
+                if (isTab) continue; // Skip tab headers!
+
+                const text = (await btn.innerText().catch(() => "")).trim().toLowerCase();
+                if (text === "log in" || text === "login" || text === "sign in" || text === "signin") {
+                  loginBtn = btn;
+                  break;
+                }
+              }
             }
           }
         }
@@ -1420,9 +1431,11 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       if (!loginBtn) {
         const btnSelectors = [
-          '[data-test="login-btn"]',
-          'form button[type="submit"]',
           'button[type="submit"]',
+          'form button[type="submit"]',
+          '[data-test="user-modal__login-btn"]',
+          '[data-test="login-btn"]',
+          '[data-test="login-button"]',
           '.cmc-login-btn',
         ];
         for (const sel of btnSelectors) {
@@ -1431,10 +1444,23 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
       }
 
-      if (!loginBtn) {
-        addLog("error", "Failed to locate login button inside the credentials form.");
-        await browser.close().catch(() => {});
-        return { status: "failed", message: "Login submit button not found on page." };
+      // Check if button is disabled by React and force event dispatch if needed
+      if (loginBtn) {
+        try {
+          const isBtnDisabled = await loginBtn.evaluate((b: HTMLElement) => b.hasAttribute('disabled') || b.classList.contains('BaseButton_disabled__t5Wcr'));
+          if (isBtnDisabled) {
+            addLog("info", "Re-triggering focus events to ensure form validation...");
+            await emailInput.focus().catch(() => {});
+            await page.keyboard.press("End").catch(() => {});
+            await page.keyboard.press("Space").catch(() => {});
+            await page.keyboard.press("Backspace").catch(() => {});
+            await passwordInput.focus().catch(() => {});
+            await page.keyboard.press("End").catch(() => {});
+            await page.keyboard.press("Space").catch(() => {});
+            await page.keyboard.press("Backspace").catch(() => {});
+            await page.waitForTimeout(400);
+          }
+        } catch {}
       }
 
       // Listen for network API responses to capture exact backend error messages
@@ -1442,7 +1468,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       const apiResponseListener = async (response: any) => {
         try {
           const u = response.url();
-          if (u.includes("/login") || u.includes("/auth/") || u.includes("/user/")) {
+          if (u.includes("login") || u.includes("auth") || u.includes("user")) {
+            const status = response.status();
             const body = await response.json().catch(() => null);
             if (body) {
               if (body.status && body.status.error_message) {
@@ -1453,6 +1480,9 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
                 apiErrorMsg = typeof body.error === "string" ? body.error : JSON.stringify(body.error);
               }
             }
+            if (status >= 400) {
+              addLog("warning", `CoinMarketCap Auth API returned HTTP ${status}: ${apiErrorMsg || response.statusText()}`);
+            }
           }
         } catch {}
       };
@@ -1460,21 +1490,70 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       addLog("info", "Submitting login form...");
       loginState = { status: "authenticating", message: "Submitting login form..." };
+
+      // Submit form via both click and Enter key for maximum resilience
       try {
-        await loginBtn.click({ timeout: 5000 });
-      } catch (clickErr) {
-        addLog("warning", `Standard click on login submit button failed: ${(clickErr as Error).message}. Trying forced click...`);
-        try {
-          await loginBtn.click({ force: true, timeout: 5000 });
-        } catch (forceErr) {
-          addLog("warning", `Forced click failed: ${(forceErr as Error).message}. Trying evaluate click fallback...`);
-          await loginBtn.evaluate((el: any) => (el as HTMLElement).click()).catch(() => {});
+        if (loginBtn) {
+          await loginBtn.click({ timeout: 5000 });
+        } else {
+          addLog("info", "Submit button not found directly, submitting via Enter key on password input...");
+          await passwordInput.focus().catch(() => {});
+          await passwordInput.press("Enter").catch(() => {});
         }
+      } catch (clickErr) {
+        addLog("warning", `Standard click failed, attempting Enter key submission: ${(clickErr as Error).message}`);
+        await passwordInput.focus().catch(() => {});
+        await passwordInput.press("Enter").catch(() => {});
       }
     
-    addLog("info", "Waiting for login feedback or redirect (8 seconds)...");
-    loginState = { status: "authenticating", message: "Waiting for login feedback or security redirects (8s)..." };
-    await page.waitForTimeout(8000);
+      addLog("info", "Processing credentials with CoinMarketCap...");
+      loginState = { status: "authenticating", message: "Processing credentials with CoinMarketCap..." };
+
+      // Minimum safe optimization: fast-poll every 300ms (max 5s) instead of rigid 8-second sleep
+      for (let p = 0; p < 16; p++) {
+        await page.waitForTimeout(300);
+        const cks = await context.cookies().catch(() => []);
+        if (cks.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20)) {
+          break; // Authenticated early!
+        }
+        const sliderKnob = await page.$('.geetest_slider_button, .geetest_btn, [class*="slider-btn" i], [class*="slider_button" i], [class*="geetest" i] [role="slider"]');
+        if (sliderKnob && await sliderKnob.isVisible()) {
+          break; // Slide puzzle appeared!
+        }
+        const otpInp = await page.$('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"]');
+        if (otpInp && await otpInp.isVisible()) {
+          break; // OTP field appeared!
+        }
+        const errEl = await page.$('.error-message, [class*="error-message" i], [role="alert"]');
+        if (errEl && await errEl.isVisible()) {
+          break; // Form error appeared!
+        }
+      }
+
+      // Automated GeeTest slide puzzle attempt if detected
+      try {
+        const sliderKnob = await page.$('.geetest_slider_button, .geetest_btn, [class*="slider-btn" i], [class*="slider_button" i], [class*="geetest" i] [role="slider"]');
+        if (sliderKnob && await sliderKnob.isVisible()) {
+          addLog("info", "GeeTest Slide Puzzle challenge detected. Attempting automated slider alignment...");
+          const box = await sliderKnob.boundingBox();
+          if (box) {
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.waitForTimeout(100);
+            const targetOffset = 185 + Math.floor(Math.random() * 30);
+            const steps = 18;
+            for (let s = 1; s <= steps; s++) {
+              await page.mouse.move(box.x + (targetOffset * s) / steps, box.y + box.height / 2 + (Math.sin(s) * 2));
+              await page.waitForTimeout(25 + Math.random() * 15);
+            }
+            await page.waitForTimeout(150);
+            await page.mouse.up();
+            await page.waitForTimeout(2000);
+          }
+        }
+      } catch (slideErr) {
+        console.error("Slide puzzle auto-drag exception:", slideErr);
+      }
 
     // 1. Check for visible form error messages inside the modal immediately
     let modalErrorMessage = "";
@@ -1505,16 +1584,31 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
     } catch {}
 
-    const pageText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-    const title = await page.title().catch(() => "");
-    if (title.includes("Cloudflare") || title.includes("Just a moment") || pageText.includes("cloudflare") || pageText.includes("security challenge") || pageText.includes("captcha") || (await page.$('iframe[src*="cloudflare"], iframe[src*="turnstile"], .geetest_holder, [class*="captcha" i]')) !== null) {
-      addLog("error", "Cloudflare Captcha Challenge or Slide Puzzle detected during login.");
+    // First, check if authentication cookies were already granted
+    const initialCookies = await context.cookies().catch(() => []);
+    const hasInitialAuth = initialCookies.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
+    if (hasInitialAuth) {
+      addLog("success", "Authentication token detected directly after credentials submission!");
+      await context.storageState({ path: AUTH_STATE_FILE });
+      addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+      
+      try {
+        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        await saveSessionStateCloud(cookiesStr);
+        autoSyncSessionToProfiles(cookiesStr, email);
+      } catch (e) {
+        console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+      }
+
       await browser.close().catch(() => {});
-      loginState = { status: "failed", message: "Cloudflare Captcha or Bot Protection challenge intercepted login." };
-      return { status: "captcha", message: "Cloudflare Captcha or Bot Protection challenge intercepted login." };
+      loginState = { status: "success", message: "Login successful! Session cookies saved." };
+      return { status: "success", message: "Login successful! Session cookies saved." };
     }
 
-    // Check if OTP code is required
+    const pageText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+    const title = await page.title().catch(() => "");
+
+    // Check if OTP verification code is required
     const requiresCode = 
       pageText.includes("verification") || 
       pageText.includes("security code") || 
@@ -1524,22 +1618,25 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       (await page.$('input[placeholder*="verification" i]')) !== null ||
       (await page.$('input[maxlength="6"]')) !== null;
 
-    if (requiresCode) {
+    if (requiresCode && !hasInitialAuth) {
       addLog("warning", "CoinMarketCap requests 6-digit security verification code!");
       activeLoginSession = { browser, context, page, email };
       loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
       return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
     }
 
-    if (modalErrorMessage) {
+    if (modalErrorMessage && !hasInitialAuth) {
       await browser.close().catch(() => {});
       loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
       return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
     }
 
-    // Check if cookies indicate we are authenticated
-    const initialCookies = await context.cookies().catch(() => []);
-    const hasInitialAuth = initialCookies.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
+    // Only flag Cloudflare if an actual interstitial challenge screen is active (not just incidental text)
+    const isHardCloudflareBlock = title.startsWith("Just a moment...") && (await page.$('#challenge-running, #challenge-stage, #cf-challenge-running')) !== null;
+    if (isHardCloudflareBlock && !hasInitialAuth) {
+      addLog("warning", "Cloudflare verification screen detected. Waiting 5s for auto-clearance...");
+      await page.waitForTimeout(5000);
+    }
 
     // Otherwise, check if successfully logged in by checking comments editor on bitcoin page
     addLog("info", "Form submitted. Navigating to verify community editor access...");
@@ -1595,7 +1692,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     const hasUprodCookie = cookiesList.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
     const hasEitherCookie = hasAuthCookie || hasUprodCookie;
 
-    const isFullyAuthenticated = isPostButtonReady || (!isHeaderLoginVisible && hasEitherCookie);
+    const isFullyAuthenticated = hasEitherCookie || isPostButtonReady || !isHeaderLoginVisible;
 
     if (isFullyAuthenticated) {
       addLog("success", "Successfully logged in and verified community editor access!");
@@ -3048,14 +3145,12 @@ app.post("/api/start-login", async (req, res) => {
     return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
   }
 
-  // 1. Check if same account username already exists
+  // 1. Check profiles
   let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
-  if (profiles.some(p => p.name.toLowerCase() === email.toLowerCase())) {
-    return res.status(400).json({ error: "This account username already exists. If you want to relogin, please delete the existing profile first." });
-  }
+  const existingProfile = profiles.find(p => p.name.toLowerCase() === email.toLowerCase());
 
-  // 2. Check if we reached the maximum of 5 accounts
-  if (profiles.length >= 5) {
+  // 2. Check if we reached the maximum of 5 accounts only if creating a new profile
+  if (!existingProfile && profiles.length >= 5) {
     return res.status(400).json({ error: "Maximum limit of 5 accounts reached. Please delete an existing profile to add a new one." });
   }
 
