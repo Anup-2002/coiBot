@@ -36,120 +36,165 @@
     "url": "https://coinmarketcap.com/currencies/pump-fun/"
   },
   {
+    "message": "Posted successfully",
     "name": "0G",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "0G",
-    "url": "https://coinmarketcap.com/currencies/zero-gravity/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:47:47 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/zero-gravity/"
   },
   {
+    "message": "Posted successfully",
     "name": "Ribbita by Virtuals",
+    "sentiment": "bearish",
+    "status": "success",
     "symbol": "TIBBIR",
-    "url": "https://coinmarketcap.com/currencies/ribbita-by-virtuals/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:48:35 AM",
-    "sentiment": "bearish"
+    "url": "https://coinmarketcap.com/currencies/ribbita-by-virtuals/"
   },
   {
+    "message": "Posted successfully",
     "name": "Teller",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "DEBIT",
-    "url": "https://coinmarketcap.com/currencies/teller/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:49:23 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/teller/"
   },
   {
+    "message": "Posted successfully",
     "name": "KiiChain",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "KII",
-    "url": "https://coinmarketcap.com/currencies/kiichain/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:50:15 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/kiichain/"
   },
   {
+    "message": "Posted successfully",
     "name": "NVIDIA tokenized stock (xStock)",
+    "sentiment": "bearish",
+    "status": "success",
     "symbol": "NVDAX",
-    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-xstock/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:51:03 AM",
-    "sentiment": "bearish"
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-xstock/"
   },
   {
+    "message": "Posted successfully",
     "name": "CEA Industries Tokenized bStocks",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "BNCB",
-    "url": "https://coinmarketcap.com/currencies/cea-industries-tokenized-bstocks/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:51:49 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/cea-industries-tokenized-bstocks/"
   },
   {
+    "message": "Posted successfully",
     "name": "Aster",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "ASTER",
-    "url": "https://coinmarketcap.com/currencies/aster/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:52:36 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/aster/"
   },
   {
+    "message": "Posted successfully",
     "name": "NVIDIA Tokenized Stock (Robinhood)",
+    "sentiment": "bearish",
+    "status": "success",
     "symbol": "NVDA",
-    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-robinhood/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:53:28 AM",
-    "sentiment": "bearish"
+    "url": "https://coinmarketcap.com/currencies/nvidia-tokenized-stock-robinhood/"
   },
   {
+    "message": "Posted successfully",
     "name": "Paimon Polymarket SPV Token",
+    "sentiment": "bearish",
+    "status": "success",
     "symbol": "PPOLY",
-    "url": "https://coinmarketcap.com/currencies/paimon-polymarket-spv-token/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:54:15 AM",
-    "sentiment": "bearish"
+    "url": "https://coinmarketcap.com/currencies/paimon-polymarket-spv-token/"
   },
   {
+    "message": "Posted successfully",
     "name": "Artificial Inu",
+    "sentiment": "bearish",
+    "status": "success",
     "symbol": "AI",
-    "url": "https://coinmarketcap.com/currencies/artificial-inu-ai/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:55:06 AM",
-    "sentiment": "bearish"
+    "url": "https://coinmarketcap.com/currencies/artificial-inu-ai/"
   },
   {
+    "message": "Posted successfully",
     "name": "Pons",
+    "sentiment": "bullish",
+    "status": "success",
     "symbol": "PONS",
-    "url": "https://coinmarketcap.com/currencies/pons/",
-    "status": "success",
-    "message": "Posted successfully",
     "timestamp": "4:55:51 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/pons/"
   },
   {
+    "message": "Posted successfully",
     "name": "STONK (stonkfun.xyz)",
-    "symbol": "STONK",
-    "url": "https://coinmarketcap.com/currencies/stonk-fun/",
+    "sentiment": "bullish",
     "status": "success",
-    "message": "Posted successfully",
+    "symbol": "STONK",
     "timestamp": "4:56:38 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/stonk-fun/"
   },
   {
-    "name": "Aave",
-    "symbol": "AAVE",
-    "url": "https://coinmarketcap.com/currencies/aave/",
-    "status": "success",
     "message": "Posted successfully",
+    "name": "Aave",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "AAVE",
     "timestamp": "4:57:26 AM",
-    "sentiment": "bullish"
+    "url": "https://coinmarketcap.com/currencies/aave/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Canopy",
+    "sentiment": "bearish",
+    "status": "success",
+    "symbol": "CNPY",
+    "timestamp": "10:36:17 AM",
+    "url": "https://coinmarketcap.com/currencies/canopy/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "iShares China Large-Cap Tokenized ETF (Ondo)",
+    "sentiment": "bearish",
+    "status": "success",
+    "symbol": "FXIon",
+    "timestamp": "10:37:02 AM",
+    "url": "https://coinmarketcap.com/currencies/ishares-china-large-cap-tokenized-etf-ondo/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Aerodrome Finance",
+    "sentiment": "bearish",
+    "status": "success",
+    "symbol": "AERO",
+    "timestamp": "10:37:50 AM",
+    "url": "https://coinmarketcap.com/currencies/aerodrome-finance/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "SpaceX Tokenized Stock (Robinhood)",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "SPCX",
+    "timestamp": "10:38:37 AM",
+    "url": "https://coinmarketcap.com/currencies/spacex-tokenized-stock-robinhood/"
+  },
+  {
+    "message": "Posted successfully",
+    "name": "Solana",
+    "sentiment": "bullish",
+    "status": "success",
+    "symbol": "SOL",
+    "timestamp": "1:46:10 PM",
+    "url": "https://coinmarketcap.com/currencies/solana/"
   }
 ]

@@ -52,12 +52,12 @@ export async function getMongoDb(): Promise<Db | null> {
     });
     await client.connect();
     
-    // Parse DB name from URI or fallback to "halo_family"
-    let dbName = "halo_family";
+    // Isolated dedicated database name for CoinMarketCap bot (strictly isolates from existing collections)
+    let dbName = "cmc_bot";
     try {
       const parsedUrl = new URL(mongoUri);
       const pathname = parsedUrl.pathname.replace(/^\//, "");
-      if (pathname) {
+      if (pathname && !pathname.toLowerCase().includes("halo") && pathname !== "admin") {
         dbName = pathname;
       }
     } catch (_) {}

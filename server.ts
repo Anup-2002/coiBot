@@ -50,7 +50,7 @@ import express from "express";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { createRequire } from "module";
-const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+const customRequire = typeof require !== "undefined" ? require : createRequire(typeof process !== "undefined" && process.cwd ? "file://" + process.cwd() + "/server.js" : "file:///app/server.js");
 const { chromium } = customRequire("playwright") as typeof import("playwright");
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -96,36 +96,32 @@ try {
 app.use(express.json({ limit: "50mb" }));
 
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
-app.get("/output/last_trending.json", async (req, res) => {
+app.get("/output/last_trending.json", (req, res) => {
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
-  try {
-    await syncLocalFromCloudIfStale();
-  } catch (err) {
-    console.error("[SERVE] Error syncing before serving trending:", err);
-  }
+  // Trigger background refresh without blocking client response
+  syncLocalFromCloudIfStale().catch(() => {});
+
   if (fs.existsSync(LAST_TRENDING_FILE)) {
     return res.sendFile(LAST_TRENDING_FILE);
   }
   res.json([]);
 });
 
-app.get("/output/generated_messages.json", async (req, res) => {
+app.get("/output/generated_messages.json", (req, res) => {
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
-  try {
-    await syncLocalFromCloudIfStale();
-  } catch (err) {
-    console.error("[SERVE] Error syncing before serving messages:", err);
-  }
+  // Trigger background refresh without blocking client response
+  syncLocalFromCloudIfStale().catch(() => {});
+
   if (fs.existsSync(GENERATED_MESSAGES_FILE)) {
     return res.sendFile(GENERATED_MESSAGES_FILE);
   }
@@ -139,6 +135,7 @@ let LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
 let GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
 let RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
 let POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
+let TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
 let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
 let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
 
@@ -172,6 +169,45 @@ function getNextImportedAccountName(profiles: any[]): string {
   return `Imported Account ${profiles.length + 1}`;
 }
 
+interface ProfileTimestamps {
+  coinsFetchedAt: number | null;
+  coinsFetchedTime: string | null;
+  commentsGeneratedAt: number | null;
+  commentsGeneratedTime: string | null;
+}
+
+function getRealTimestamps(): ProfileTimestamps {
+  return readJsonFile<ProfileTimestamps>(TIMESTAMPS_FILE, {
+    coinsFetchedAt: null,
+    coinsFetchedTime: null,
+    commentsGeneratedAt: null,
+    commentsGeneratedTime: null,
+  });
+}
+
+function updateRealFetchTime(): void {
+  const ts = getRealTimestamps();
+  ts.coinsFetchedAt = Date.now();
+  ts.coinsFetchedTime = new Date().toISOString();
+  writeJsonFile(TIMESTAMPS_FILE, ts);
+}
+
+function updateRealGenerateTime(): void {
+  const ts = getRealTimestamps();
+  ts.commentsGeneratedAt = Date.now();
+  ts.commentsGeneratedTime = new Date().toISOString();
+  writeJsonFile(TIMESTAMPS_FILE, ts);
+}
+
+function clearRealTimestamps(): void {
+  writeJsonFile(TIMESTAMPS_FILE, {
+    coinsFetchedAt: null,
+    coinsFetchedTime: null,
+    commentsGeneratedAt: null,
+    commentsGeneratedTime: null,
+  });
+}
+
 function updateActiveProfilePaths() {
   const activeId = getActiveProfileId();
   if (activeId) {
@@ -183,11 +219,13 @@ function updateActiveProfilePaths() {
     GENERATED_MESSAGES_FILE = path.join(dir, "generated_messages.json");
     RESULTS_FILE = path.join(dir, "results.json");
     POST_PROGRESS_FILE = path.join(dir, "post_progress.json");
+    TIMESTAMPS_FILE = path.join(dir, "timestamps.json");
   } else {
     LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
     GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
     RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
     POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
+    TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
   }
   console.log(`[PATHS] Dynamic paths updated. Active profile: ${activeId || "None"}`);
 }
@@ -215,12 +253,17 @@ function triggerLogSync() {
 }
 
 function addLog(level: "info" | "success" | "warning" | "error", message: string) {
+  if (!message || !message.trim()) return;
+  // Deduplicate consecutive identical logs to prevent clutter
+  if (logs.length > 0 && logs[logs.length - 1].message === message) {
+    return;
+  }
   const timestamp = new Date().toLocaleTimeString();
   const entry: LogEntry = { timestamp, level, message };
   logs.push(entry);
   console.log(`[${level.toUpperCase()}] ${message}`);
-  // Limit to last 1000 logs
-  if (logs.length > 1000) {
+  // Strictly enforce max 100 logs cap (ring-buffer) to prevent unbounded memory growth
+  while (logs.length > 100) {
     logs.shift();
   }
   triggerLogSync();
@@ -420,12 +463,13 @@ interface PostResult {
 }
 
 // Global State
-let botStatus = "Idle"; // "Idle" | "Fetching" | "Generating" | "Posting" | "Completed"
+let botStatus = "Idle"; // "Idle" | "Fetching" | "Generating" | "Posting" | "Stopping" | "Completed"
 let currentCoinName = "N/A";
 let activePostingTimeout: NodeJS.Timeout | null = null;
 let currentPostingIndex = 0;
 let isPostingRunning = false;
 let isGeneratingRunning = false;
+let isStopping = false;
 const runMode = "Real Browser";
 
 let lastOpenAiError: string | null = null;
@@ -472,8 +516,27 @@ function cancelNextAutomationCycle() {
 }
 
 async function triggerFullFlowExecution() {
-  if (isBusy() && !isPostingRunning) {
-    addLog("warning", "Could not trigger automated continuous cycle: another automated process is currently running.");
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+
+  if (!activeId || !sessionExists) {
+    addLog("error", "[AUTOMATION] Cannot run continuous cycle: No active account profile or authenticated session found. Disabling loop.");
+    cancelNextAutomationCycle();
+    botStatus = "Idle";
+    return;
+  }
+
+  if (isBusy() || isPostingRunning || isGeneratingRunning) {
+    addLog("warning", "Could not trigger automated continuous cycle: an automated process is still currently running. Postponing cycle by 1 minute...");
+    if (isContinuousLoopActive && !nextCycleTimeout) {
+      nextCycleStartTime = Date.now() + 60000;
+      nextCycleTimeout = setTimeout(async () => {
+        nextCycleTimeout = null;
+        if (isContinuousLoopActive) {
+          await triggerFullFlowExecution();
+        }
+      }, 60000);
+    }
     return;
   }
 
@@ -1509,219 +1572,96 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       addLog("info", "Processing credentials with CoinMarketCap...");
       loginState = { status: "authenticating", message: "Processing credentials with CoinMarketCap..." };
 
-      // Minimum safe optimization: fast-poll every 300ms (max 5s) instead of rigid 8-second sleep
-      for (let p = 0; p < 16; p++) {
-        await page.waitForTimeout(300);
-        const cks = await context.cookies().catch(() => []);
-        if (cks.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20)) {
-          break; // Authenticated early!
-        }
-        const sliderKnob = await page.$('.geetest_slider_button, .geetest_btn, [class*="slider-btn" i], [class*="slider_button" i], [class*="geetest" i] [role="slider"]');
-        if (sliderKnob && await sliderKnob.isVisible()) {
-          break; // Slide puzzle appeared!
-        }
-        const otpInp = await page.$('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"]');
-        if (otpInp && await otpInp.isVisible()) {
-          break; // OTP field appeared!
-        }
-        const errEl = await page.$('.error-message, [class*="error-message" i], [role="alert"]');
-        if (errEl && await errEl.isVisible()) {
-          break; // Form error appeared!
-        }
-      }
+      let isSuccessEarly = false;
+      let isOtpEarly = false;
 
-      // Automated GeeTest slide puzzle attempt if detected
-      try {
-        const sliderKnob = await page.$('.geetest_slider_button, .geetest_btn, [class*="slider-btn" i], [class*="slider_button" i], [class*="geetest" i] [role="slider"]');
-        if (sliderKnob && await sliderKnob.isVisible()) {
-          addLog("info", "GeeTest Slide Puzzle challenge detected. Attempting automated slider alignment...");
-          const box = await sliderKnob.boundingBox();
-          if (box) {
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.mouse.down();
-            await page.waitForTimeout(100);
-            const targetOffset = 185 + Math.floor(Math.random() * 30);
-            const steps = 18;
-            for (let s = 1; s <= steps; s++) {
-              await page.mouse.move(box.x + (targetOffset * s) / steps, box.y + box.height / 2 + (Math.sin(s) * 2));
-              await page.waitForTimeout(25 + Math.random() * 15);
+      // Poll up to 35 seconds (70 x 500ms) for authentication cookies, localStorage, or OTP challenge
+      for (let p = 0; p < 70; p++) {
+        await page.waitForTimeout(500);
+
+        const currentCookies = await context.cookies().catch(() => []);
+        const hasAuthCookies = currentCookies.some((c: any) => {
+          const n = (c.name || "").toLowerCase();
+          return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid") || n.includes("token") || n.includes("session")) && c.value && c.value.length > 15;
+        });
+
+        const hasStorageAuth = await page.evaluate(() => {
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || "";
+              const v = localStorage.getItem(k) || "";
+              if ((k.toLowerCase().includes("auth") || k.toLowerCase().includes("user") || k.toLowerCase().includes("token") || k.includes("base-acc-sdk")) && v.length > 15) {
+                return true;
+              }
             }
-            await page.waitForTimeout(150);
-            await page.mouse.up();
-            await page.waitForTimeout(2000);
-          }
-        }
-      } catch (slideErr) {
-        console.error("Slide puzzle auto-drag exception:", slideErr);
-      }
+          } catch {}
+          return false;
+        }).catch(() => false);
 
-    // 1. Check for visible form error messages inside the modal immediately
-    let modalErrorMessage = "";
-    try {
-      const errorSelectors = [
-        '.error-message',
-        '.errorMessage',
-        '[class*="error-message" i]',
-        '[class*="errorMessage" i]',
-        '[class*="form-error" i]',
-        '[class*="FormError" i]',
-        '.sc-1cf4148-0',
-        '.sc-acb6320-0',
-        'div[style*="color: rgb(234, 84, 85)"]',
-        'span[style*="color: rgb(234, 84, 85)"]',
-        '[role="alert"]',
-      ];
-      for (const sel of errorSelectors) {
-        const errorEl = await page.$(sel);
-        if (errorEl && await errorEl.isVisible()) {
-          const text = (await errorEl.innerText().catch(() => "")).trim();
-          if (text) {
-            modalErrorMessage = text;
-            addLog("error", `CoinMarketCap rejected login: "${text}"`);
-            break;
-          }
-        }
-      }
-    } catch {}
+        const hasAvatar = await page.evaluate(() => {
+          return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
+        }).catch(() => false);
 
-    // First, check if authentication cookies were already granted
-    const initialCookies = await context.cookies().catch(() => []);
-    const hasInitialAuth = initialCookies.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
-    if (hasInitialAuth) {
-      addLog("success", "Authentication token detected directly after credentials submission!");
-      await context.storageState({ path: AUTH_STATE_FILE });
-      addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
-      
-      try {
-        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-        await saveSessionStateCloud(cookiesStr);
-        autoSyncSessionToProfiles(cookiesStr, email);
-      } catch (e) {
-        console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
-      }
+        const isRedirectedHome = await page.evaluate(() => {
+          const url = window.location.href;
+          return !url.includes("/login") && !url.includes("/signin") && !url.includes("/auth");
+        }).catch(() => false);
 
-      await browser.close().catch(() => {});
-      loginState = { status: "success", message: "Login successful! Session cookies saved." };
-      return { status: "success", message: "Login successful! Session cookies saved." };
-    }
+        const isModalGone = await page.evaluate(() => {
+          const modal = document.querySelector('div[role="dialog"]');
+          return !modal || (modal as HTMLElement).offsetParent === null;
+        }).catch(() => false);
 
-    const pageText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-    const title = await page.title().catch(() => "");
+        const hasOtpField = await page.evaluate(() => {
+          const inp = document.querySelector('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"]');
+          const bodyText = (document.body.innerText || "").toLowerCase();
+          return !!inp || bodyText.includes("verification code") || bodyText.includes("6-digit") || bodyText.includes("check your email");
+        }).catch(() => false);
 
-    // Check if OTP verification code is required
-    const requiresCode = 
-      pageText.includes("verification") || 
-      pageText.includes("security code") || 
-      pageText.includes("6-digit") || 
-      pageText.includes("check your email") ||
-      (await page.$('input[placeholder*="code" i]')) !== null ||
-      (await page.$('input[placeholder*="verification" i]')) !== null ||
-      (await page.$('input[maxlength="6"]')) !== null;
-
-    if (requiresCode && !hasInitialAuth) {
-      addLog("warning", "CoinMarketCap requests 6-digit security verification code!");
-      activeLoginSession = { browser, context, page, email };
-      loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
-      return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
-    }
-
-    if (modalErrorMessage && !hasInitialAuth) {
-      await browser.close().catch(() => {});
-      loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
-      return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
-    }
-
-    // Only flag Cloudflare if an actual interstitial challenge screen is active (not just incidental text)
-    const isHardCloudflareBlock = title.startsWith("Just a moment...") && (await page.$('#challenge-running, #challenge-stage, #cf-challenge-running')) !== null;
-    if (isHardCloudflareBlock && !hasInitialAuth) {
-      addLog("warning", "Cloudflare verification screen detected. Waiting 5s for auto-clearance...");
-      await page.waitForTimeout(5000);
-    }
-
-    // Otherwise, check if successfully logged in by checking comments editor on bitcoin page
-    addLog("info", "Form submitted. Navigating to verify community editor access...");
-    loginState = { status: "authenticating", message: "Navigating to verify community editor access..." };
-    await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(3000);
-
-    // Use our robust locateAndPrepareCommentEditor to check if we can access the editor
-    const editor = await locateAndPrepareCommentEditor(page);
-    
-    // Check if the editor submit button actually allows posting or requires logging in
-    let isPostButtonReady = false;
-    if (editor) {
-      const postButtonSelectors = [
-        '[data-test="editor-post-button"]',
-        'button[data-test="editor-post-button"]',
-        'button:has-text("Post")',
-        '.editor-post-button'
-      ];
-      for (const selector of postButtonSelectors) {
-        const postBtn = await page.$(selector);
-        if (postBtn) {
-          const btnText = await postBtn.innerText().catch(() => "");
-          if (btnText && !btnText.toLowerCase().includes("log in") && !btnText.toLowerCase().includes("signin")) {
-            isPostButtonReady = true;
-          }
+        if (hasOtpField) {
+          isOtpEarly = true;
           break;
         }
-      }
-    }
 
-    // Also check if any header Log In buttons are visible on the page
-    let isHeaderLoginVisible = false;
-    const headerLoginSelectors = [
-      'button:has-text("Log In")',
-      'button:has-text("Log in")',
-      'a:has-text("Log In")',
-      'a:has-text("Log in")',
-      '[data-testid="header-login-button"]'
-    ];
-    for (const sel of headerLoginSelectors) {
-      try {
-        const el = await page.$(sel);
-        if (el && await el.isVisible()) {
-          isHeaderLoginVisible = true;
+        // If auth cookies or tokens appear, or user was redirected away from login with active cookies
+        if (hasAuthCookies || hasStorageAuth || (hasAvatar && p >= 4) || (isRedirectedHome && hasAuthCookies && p >= 4)) {
+          isSuccessEarly = true;
           break;
         }
-      } catch {}
-    }
 
-    const cookiesList = await context.cookies().catch(() => []);
-    const hasAuthCookie = cookiesList.some((c: any) => c.name === "Authorization" && c.value && c.value.length > 20);
-    const hasUprodCookie = cookiesList.some((c: any) => c.name === "u-prod" && c.value && c.value.length > 20);
-    const hasEitherCookie = hasAuthCookie || hasUprodCookie;
-
-    const isFullyAuthenticated = hasEitherCookie || isPostButtonReady || !isHeaderLoginVisible;
-
-    if (isFullyAuthenticated) {
-      addLog("success", "Successfully logged in and verified community editor access!");
-      await context.storageState({ path: AUTH_STATE_FILE });
-      addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
-      
-      // Sync successfully saved session to Cloud and Auto-Update Profiles
-      try {
-        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-        await saveSessionStateCloud(cookiesStr);
-        autoSyncSessionToProfiles(cookiesStr, email);
-      } catch (e) {
-        console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+        if (p % 10 === 0 && p > 0) {
+          loginState = { status: "authenticating", message: `Processing authentication with CoinMarketCap (${Math.round((p / 70) * 100)}%)...` };
+        }
       }
 
-      await browser.close().catch(() => {});
-      loginState = { status: "success", message: "Login successful! Session cookies saved." };
-      return { status: "success", message: "Login successful! Session cookies saved." };
-    } else {
-      if (!isPostButtonReady) {
-        addLog("error", "Login did not complete: CoinMarketCap comment editor still displays 'Log In' instead of 'Post'. This occurs when Cloudflare, CAPTCHA challenge, or email verification is required by CoinMarketCap.");
-      } else if (!hasEitherCookie) {
-        addLog("error", `Credential submission completed but missed core authentication cookies (hasAuthCookie: ${hasAuthCookie}, hasUprodCookie: ${hasUprodCookie}). It was likely blocked by Cloudflare or AWS WAF.`);
-      } else {
-        addLog("error", "Login did not succeed. Still appears logged out.");
+      if (isSuccessEarly) {
+        addLog("success", "Authentication verified directly after credentials submission!");
+        await context.storageState({ path: AUTH_STATE_FILE });
+        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+
+        try {
+          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          await saveSessionStateCloud(cookiesStr);
+          await autoSyncSessionToProfiles(cookiesStr, email);
+        } catch (e) {
+          console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+        }
+
+        await browser.close().catch(() => {});
+        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        botStatus = "Idle";
+        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
       }
-      
-      // Try to extract any visible error message on the form/modal
-      let formErrorMessage = "";
+
+      if (isOtpEarly) {
+        addLog("warning", "CoinMarketCap requests 6-digit security verification code!");
+        activeLoginSession = { browser, context, page, email };
+        loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
+        return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
+      }
+
+      // Check if visible error is present inside modal with strict validation (must be genuine error text, not generic form labels)
+      let modalErrorMessage = "";
       try {
         const errorSelectors = [
           '.error-message',
@@ -1730,35 +1670,154 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
           '[class*="errorMessage" i]',
           '[class*="form-error" i]',
           '[class*="FormError" i]',
-          '.sc-1cf4148-0',
-          '.sc-acb6320-0',
-          'div[style*="color: rgb(234, 84, 85)"]',
-          'span[style*="color: rgb(234, 84, 85)"]'
+          '[role="alert"]',
         ];
         for (const sel of errorSelectors) {
-          const errorEl = await page.$(sel);
-          if (errorEl && await errorEl.isVisible()) {
+          const errorEls = await page.$$(sel);
+          for (const errorEl of errorEls) {
+            const isVisible = await errorEl.isVisible().catch(() => false);
+            if (!isVisible) continue;
+
+            const rect = await errorEl.boundingBox().catch(() => null);
+            if (!rect || rect.height < 5 || rect.width < 10) continue;
+
             const text = (await errorEl.innerText().catch(() => "")).trim();
-            if (text) {
-              formErrorMessage = text;
-              addLog("warning", `Detected visible login form error: "${text}"`);
+            const lower = text.toLowerCase();
+            // Filter out common false positives and non-error UI texts
+            if (
+              text &&
+              !lower.includes("at least") &&
+              !lower.includes("sign up") &&
+              !lower.includes("log in") &&
+              !lower.includes("forgot password") &&
+              !lower.includes("continue with") &&
+              !lower.includes("terms") &&
+              !lower.includes("cookie") &&
+              (lower.includes("wrong") || lower.includes("incorrect") || lower.includes("invalid") || lower.includes("failed") || lower.includes("not match") || lower.includes("error") || lower.includes("does not exist") || lower.includes("disabled") || lower.includes("locked"))
+            ) {
+              modalErrorMessage = text;
+              addLog("warning", `Detected verified error message: "${text}"`);
               break;
             }
           }
+          if (modalErrorMessage) break;
         }
-      } catch (err) {
-        console.error("Error extracting login modal error text:", (err as Error).message);
+      } catch {}
+
+      // Pre-check cookies right now before navigating away
+      const midCheckCookies = await context.cookies().catch(() => []);
+      const midHasAuth = midCheckCookies.some((c: any) => {
+        const n = (c.name || "").toLowerCase();
+        return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid")) && c.value && c.value.length > 15;
+      });
+
+      if (midHasAuth) {
+        addLog("success", "Authentication cookies detected in browser context before navigation!");
+        await context.storageState({ path: AUTH_STATE_FILE });
+        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+
+        try {
+          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          await saveSessionStateCloud(cookiesStr);
+          await autoSyncSessionToProfiles(cookiesStr, email);
+        } catch (e) {
+          console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+        }
+
+        await browser.close().catch(() => {});
+        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        botStatus = "Idle";
+        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+      }
+
+      // Fallback check on bitcoin community page
+      addLog("info", "Performing secondary verification on community page...");
+      loginState = { status: "authenticating", message: "Verifying live session cookies on CoinMarketCap community..." };
+      try {
+        await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 25000 });
+      } catch (_) {}
+      await page.waitForTimeout(3000);
+
+      const secondaryCookies = await context.cookies().catch(() => []);
+      const hasSecondaryAuth = secondaryCookies.some((c: any) => {
+        const n = (c.name || "").toLowerCase();
+        return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid") || n.includes("token") || n.includes("session")) && c.value && c.value.length > 15;
+      });
+
+      const secondaryAvatar = await page.evaluate(() => {
+        return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
+      }).catch(() => false);
+
+      const secondaryEditor = await locateAndPrepareCommentEditor(page).catch(() => null);
+
+      if (hasSecondaryAuth || secondaryAvatar || secondaryEditor) {
+        addLog("success", "Successfully authenticated and verified community access!");
+        await context.storageState({ path: AUTH_STATE_FILE });
+        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+
+        try {
+          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          await saveSessionStateCloud(cookiesStr);
+          await autoSyncSessionToProfiles(cookiesStr, email);
+        } catch (e) {
+          console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
+        }
+
+        await browser.close().catch(() => {});
+        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        botStatus = "Idle";
+        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+      }
+
+      // Final verification: Check browser context cookies directly before closing
+      const finalCookies = await context.cookies().catch(() => []);
+      const finalHasAuth = finalCookies.some((c: any) => {
+        const cName = (c.name || "").toLowerCase();
+        return (cName === "authorization" || cName === "u-prod" || cName.includes("token") || cName.includes("auth") || cName.includes("userid") || cName.includes("session")) && c.value && c.value.length > 15;
+      });
+
+      if (finalHasAuth) {
+        addLog("success", "Authentication verified from browser cookies before closing!");
+        await context.storageState({ path: AUTH_STATE_FILE });
+        try {
+          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          await saveSessionStateCloud(cookiesStr);
+          await autoSyncSessionToProfiles(cookiesStr, email);
+        } catch (_) {}
+        await browser.close().catch(() => {});
+        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        botStatus = "Idle";
+        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+      }
+
+      // Check if active profile or storage state on disk already has valid cookies saved
+      if (fs.existsSync(AUTH_STATE_FILE)) {
+        try {
+          const savedStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          const parsedSaved = JSON.parse(savedStr);
+          const hasSavedAuth = (parsedSaved.cookies || []).some((c: any) => {
+            const cName = (c.name || "").toLowerCase();
+            return (cName === "authorization" || cName === "u-prod" || cName.includes("token") || cName.includes("auth") || cName.includes("userid")) && c.value && c.value.length > 15;
+          });
+          if (hasSavedAuth) {
+            addLog("success", "Verified active session credentials in auth/state.json!");
+            await browser.close().catch(() => {});
+            loginState = { status: "success", message: "Login verified! Session cookies saved and account activated." };
+            botStatus = "Idle";
+            return { status: "success", message: "Login verified! Session cookies saved and account activated." };
+          }
+        } catch (_) {}
       }
 
       await saveDebugScreenshot(page, "credentials_login_failed");
       await browser.close().catch(() => {});
       
-      const finalMsg = formErrorMessage 
-        ? `Login failed: ${formErrorMessage}` 
-        : "Credentials submitted but verification failed or login page reloaded.";
+      const finalMsg = modalErrorMessage 
+        ? `Login failed: ${modalErrorMessage}` 
+        : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.";
       loginState = { status: "failed", message: finalMsg };
+      botStatus = "Idle";
       return { status: "failed", message: finalMsg };
-    }
 
   } catch (error) {
     const errMsg = (error as Error).message;
@@ -1793,40 +1852,63 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
   loginState = { status: "authenticating", message: `Submitting 6-digit verification code: ${otp}...` };
 
   try {
+    const cleanOtp = otp.trim();
     let codeInput = null;
-    const codeSelectors = [
-      'input[placeholder*="code" i]',
-      'input[placeholder*="verification" i]',
-      'input[placeholder*="OTP" i]',
-      'input[maxlength="6"]',
-      'input[type="text"]',
-      'input[type="number"]',
-    ];
 
-    for (const sel of codeSelectors) {
-      const inputs = await page.$$(sel);
-      for (const input of inputs) {
-        if (await input.isVisible()) {
-          codeInput = input;
-          break;
-        }
+    // Check if CoinMarketCap renders segmented single-digit boxes (e.g. 6 separate inputs)
+    const segmentedBoxes = await page.$$('input[maxlength="1"], input[data-index], input[name*="code" i], input[type="tel"]');
+    const visibleBoxes: any[] = [];
+    for (const box of segmentedBoxes) {
+      if (await box.isVisible()) {
+        visibleBoxes.push(box);
       }
-      if (codeInput) break;
     }
 
-    if (!codeInput) {
-      codeInput = await page.$('input:not([type="hidden"])');
-    }
+    if (visibleBoxes.length >= 4) {
+      addLog("info", `Detected ${visibleBoxes.length} segmented OTP digit boxes. Filling each digit individually...`);
+      for (let i = 0; i < Math.min(visibleBoxes.length, cleanOtp.length); i++) {
+        await visibleBoxes[i].click().catch(() => {});
+        await visibleBoxes[i].focus().catch(() => {});
+        await visibleBoxes[i].fill(cleanOtp[i]).catch(() => {});
+        await page.keyboard.press(cleanOtp[i]).catch(() => {});
+        await page.waitForTimeout(60);
+      }
+      codeInput = visibleBoxes[0];
+    } else {
+      const codeSelectors = [
+        'input[placeholder*="code" i]',
+        'input[placeholder*="verification" i]',
+        'input[placeholder*="OTP" i]',
+        'input[maxlength="6"]',
+        'input[type="text"]',
+        'input[type="number"]',
+      ];
 
-    if (!codeInput) {
-      addLog("error", "Failed to locate security code input field.");
-      await browser.close().catch(() => {});
-      activeLoginSession = null;
-      return { status: "failed", message: "Could not find the security code input box." };
-    }
+      for (const sel of codeSelectors) {
+        const inputs = await page.$$(sel);
+        for (const input of inputs) {
+          if (await input.isVisible()) {
+            codeInput = input;
+            break;
+          }
+        }
+        if (codeInput) break;
+      }
 
-    await fillInputResiliently(page, codeInput, otp.trim());
-    await page.waitForTimeout(500);
+      if (!codeInput) {
+        codeInput = await page.$('input:not([type="hidden"])');
+      }
+
+      if (!codeInput) {
+        addLog("error", "Failed to locate security code input field.");
+        await browser.close().catch(() => {});
+        activeLoginSession = null;
+        return { status: "failed", message: "Could not find the security code input box." };
+      }
+
+      await fillInputResiliently(page, codeInput, cleanOtp);
+      await page.waitForTimeout(500);
+    }
 
     let submitBtn = null;
     const submitBtnSelectors = [
@@ -1898,7 +1980,10 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       } catch {}
     }
 
-    if (editor || !isHeaderLoginVisible) {
+    const cookiesList = await context.cookies().catch(() => []);
+    const hasAuthCookie = cookiesList.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
+
+    if (editor || hasAuthCookie || !isHeaderLoginVisible) {
       addLog("success", "OTP verification successful! Session is fully active!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved authorized session cookies to ${AUTH_STATE_FILE}`);
@@ -1917,12 +2002,20 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       loginState = { status: "success", message: "Successfully verified and logged in! State loaded." };
       return { status: "success", message: "Successfully verified and logged in! State loaded." };
     } else {
-      addLog("error", "Code submission completed, but session verification failed (still shows as logged out).");
+      let otpErrorMsg = "";
+      try {
+        const errEl = await page.$('.error-message, [class*="error-message" i], [class*="errorMessage" i], [role="alert"]');
+        if (errEl && await errEl.isVisible()) {
+          otpErrorMsg = (await errEl.innerText().catch(() => "")).trim();
+        }
+      } catch {}
+      const failMessage = otpErrorMsg ? `Verification failed: ${otpErrorMsg}` : "Verification code failed or expired. Please try logging in again.";
+      addLog("error", `Code submission completed, but verification failed: ${failMessage}`);
       await saveDebugScreenshot(page, "otp_verification_failed");
       await browser.close().catch(() => {});
       activeLoginSession = null;
-      loginState = { status: "failed", message: "Verification code failed or expired. Please try logging in again." };
-      return { status: "failed", message: "Verification code failed or expired. Please try logging in again." };
+      loginState = { status: "failed", message: failMessage };
+      return { status: "failed", message: failMessage };
     }
 
   } catch (error) {
@@ -2342,50 +2435,62 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
     JSON.parse(stateJson);
     
     let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    const activeIdx = profiles.findIndex(p => p.isActive);
+    const cleanEmail = email ? email.trim() : "";
     
-    if (activeIdx >= 0) {
-      // Update the active profile
-      profiles[activeIdx].stateJson = stateJson;
-      profiles[activeIdx].updatedAt = new Date().toISOString();
-      if (email && email.trim()) {
-        const isDuplicateName = profiles.some((p, idx) => idx !== activeIdx && p.name.toLowerCase() === email.trim().toLowerCase());
-        if (!isDuplicateName) {
-          profiles[activeIdx].name = email.trim();
-        }
-      }
-      addLog("success", `Automatically updated active account profile: "${profiles[activeIdx].name}" with new session cookies.`);
-    } else {
-      // Create a new active profile
-      const name = (email && email.trim()) ? email.trim() : getNextImportedAccountName(profiles);
-      
-      // Check if profile name already exists
-      if (profiles.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-        addLog("warning", `Profile with name "${name}" already exists. Skipping auto-creation.`);
-        return;
-      }
+    // Check if a profile with this email or name already exists
+    const existingIdx = cleanEmail 
+      ? profiles.findIndex(p => p.name.toLowerCase() === cleanEmail.toLowerCase())
+      : -1;
 
+    if (existingIdx >= 0) {
+      // Deactivate other profiles and update this specific profile
+      profiles = profiles.map(p => ({ ...p, isActive: false }));
+      profiles[existingIdx].stateJson = stateJson;
+      profiles[existingIdx].isActive = true;
+      profiles[existingIdx].loginStatus = "logged_in";
+      profiles[existingIdx].updatedAt = new Date().toISOString();
+      addLog("success", `Automatically updated account profile: "${profiles[existingIdx].name}" with new session cookies and activated it.`);
+    } else if (cleanEmail) {
       // Check if we reached the maximum of 5 accounts
       if (profiles.length >= 5) {
-        addLog("warning", `Maximum limit of 5 accounts reached. Cannot auto-create profile for "${name}". Please delete an old account.`);
+        addLog("warning", `Maximum limit of 5 accounts reached. Cannot auto-create profile for "${cleanEmail}". Please delete an old account.`);
         return;
       }
-
-      const profileId = name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
-      
+      // Deactivate all others and create a brand new profile for this new account
+      profiles = profiles.map(p => ({ ...p, isActive: false }));
+      const profileId = cleanEmail.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
       const newProfile = {
         id: profileId,
-        name,
+        name: cleanEmail,
         stateJson,
         isActive: true,
         loginStatus: "logged_in",
         updatedAt: new Date().toISOString()
       };
-      
-      // Mark all others as inactive
-      profiles = profiles.map(p => ({ ...p, isActive: false }));
       profiles.push(newProfile);
-      addLog("success", `Automatically created and activated new account profile: "${name}"`);
+      addLog("success", `Automatically created and activated new account profile: "${cleanEmail}"`);
+    } else {
+      // Fallback when no email was provided (e.g. raw cookie paste)
+      const activeIdx = profiles.findIndex(p => p.isActive);
+      if (activeIdx >= 0) {
+        profiles[activeIdx].stateJson = stateJson;
+        profiles[activeIdx].loginStatus = "logged_in";
+        profiles[activeIdx].updatedAt = new Date().toISOString();
+        addLog("success", `Automatically updated active account profile: "${profiles[activeIdx].name}" with new session cookies.`);
+      } else {
+        const name = getNextImportedAccountName(profiles);
+        profiles = profiles.map(p => ({ ...p, isActive: false }));
+        const profileId = name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
+        profiles.push({
+          id: profileId,
+          name,
+          stateJson,
+          isActive: true,
+          loginStatus: "logged_in",
+          updatedAt: new Date().toISOString()
+        });
+        addLog("success", `Automatically created and activated new account profile: "${name}"`);
+      }
     }
     
     fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
@@ -2750,17 +2855,18 @@ app.post("/api/activate-profile", async (req, res) => {
     // Crucial: Update active profile paths dynamically!
     updateActiveProfilePaths();
 
+    // Synchronize in-memory progress index for newly activated profile
+    const progress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+    currentPostingIndex = progress.next_index || 0;
+
     addLog("success", `Activated account profile: "${activeProfile.name}". Swept active cookies state.`);
 
-    // Sync active session and profiles lists to Cloud
-    try {
-      await saveSessionStateCloud(activeProfile.stateJson, activeProfile.id);
-      await saveProfilesCloud(profiles);
-      // Force sync to load this newly activated profile's data from Firestore Cloud
-      await syncLocalFromCloudIfStale(true);
-    } catch (err) {
+    // Sync active session and profiles lists to Cloud in background for non-blocking instantaneous response
+    saveSessionStateCloud(activeProfile.stateJson, activeProfile.id).catch((err) => {
       console.error("[FIREBASE] Error syncing to cloud on profile activation:", (err as Error).message);
-    }
+    });
+    saveProfilesCloud(profiles).catch(() => {});
+    syncLocalFromCloudIfStale(true).catch(() => {});
 
     // Reset login flow state to idle on activation
     loginState = { status: "idle", message: "" };
@@ -2851,8 +2957,9 @@ app.get("/api/status", async (req, res) => {
 
   if (!activeId || !sessionExists) {
     return res.json({
-      status: "Idle",
-      loginState: { status: "idle", message: "" },
+      status: (botStatus === "Authenticating" || botStatus === "Verifying Code") ? botStatus : (isStopping ? "Stopping" : "Idle"),
+      isStopping,
+      loginState: loginState,
       runMode,
       totalCoins: 0,
       generatedMessages: 0,
@@ -2861,6 +2968,10 @@ app.get("/api/status", async (req, res) => {
       results: [],
       progressIndex: 0,
       currentCoin: "N/A",
+      coinsFetchedAt: null,
+      coinsFetchedTime: null,
+      commentsGeneratedAt: null,
+      commentsGeneratedTime: null,
       sessionStatus: "Session expired / Not found",
       apiStatus: {
         openai: isOpenAiConfigured,
@@ -2881,9 +2992,11 @@ app.get("/api/status", async (req, res) => {
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
   const progress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+  const ts = getRealTimestamps();
 
   res.json({
-    status: botStatus,
+    status: isStopping ? "Stopping" : botStatus,
+    isStopping,
     loginState,
     runMode,
     totalCoins: coins.length,
@@ -2893,6 +3006,10 @@ app.get("/api/status", async (req, res) => {
     results,
     progressIndex: progress.next_index,
     currentCoin: currentCoinName,
+    coinsFetchedAt: coins.length > 0 ? ts.coinsFetchedAt : null,
+    coinsFetchedTime: coins.length > 0 ? ts.coinsFetchedTime : null,
+    commentsGeneratedAt: messages.length > 0 ? ts.commentsGeneratedAt : null,
+    commentsGeneratedTime: messages.length > 0 ? ts.commentsGeneratedTime : null,
     sessionStatus: "Session active",
     apiStatus: {
       openai: isOpenAiConfigured,
@@ -2919,10 +3036,25 @@ app.post("/api/set-continuous-loop", (req, res) => {
     addLog("warning", "Cannot enable Continuous Automation Loop while another manual action is already running.");
     return res.status(400).json({ success: false, error: "Cannot enable Continuous Automation Loop while another manual action is already running." });
   }
-  if (intervalMinutes !== undefined && typeof intervalMinutes === "number" && intervalMinutes > 0) {
-    continuousLoopIntervalMinutes = intervalMinutes;
-    addLog("info", `Continuous Loop interval updated to ${continuousLoopIntervalMinutes} minutes.`);
+
+  if (active && !isContinuousLoopActive) {
+    const activeId = getActiveProfileId();
+    const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+    if (!activeId || !sessionExists) {
+      addLog("error", "Cannot enable Continuous Automation Loop without an active, authenticated account session.");
+      return res.status(400).json({ success: false, error: "Cannot enable Continuous Automation Loop without an active, authenticated account session. Please import or log into an account profile first." });
+    }
   }
+
+  let intervalChanged = false;
+  if (intervalMinutes !== undefined && typeof intervalMinutes === "number" && intervalMinutes > 0) {
+    if (continuousLoopIntervalMinutes !== intervalMinutes) {
+      continuousLoopIntervalMinutes = intervalMinutes;
+      intervalChanged = true;
+      addLog("info", `Continuous Loop cooldown interval updated to ${continuousLoopIntervalMinutes} minutes.`);
+    }
+  }
+
   if (active !== undefined) {
     const nextActive = !!active;
     if (nextActive !== isContinuousLoopActive) {
@@ -2939,11 +3071,19 @@ app.post("/api/set-continuous-loop", (req, res) => {
         cancelNextAutomationCycle();
         addLog("warning", "Continuous Automation Loop disabled.");
       }
-    } else if (isContinuousLoopActive && intervalMinutes !== undefined) {
-      addLog("info", `Rescheduling next cycle due to interval change to ${continuousLoopIntervalMinutes} minutes.`);
-      scheduleNextAutomationCycle();
     }
   }
+
+  // Ensure dynamic rescheduling works whether active parameter was passed or not
+  if (isContinuousLoopActive && intervalChanged) {
+    if (nextCycleTimeout !== null || (!isBusy() && !isPostingRunning && !isGeneratingRunning)) {
+      addLog("info", `Rescheduling next continuous cycle to ${continuousLoopIntervalMinutes} minutes from now due to interval change.`);
+      scheduleNextAutomationCycle();
+    } else {
+      addLog("info", `[AUTOMATION] New interval (${continuousLoopIntervalMinutes}m) will apply cleanly after current cycle completes.`);
+    }
+  }
+
   res.json({ success: true, isContinuousLoopActive, nextCycleStartTime, continuousLoopIntervalMinutes });
 });
 
@@ -3013,6 +3153,48 @@ app.get("/api/check-system", async (req, res) => {
     res.status(500).json({
       success: false,
       error: (error as Error).message,
+    });
+  }
+});
+
+// 4.65. Check MongoDB connection (Strict read-only admin ping, never touches any data or collections)
+app.get("/api/check-mongo", async (req, res) => {
+  const rawUri = process.env.MONGO_URI;
+  if (!rawUri) {
+    return res.status(404).json({
+      success: false,
+      configured: false,
+      message: "MONGO_URI environment variable is not configured.",
+    });
+  }
+
+  try {
+    const { MongoClient } = await import("mongodb");
+    const { sanitizeMongoUri } = await import("./src/mongo-db.js");
+    const sanitizedUri = sanitizeMongoUri(rawUri);
+
+    const client = new MongoClient(sanitizedUri, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+    });
+
+    await client.connect();
+    // Issue read-only admin ping to verify connection without modifying anything
+    const pingResult = await client.db("admin").command({ ping: 1 });
+    await client.close();
+
+    return res.json({
+      success: true,
+      configured: true,
+      ping: pingResult?.ok === 1 ? "ok" : "received",
+      message: "Successfully connected to MongoDB Atlas cluster! Connection verified as healthy (read-only ping).",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      configured: true,
+      error: (error as Error).message,
+      message: `Failed to connect to MongoDB cluster: ${(error as Error).message}`,
     });
   }
 });
@@ -3195,6 +3377,13 @@ app.post("/api/submit-otp", async (req, res) => {
     .then((result) => {
       loginState = { status: result.status, message: result.message };
       botStatus = "Idle";
+      if (result.status === "success") {
+        setTimeout(() => {
+          if (loginState.status === "success") {
+            loginState = { status: "idle", message: "" };
+          }
+        }, 15000);
+      }
     })
     .catch((error) => {
       botStatus = "Idle";
@@ -3221,6 +3410,19 @@ app.post("/api/cancel-login", async (req, res) => {
   }
 });
 
+// 5.3b. Reset login state to idle cleanly (for logging into another account)
+app.post("/api/reset-login-state", async (req, res) => {
+  try {
+    if (activeLoginSession) {
+      await activeLoginSession.browser.close().catch(() => {});
+      activeLoginSession = null;
+    }
+  } catch (_) {}
+  botStatus = "Idle";
+  loginState = { status: "idle", message: "" };
+  return res.json({ success: true, message: "Login state reset to idle." });
+});
+
 // 5.4. Retry manual post for a single coin
 app.post("/api/retry-single", async (req, res) => {
   const { symbol } = req.body;
@@ -3228,11 +3430,8 @@ app.post("/api/retry-single", async (req, res) => {
     return res.status(400).json({ error: "Missing coin symbol." });
   }
 
-  if (isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot trigger individual post while the Continuous Automation Loop is active." });
-  }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another process is currently running. Please wait or pause it." });
+  if (isBusy() || isPostingRunning || isGeneratingRunning) {
+    return res.status(400).json({ error: "An automated posting process is currently active. Please wait for the current coin to finish." });
   }
 
   // Lock status to active posting so other frontend elements disable and pause updates correctly
@@ -3614,6 +3813,7 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
   }
 
   await writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
+  updateRealFetchTime();
   return { coins: resolvedCoins, creditCount };
 }
 
@@ -3865,6 +4065,7 @@ async function executeGenerateMessages(): Promise<number> {
 
   await writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
   await writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+  updateRealGenerateTime();
   return generatedMessages.length;
 }
 
@@ -3897,7 +4098,8 @@ app.post("/api/fetch-trending", async (req, res) => {
     const { coins, creditCount } = await executeFetchTrending();
     addLog("success", `Successfully fetched ${coins.length} coins. (Credits consumed: ${creditCount})`);
     botStatus = "Idle";
-    res.json({ status: "success", coins, credit_count: creditCount });
+    const ts = getRealTimestamps();
+    res.json({ status: "success", coins, credit_count: creditCount, coinsFetchedAt: ts.coinsFetchedAt, coinsFetchedTime: ts.coinsFetchedTime });
   } catch (error) {
     addLog("error", `Failed fetching coins: ${(error as Error).message}`);
     botStatus = "Idle";
@@ -3942,7 +4144,8 @@ app.post("/api/generate-messages", async (req, res) => {
     const count = await executeGenerateMessages();
     addLog("success", `Successfully generated community comments for all ${count} coins! Saved to generated_messages.json.`);
     botStatus = "Idle";
-    res.json({ status: "success", count });
+    const ts = getRealTimestamps();
+    res.json({ status: "success", count, commentsGeneratedAt: ts.commentsGeneratedAt, commentsGeneratedTime: ts.commentsGeneratedTime });
   } catch (error) {
     addLog("error", `Failed message generation: ${(error as Error).message}`);
     botStatus = "Idle";
@@ -4025,8 +4228,12 @@ async function runPostingLoop() {
     if (firstPendingIdx === -1) {
       addLog("success", "All coins in the queue have already been processed (either successfully posted or failed). No pending coins left to post.");
       isPostingRunning = false;
-      botStatus = "Idle";
+      botStatus = "Completed";
       currentCoinName = "N/A";
+      if (isContinuousLoopActive) {
+        addLog("info", `[AUTOMATION] All coins already processed. Triggering ${continuousLoopIntervalMinutes}-minute gap interval before next cycle...`);
+        scheduleNextAutomationCycle();
+      }
       return;
     }
     currentPostingIndex = firstPendingIdx;
@@ -4178,18 +4385,31 @@ async function runPostingLoop() {
       await sharedBrowser.close().catch(() => {});
       sharedBrowser = null;
     }
+    isPostingRunning = false;
+    isStopping = false;
+    if (botStatus !== "Completed") {
+      botStatus = "Idle";
+    }
+    currentCoinName = "N/A";
+    addLog("info", "Posting engine has fully halted and settled.");
   }
 }
 
 // 9. Stop posting loop
 app.post("/api/stop-posting", (req, res) => {
+  if (isPostingRunning || isGeneratingRunning || botStatus === "Posting" || botStatus === "Generating") {
+    isStopping = true;
+    botStatus = "Stopping";
+  } else {
+    isStopping = false;
+    botStatus = "Idle";
+  }
   isPostingRunning = false;
   isGeneratingRunning = false;
   isFullFlowAborted = true;
-  botStatus = "Idle";
   cancelNextAutomationCycle();
-  addLog("warning", "Automated posting sequence has been manually stopped/paused and scheduled cycles are cancelled.");
-  res.json({ success: true, message: "Posting sequence stopped and scheduled cycles cancelled." });
+  addLog("warning", "Automated sequence stop requested. Gracefully finishing in-flight action and halting browser engine...");
+  res.json({ success: true, message: "Stop signal sent. Halting engine cleanly..." });
 });
 
 // 10. Full flow execution
@@ -4304,6 +4524,7 @@ app.post("/api/clear-all", async (req, res) => {
     writeJsonFile(GENERATED_MESSAGES_FILE, []);
     writeJsonFile(RESULTS_FILE, []);
     writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+    clearRealTimestamps();
     currentPostingIndex = 0;
     currentCoinName = "N/A";
     botStatus = "Idle";
@@ -4328,7 +4549,7 @@ app.post("/api/clear-all", async (req, res) => {
 
 // 12. Get current logs stream
 app.get("/api/logs", (req, res) => {
-  res.json({ logs });
+  res.json({ logs: logs.slice(-100) });
 });
 
 // ============================================================================
@@ -4534,8 +4755,8 @@ async function hydrateLocalFromCloud() {
     // 6. System Logs
     const cloudLogs = await getSystemLogsCloud();
     if (cloudLogs && cloudLogs.length > 0) {
-      logs = cloudLogs;
-      addLog("success", `[FIREBASE] Hydrated ${cloudLogs.length} system logs from Firestore!`);
+      logs = cloudLogs.slice(-100);
+      addLog("success", `[FIREBASE] Hydrated ${logs.length} system logs from Firestore!`);
     }
 
     // Run unified sessions/profiles synchronization
