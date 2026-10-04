@@ -8,6 +8,7 @@ import {
   Search,
   CheckCircle,
   AlertTriangle,
+  AlertCircle,
   Database,
   FileText,
   Download,
@@ -424,11 +425,31 @@ export default function App() {
     }
   };
 
+  const isPostingActive =
+    status === "Posting" ||
+    status === "Stopping" ||
+    isStartingPost ||
+    isStoppingPost ||
+    isPending.post ||
+    isContinuousLoopActive;
+
   const isBusy =
     status === "Fetching" ||
     status === "Generating" ||
     status === "Posting" ||
-    status === "Authenticating";
+    status === "Stopping" ||
+    status === "Authenticating" ||
+    status === "Verifying Code" ||
+    status === "Checking Login" ||
+    isStartingPost ||
+    isStoppingPost ||
+    isContinuousLoopActive ||
+    isPending.fetch ||
+    isPending.generate ||
+    isPending.post ||
+    isPending.full ||
+    isPending.login ||
+    isPending.clear;
 
   // Browser Simulator Visual Typing State
   const [simText, setSimText] = useState("");
@@ -618,8 +639,8 @@ export default function App() {
       showToast(`"${profile.name}" is already the active account profile.`, "info");
       return;
     }
-    if (isBusy || isContinuousLoopActive) {
-      showToast("Cannot switch accounts while a background automation run is in progress.", "error");
+    if (isBusy || isPostingActive || isContinuousLoopActive) {
+      showToast("Cannot switch accounts while posting or background process is active. Please click 'Stop Posting' first.", "error");
       return;
     }
     setConfirmSwitchProfile(profile);
@@ -627,8 +648,8 @@ export default function App() {
 
   // Buttery-smooth account switching with instant UI response
   const handleActivateProfile = async (id: string) => {
-    if (isBusy || isContinuousLoopActive) {
-      showToast("Cannot switch accounts while a background automation run is in progress.", "error");
+    if (isBusy || isPostingActive || isContinuousLoopActive) {
+      showToast("Cannot switch accounts while posting or background process is active. Please click 'Stop Posting' first.", "error");
       return;
     }
     setSwitchingProfileId(id);
@@ -1256,8 +1277,13 @@ export default function App() {
 
             {/* Quick Account Switcher Dropdown - responsive across all screens */}
             {profilesList.length > 1 && (
-              <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs shadow-inner">
-                <span className="text-[10px] text-slate-400 font-mono mr-1.5 uppercase font-bold">Active:</span>
+              <div className={`flex items-center bg-slate-950 border rounded-lg px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs shadow-inner transition ${
+                (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
+              }`}>
+                <span className="text-[10px] text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
+                  {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
+                  Active:
+                </span>
                 {switchingProfileId ? (
                   <span className="flex items-center gap-1 text-emerald-400 font-bold">
                     <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
@@ -1266,13 +1292,17 @@ export default function App() {
                 ) : (
                   <select
                     value={activeProfile?.id || ""}
-                    disabled={isBusy || isContinuousLoopActive || switchingProfileId !== null}
+                    disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
                     onChange={(e) => {
                       const target = profilesList.find(p => p.id === e.target.value);
                       if (target) promptSwitchProfile(target);
                     }}
-                    className="bg-transparent text-emerald-400 font-bold focus:outline-none cursor-pointer disabled:opacity-40 max-w-[120px] sm:max-w-[140px] truncate"
-                    title="Switch active CoinMarketCap account (asks for confirmation)"
+                    className="bg-transparent text-emerald-400 font-bold focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[120px] sm:max-w-[140px] truncate"
+                    title={
+                      (isBusy || isPostingActive || isContinuousLoopActive)
+                        ? "Account switching locked: Click 'Stop Posting' before switching accounts"
+                        : "Switch active CoinMarketCap account (asks for confirmation)"
+                    }
                   >
                     {profilesList.map(p => (
                       <option key={p.id} value={p.id} className="bg-slate-900 text-white font-medium">
@@ -1736,13 +1766,23 @@ export default function App() {
                       ) : (
                         <button
                           onClick={() => promptSwitchProfile(p)}
-                          disabled={isBusy || isContinuousLoopActive || switchingProfileId !== null}
-                          className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer disabled:opacity-40 flex items-center gap-1"
+                          disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
+                          className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition"
+                          title={
+                            (isBusy || isPostingActive || isContinuousLoopActive)
+                              ? "Cannot switch accounts while posting or automation is active. Click 'Stop Posting' first."
+                              : `Switch to ${p.name}`
+                          }
                         >
                           {switchingProfileId === p.id ? (
                             <>
                               <RefreshCw className="h-2.5 w-2.5 animate-spin text-emerald-400" />
                               <span>Switching...</span>
+                            </>
+                          ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
+                            <>
+                              <span>🔒</span>
+                              <span>Locked</span>
                             </>
                           ) : (
                             "Activate"
@@ -3473,6 +3513,13 @@ export default function App() {
 
               {loginTab === "profiles" && (
                 <div className="space-y-4 text-xs text-slate-300">
+                  {(isBusy || isPostingActive || isContinuousLoopActive) && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-2.5 text-amber-300 text-xs font-semibold">
+                      <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 animate-pulse" />
+                      <span>Process in progress: Posting or background automation is active. Account switching, profile additions, and deletions are locked until you click "Stop Posting".</span>
+                    </div>
+                  )}
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
                     <p className="text-[11px] text-slate-400">
                       Save up to 5 CoinMarketCap account profiles and swap between them seamlessly.
@@ -3483,8 +3530,9 @@ export default function App() {
                           handleResetLoginState();
                           setLoginTab("credentials");
                         }}
-                        disabled={isBusy || isContinuousLoopActive}
+                        disabled={isBusy || isPostingActive || isContinuousLoopActive}
                         className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Log In Another Account"}
                       >
                         🔑 Log In Another Account
                       </button>
@@ -3496,8 +3544,9 @@ export default function App() {
                             setShowProfileAddForm(!showProfileAddForm);
                           }
                         }}
-                        disabled={isBusy || isContinuousLoopActive}
+                        disabled={isBusy || isPostingActive || isContinuousLoopActive}
                         className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-medium border border-slate-700 flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Paste JSON Profile"}
                       >
                         {showProfileAddForm ? "✕ Close Form" : "📋 Paste JSON Profile"}
                       </button>
@@ -3589,13 +3638,23 @@ export default function App() {
                               {!p.isActive && (
                                 <button
                                   onClick={() => promptSwitchProfile(p)}
-                                  disabled={isBusy || isContinuousLoopActive || switchingProfileId !== null}
+                                  disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
                                   className="py-1 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  title={
+                                    (isBusy || isPostingActive || isContinuousLoopActive)
+                                      ? "Cannot switch accounts while posting or automation is active. Click 'Stop Posting' first."
+                                      : `Switch to ${p.name}`
+                                  }
                                 >
                                   {switchingProfileId === p.id ? (
                                     <>
                                       <RefreshCw className="h-2.5 w-2.5 animate-spin text-slate-950" />
                                       <span>Switching...</span>
+                                    </>
+                                  ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
+                                    <>
+                                      <span>🔒</span>
+                                      <span>Locked</span>
                                     </>
                                   ) : (
                                     "Switch Account"
@@ -3618,7 +3677,7 @@ export default function App() {
                                       handleDeleteProfile(p.id);
                                       setDeletingId(null);
                                     }}
-                                    disabled={isBusy || isContinuousLoopActive}
+                                    disabled={isBusy || isPostingActive || isContinuousLoopActive}
                                     className="py-1 px-2.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     Confirm
@@ -3633,8 +3692,9 @@ export default function App() {
                               ) : (
                                 <button
                                   onClick={() => setDeletingId(p.id)}
-                                  disabled={isBusy || isContinuousLoopActive}
+                                  disabled={isBusy || isPostingActive || isContinuousLoopActive}
                                   className="py-1 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium rounded-lg border border-rose-500/10 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Deletion locked while process is active" : "Delete Profile"}
                                 >
                                   Delete
                                 </button>
@@ -3835,6 +3895,14 @@ export default function App() {
               </ul>
             </div>
 
+            {/* Active Process Barrier Warning */}
+            {(isBusy || isPostingActive || isContinuousLoopActive) && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-rose-300 text-xs font-semibold animate-pulse">
+                <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                <span>Posting or background process is running! You must click "Stop Posting" before switching accounts to prevent data corruption.</span>
+              </div>
+            )}
+
             {/* Action buttons */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
@@ -3849,13 +3917,23 @@ export default function App() {
                   setConfirmSwitchProfile(null);
                   await handleActivateProfile(targetId);
                 }}
-                disabled={switchingProfileId !== null}
-                className="py-2.5 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer"
+                disabled={(isBusy || isPostingActive || isContinuousLoopActive) || switchingProfileId !== null}
+                className="py-2.5 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  (isBusy || isPostingActive || isContinuousLoopActive)
+                    ? "Cannot switch accounts while process is active. Click 'Stop Posting' first."
+                    : "Confirm account switch"
+                }
               >
                 {switchingProfileId === confirmSwitchProfile.id ? (
                   <>
                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                     <span>Switching...</span>
+                  </>
+                ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
+                  <>
+                    <span>🔒</span>
+                    <span>Process Active - Stop First</span>
                   </>
                 ) : (
                   <>

@@ -631,6 +631,7 @@ function isBusy(): boolean {
     botStatus === "Fetching" ||
     botStatus === "Generating" ||
     botStatus === "Posting" ||
+    botStatus === "Stopping" ||
     botStatus === "Authenticating" ||
     botStatus === "Verifying Code" ||
     botStatus === "Checking Login" ||
@@ -983,6 +984,41 @@ function extractFingerprintDetails(stateFilePath: string) {
   }
 
   return { userAgent, timezoneId, locale };
+}
+
+function hasRealAuthCookies(cookies: any[]): boolean {
+  if (!Array.isArray(cookies) || cookies.length === 0) return false;
+  return cookies.some((c: any) => {
+    const n = (c.name || "").trim().toLowerCase();
+    const v = (c.value || "").trim();
+    if (n === "authorization" && v.length > 20) return true;
+    if (n === "u-prod" && v.length > 20) return true;
+    if ((n === "token" || n === "access_token" || n === "auth_token") && v.length > 30) return true;
+    return false;
+  });
+}
+
+async function isEditorPostButtonRequiringLogin(page: any): Promise<boolean> {
+  try {
+    const postButtonSelectors = [
+      '[data-test="editor-post-button"]',
+      'button:has-text("Post")',
+      'button:has-text("Submit")',
+      'button:has-text("Comment")',
+      'button.editor-post-button',
+      '.editor-post-button'
+    ];
+    for (const sel of postButtonSelectors) {
+      const btn = await page.$(sel);
+      if (btn) {
+        const text = (await btn.innerText().catch(() => "")).trim().toLowerCase();
+        if (text.includes("log in") || text.includes("login") || text.includes("sign in") || text.includes("signin")) {
+          return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
 }
 
 async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
@@ -1580,23 +1616,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         await page.waitForTimeout(500);
 
         const currentCookies = await context.cookies().catch(() => []);
-        const hasAuthCookies = currentCookies.some((c: any) => {
-          const n = (c.name || "").toLowerCase();
-          return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid") || n.includes("token") || n.includes("session")) && c.value && c.value.length > 15;
-        });
-
-        const hasStorageAuth = await page.evaluate(() => {
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i) || "";
-              const v = localStorage.getItem(k) || "";
-              if ((k.toLowerCase().includes("auth") || k.toLowerCase().includes("user") || k.toLowerCase().includes("token") || k.includes("base-acc-sdk")) && v.length > 15) {
-                return true;
-              }
-            }
-          } catch {}
-          return false;
-        }).catch(() => false);
+        const hasAuthCookies = hasRealAuthCookies(currentCookies);
 
         const hasAvatar = await page.evaluate(() => {
           return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
@@ -1613,7 +1633,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }).catch(() => false);
 
         const hasOtpField = await page.evaluate(() => {
-          const inp = document.querySelector('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"]');
+          const inp = document.querySelector('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"], [data-test*="otp" i], [data-test*="verification" i]');
           const bodyText = (document.body.innerText || "").toLowerCase();
           return !!inp || bodyText.includes("verification code") || bodyText.includes("6-digit") || bodyText.includes("check your email");
         }).catch(() => false);
@@ -1623,8 +1643,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
           break;
         }
 
-        // If auth cookies or tokens appear, or user was redirected away from login with active cookies
-        if (hasAuthCookies || hasStorageAuth || (hasAvatar && p >= 4) || (isRedirectedHome && hasAuthCookies && p >= 4)) {
+        // Only declare early success if real auth cookies are confirmed AND either avatar appeared or modal closed and user redirected (with p >= 4 to allow network requests to settle)
+        if (hasAuthCookies && (hasAvatar || (isModalGone && isRedirectedHome)) && p >= 4) {
           isSuccessEarly = true;
           break;
         }
@@ -1706,13 +1726,10 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       // Pre-check cookies right now before navigating away
       const midCheckCookies = await context.cookies().catch(() => []);
-      const midHasAuth = midCheckCookies.some((c: any) => {
-        const n = (c.name || "").toLowerCase();
-        return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid")) && c.value && c.value.length > 15;
-      });
+      const midHasAuth = hasRealAuthCookies(midCheckCookies);
 
       if (midHasAuth) {
-        addLog("success", "Authentication cookies detected in browser context before navigation!");
+        addLog("success", "Verified authentic CoinMarketCap authorization cookies in browser context!");
         await context.storageState({ path: AUTH_STATE_FILE });
         addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
 
@@ -1730,7 +1747,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
       }
 
-      // Fallback check on bitcoin community page
+      // Secondary verification on bitcoin community page
       addLog("info", "Performing secondary verification on community page...");
       loginState = { status: "authenticating", message: "Verifying live session cookies on CoinMarketCap community..." };
       try {
@@ -1739,18 +1756,16 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       await page.waitForTimeout(3000);
 
       const secondaryCookies = await context.cookies().catch(() => []);
-      const hasSecondaryAuth = secondaryCookies.some((c: any) => {
-        const n = (c.name || "").toLowerCase();
-        return (n === "authorization" || n === "u-prod" || n.includes("auth") || n.includes("userid") || n.includes("token") || n.includes("session")) && c.value && c.value.length > 15;
-      });
+      const hasSecondaryAuth = hasRealAuthCookies(secondaryCookies);
 
       const secondaryAvatar = await page.evaluate(() => {
         return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
       }).catch(() => false);
 
       const secondaryEditor = await locateAndPrepareCommentEditor(page).catch(() => null);
+      const editorRequiresLogin = await isEditorPostButtonRequiringLogin(page);
 
-      if (hasSecondaryAuth || secondaryAvatar || secondaryEditor) {
+      if (!editorRequiresLogin && (hasSecondaryAuth || (secondaryAvatar && secondaryEditor))) {
         addLog("success", "Successfully authenticated and verified community access!");
         await context.storageState({ path: AUTH_STATE_FILE });
         addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
@@ -1769,52 +1784,12 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
       }
 
-      // Final verification: Check browser context cookies directly before closing
-      const finalCookies = await context.cookies().catch(() => []);
-      const finalHasAuth = finalCookies.some((c: any) => {
-        const cName = (c.name || "").toLowerCase();
-        return (cName === "authorization" || cName === "u-prod" || cName.includes("token") || cName.includes("auth") || cName.includes("userid") || cName.includes("session")) && c.value && c.value.length > 15;
-      });
-
-      if (finalHasAuth) {
-        addLog("success", "Authentication verified from browser cookies before closing!");
-        await context.storageState({ path: AUTH_STATE_FILE });
-        try {
-          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          await saveSessionStateCloud(cookiesStr);
-          await autoSyncSessionToProfiles(cookiesStr, email);
-        } catch (_) {}
-        await browser.close().catch(() => {});
-        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
-        botStatus = "Idle";
-        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
-      }
-
-      // Check if active profile or storage state on disk already has valid cookies saved
-      if (fs.existsSync(AUTH_STATE_FILE)) {
-        try {
-          const savedStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          const parsedSaved = JSON.parse(savedStr);
-          const hasSavedAuth = (parsedSaved.cookies || []).some((c: any) => {
-            const cName = (c.name || "").toLowerCase();
-            return (cName === "authorization" || cName === "u-prod" || cName.includes("token") || cName.includes("auth") || cName.includes("userid")) && c.value && c.value.length > 15;
-          });
-          if (hasSavedAuth) {
-            addLog("success", "Verified active session credentials in auth/state.json!");
-            await browser.close().catch(() => {});
-            loginState = { status: "success", message: "Login verified! Session cookies saved and account activated." };
-            botStatus = "Idle";
-            return { status: "success", message: "Login verified! Session cookies saved and account activated." };
-          }
-        } catch (_) {}
-      }
-
       await saveDebugScreenshot(page, "credentials_login_failed");
       await browser.close().catch(() => {});
       
       const finalMsg = modalErrorMessage 
         ? `Login failed: ${modalErrorMessage}` 
-        : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.";
+        : (editorRequiresLogin ? "Login incomplete: CoinMarketCap still prompts to Log In on the community page. Please verify your credentials or check for an email verification code." : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.");
       loginState = { status: "failed", message: finalMsg };
       botStatus = "Idle";
       return { status: "failed", message: finalMsg };
@@ -1980,10 +1955,11 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       } catch {}
     }
 
+    const editorRequiresLogin = await isEditorPostButtonRequiringLogin(page);
     const cookiesList = await context.cookies().catch(() => []);
-    const hasAuthCookie = cookiesList.some((c: any) => (c.name === "Authorization" || c.name === "u-prod") && c.value && c.value.length > 20);
+    const hasAuthCookie = hasRealAuthCookies(cookiesList);
 
-    if (editor || hasAuthCookie || !isHeaderLoginVisible) {
+    if (!editorRequiresLogin && (hasAuthCookie || (editor && !isHeaderLoginVisible))) {
       addLog("success", "OTP verification successful! Session is fully active!");
       await context.storageState({ path: AUTH_STATE_FILE });
       addLog("success", `Saved authorized session cookies to ${AUTH_STATE_FILE}`);
@@ -2565,33 +2541,47 @@ async function syncLocalFromCloudIfStale(force = false) {
     const activeId = getActiveProfileId();
 
     // 1. Trending Coins
+    const localCoins = readJsonFile<any[]>(LAST_TRENDING_FILE, []);
     const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
-    if (cloudCoins && Array.isArray(cloudCoins)) {
+    if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
       fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+    } else if (localCoins.length > 0) {
+      // Local has data, sync up to cloud so cloud isn't empty
+      saveTrendingCoinsCloud(localCoins, activeId || undefined).catch(() => {});
     }
 
     // 2. Generated Messages
+    const localMessages = readJsonFile<any[]>(GENERATED_MESSAGES_FILE, []);
     const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
-    if (cloudMessages && Array.isArray(cloudMessages)) {
+    if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
       fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
+    } else if (localMessages.length > 0) {
+      saveGeneratedMessagesCloud(localMessages, activeId || undefined).catch(() => {});
     }
 
     // 3. Post Results
+    const localResults = readJsonFile<any[]>(RESULTS_FILE, []);
     const cloudResults = await getPostResultsCloud(activeId || undefined);
-    if (cloudResults && Array.isArray(cloudResults)) {
-      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+    if (cloudResults && Array.isArray(cloudResults) && cloudResults.length > 0) {
+      if (cloudResults.length >= localResults.length) {
+        fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+      } else if (localResults.length > 0) {
+        savePostResultsCloud(localResults, activeId || undefined).catch(() => {});
+      }
+    } else if (localResults.length > 0) {
+      savePostResultsCloud(localResults, activeId || undefined).catch(() => {});
     }
 
     // 4. Bot Progress
     const cloudProgress = await getBotProgressCloud(activeId || undefined);
-    if (cloudProgress) {
+    if (cloudProgress && typeof cloudProgress.next_index === "number") {
       fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
       currentPostingIndex = cloudProgress.next_index;
     }
 
     // 5. Profiles
     const cloudProfiles = await getProfilesCloud();
-    if (cloudProfiles && Array.isArray(cloudProfiles)) {
+    if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
       fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
     }
   } catch (err) {
@@ -2824,10 +2814,10 @@ app.post("/api/save-profile", async (req, res) => {
 // 3c. Activate Profile
 app.post("/api/activate-profile", async (req, res) => {
   if (isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active." });
+    return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active. Please click 'Stop Posting' first." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Cannot switch accounts while bot is busy." });
+  if (isBusy() || isPostingRunning || botStatus === "Posting" || botStatus === "Stopping") {
+    return res.status(400).json({ error: "Cannot switch accounts while posting or automation is running. Please click 'Stop Posting' first." });
   }
   try {
     const { id } = req.body;
