@@ -81,6 +81,7 @@ interface Profile {
   stateJson: string;
   isActive: boolean;
   loginStatus?: string;
+  dailyPostLimit?: number;
   updatedAt: string;
 }
 
@@ -135,9 +136,11 @@ function areResultsEqual(prev: PostResult[], next: PostResult[]): boolean {
   if (prev === next) return true;
   if (prev.length !== next.length) return false;
   if (prev.length === 0) return true;
+  const p0 = prev[0];
+  const n0 = next[0];
   const pLast = prev[prev.length - 1];
   const nLast = next[next.length - 1];
-  return pLast?.symbol === nLast?.symbol && pLast?.status === nLast?.status && pLast?.timestamp === nLast?.timestamp;
+  return p0?.symbol === n0?.symbol && p0?.status === n0?.status && pLast?.symbol === nLast?.symbol && pLast?.status === nLast?.status && pLast?.timestamp === nLast?.timestamp;
 }
 
 function areProfilesEqual(prev: any[], next: any[]): boolean {
@@ -262,6 +265,12 @@ export default function App() {
   const [profilesList, setProfilesList] = useState<any[]>([]);
   const [newProfileName, setNewProfileName] = useState<string>("");
   const [newProfileJson, setNewProfileJson] = useState<string>("");
+  const [newProfileLimit, setNewProfileLimit] = useState<number>(500);
+  const [editingLimitProfileId, setEditingLimitProfileId] = useState<string | null>(null);
+  const [editingLimitValue, setEditingLimitValue] = useState<number>(500);
+  const [dailyPostCount, setDailyPostCount] = useState<number>(0);
+  const [dailyPostLimit, setDailyPostLimit] = useState<number>(500);
+  const [lastPostDate, setLastPostDate] = useState<string>("");
   const [activeProfile, setActiveProfile] = useState<any | null>(null);
   const [showProfileAddForm, setShowProfileAddForm] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -408,6 +417,7 @@ export default function App() {
       await fetchStats();
       await fetchProfiles();
       await fetchSessionDetails();
+      await fetchLogs();
       
       const coinsRes = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`));
       const coinsData = coinsRes.ok ? await coinsRes.json() : [];
@@ -540,7 +550,7 @@ export default function App() {
   // Fast fetch coins with O(1) equality check
   const fetchCoins = async () => {
     try {
-      const res = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`));
+      const res = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setCoinsList(prev => areCoinsEqual(prev, arr) ? prev : arr);
@@ -550,7 +560,7 @@ export default function App() {
   // Fast fetch messages with O(1) equality check
   const fetchMessages = async () => {
     try {
-      const res = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`));
+      const res = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setMessagesList(prev => areMessagesEqual(prev, arr) ? prev : arr);
@@ -558,9 +568,10 @@ export default function App() {
   };
 
   // Fetch Current logs with O(1) equality check
-  const fetchLogs = async () => {
+  const fetchLogs = async (overrideProfileId?: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/logs"));
+      const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfile?.id || "");
+      const res = await fetch(resolveUrl(`/api/logs?profileId=${encodeURIComponent(pid)}&t=${Date.now()}`));
       if (res.ok) {
         const data = await parseResponseJson(res, { logs: [] });
         const list = (data.logs || []).slice(-100);
@@ -606,7 +617,7 @@ export default function App() {
     }
   };
 
-  const handleSaveProfile = async (name: string, stateJson: string) => {
+  const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 500) => {
     if (!name.trim() || !stateJson.trim()) {
       showToast("Please provide both profile name and cookies JSON.", "error");
       return;
@@ -615,21 +626,43 @@ export default function App() {
       const res = await fetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, stateJson })
+        body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 500) })
       });
       if (res.ok) {
         setNewProfileName("");
         setNewProfileJson("");
+        setNewProfileLimit(500);
         setShowProfileAddForm(false);
         fetchProfiles();
         fetchSessionDetails();
-        showToast(`Account profile for "${name}" saved successfully!`, "success");
+        showToast(`Account profile for "${name}" saved successfully with ${dailyPostLimit || 500} posts/day limit!`, "success");
       } else {
         const data = await parseResponseJson(res, { error: "Failed to save profile." });
         showToast(data.error || "Failed to save profile.", "error");
       }
     } catch (error) {
       showToast("Error saving profile: " + (error as Error).message, "error");
+    }
+  };
+
+  const handleUpdateProfileLimit = async (id: string, limit: number) => {
+    try {
+      const res = await fetch(resolveUrl("/api/update-profile-limit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, dailyPostLimit: Math.max(1, limit || 500) })
+      });
+      const data = await parseResponseJson(res, {});
+      if (res.ok) {
+        setEditingLimitProfileId(null);
+        fetchProfiles();
+        fetchStats();
+        showToast(`Daily post limit updated to ${limit} posts/day!`, "success");
+      } else {
+        showToast(data.error || "Failed to update daily post limit.", "error");
+      }
+    } catch (err) {
+      showToast("Error updating limit: " + (err as Error).message, "error");
     }
   };
 
@@ -661,6 +694,17 @@ export default function App() {
       setActiveProfile({ ...target, isActive: true });
     }
 
+    // Immediately sweep UI state so the old account data does not linger while switching
+    setCoinsList([]);
+    setMessagesList([]);
+    setResults([]);
+    setTotalCoins(0);
+    setGeneratedCount(0);
+    setPostedCount(0);
+    setFailedCount(0);
+    setProgressIndex(0);
+    setCurrentCoin("N/A");
+
     showToast("Switching active account profile...", "process");
 
     try {
@@ -676,7 +720,7 @@ export default function App() {
           fetchStats(),
           fetchCoins(),
           fetchMessages(),
-          fetchLogs()
+          fetchLogs(id)
         ]);
         showToast("Account switched successfully!", "success");
       } else {
@@ -736,6 +780,15 @@ export default function App() {
         const resList = data.results || [];
         setResults(prev => areResultsEqual(prev, resList) ? prev : resList);
         setProgressIndex(data.progressIndex || 0);
+        if (data.dailyPostCount !== undefined) {
+          setDailyPostCount(data.dailyPostCount);
+        }
+        if (data.dailyPostLimit !== undefined) {
+          setDailyPostLimit(data.dailyPostLimit);
+        }
+        if (data.lastPostDate) {
+          setLastPostDate(data.lastPostDate);
+        }
         setCurrentCoin(data.currentCoin || "N/A");
         if (data.coinsFetchedAt !== undefined) {
           setCoinsFetchedAt(data.coinsFetchedAt);
@@ -820,12 +873,13 @@ export default function App() {
   };
 
   const saveIntervalToServer = async (mins: number) => {
-    showToast(`Cooldown interval set to ${mins} minutes`, "info", 2000);
+    const safeMins = Math.max(5, mins);
+    showToast(`Cooldown interval set to ${safeMins} minutes (min: 5m)`, "info", 2000);
     try {
       const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervalMinutes: mins }),
+        body: JSON.stringify({ intervalMinutes: safeMins }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -2135,29 +2189,29 @@ export default function App() {
                   <div className="flex items-center gap-2.5">
                     <input
                       type="range"
-                      min="1"
+                      min="5"
                       max="120"
                       value={continuousInterval}
-                      onChange={(e) => setContinuousInterval(Number(e.target.value))}
+                      onChange={(e) => setContinuousInterval(Math.max(5, Number(e.target.value)))}
                       onMouseUp={() => saveIntervalToServer(continuousInterval)}
                       onTouchEnd={() => saveIntervalToServer(continuousInterval)}
                       className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400"
                       id="slider-interval"
-                      title="Adjust cooldown gap between automated cycles"
+                      title="Adjust cooldown gap between automated cycles (min: 5m)"
                     />
                     <input
                       type="number"
-                      min="1"
+                      min="5"
                       max="1440"
                       value={continuousInterval}
                       onChange={(e) => {
-                        const val = Math.max(1, Number(e.target.value));
+                        const val = Math.max(5, Number(e.target.value));
                         setContinuousInterval(val);
                         saveIntervalToServer(val);
                       }}
                       className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner"
                       id="num-interval"
-                      title="Cooldown minutes between automated cycles"
+                      title="Cooldown minutes between automated cycles (min: 5m)"
                     />
                   </div>
                 </div>
@@ -2245,8 +2299,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4-METRIC KPI GRID */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* 5-METRIC KPI GRID */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
                   <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Total Coins</span>
                   <div className="text-base font-black text-slate-200 font-mono mt-0.5">{totalCoins}</div>
@@ -2266,7 +2320,32 @@ export default function App() {
                   <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Remaining</span>
                   <div className="text-base font-black text-amber-400 font-mono mt-0.5">{Math.max(0, totalCoins - progressIndex)}</div>
                 </div>
+
+                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
+                    <span className="text-[9px] font-mono text-slate-500 font-bold">Cap {dailyPostLimit}</span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className={`text-base font-black font-mono ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
+                      {dailyPostCount}
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono">/ {dailyPostLimit}</span>
+                    {dailyPostCount >= dailyPostLimit && (
+                      <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
+                        Cap Reached
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {dailyPostCount >= dailyPostLimit && (
+                <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-semibold">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 animate-pulse text-rose-400" />
+                  <span>Account reached daily posting limit ({dailyPostCount}/{dailyPostLimit} posts today). Automated posting is halted until tomorrow.</span>
+                </div>
+              )}
             </div>
 
             {/* BATCH PROGRESS BAR */}
@@ -2889,30 +2968,49 @@ export default function App() {
                             </td>
                             <td className="py-3.5 px-4 font-semibold border-r border-slate-800/80">
                               {!item ? (
-                                <span className="text-slate-400 flex items-center gap-1.5 font-medium font-mono">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse"></span>
-                                  In Queue {seqStr && <span className="text-[10px] text-slate-500 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-800 font-bold ml-1">{seqStr}</span>}
-                                </span>
+                                isPostingActive ? (
+                                  <span className="text-cyan-400 flex items-center gap-1.5 font-medium font-mono">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                                    In Queue {seqStr && <span className="text-[10px] text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 flex items-center gap-1.5 font-medium font-mono">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                                    Pending Run {seqStr && <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
+                                  </span>
+                                )
                               ) : item.status === "skipped" ? (
                                 <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5" /> Skipped (DEX)
+                                  <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
                                 </span>
                               ) : item.status === "success" ? (
                                 <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                                  <CheckCircle className="h-3.5 w-3.5" /> Post Submitted
+                                  <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
                                 </span>
                               ) : item.status === "captcha" ? (
                                 <span className="text-amber-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5 animate-bounce" /> Captcha Detected
+                                  <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha Detected
+                                </span>
+                              ) : item.status === "expired" ? (
+                                <span className="text-rose-400 flex items-center gap-1 font-bold" title="Account session expired: CoinMarketCap displayed Log In">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Session Expired (Log In Required)
                                 </span>
                               ) : (
                                 <span className="text-red-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5" /> {item.status.toUpperCase()}
+                                  <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {item.status.toUpperCase()}
                                 </span>
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={item ? item.message : msgItem.message}>
-                              {item ? item.message : `Generated: "${msgItem.message.substring(0, 40)}..."`}
+                              {item ? (
+                                item.message === "Post button text is Log In" ? (
+                                  <span className="text-rose-400 font-semibold">Post button said "Log In" (Cookies not logged in)</span>
+                                ) : (
+                                  item.message
+                                )
+                              ) : (
+                                `Generated: "${msgItem.message.substring(0, 40)}..."`
+                              )}
                             </td>
                             
                              {/* Manual post retry controls */}
@@ -3578,8 +3676,23 @@ export default function App() {
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                       </div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Daily Post Limit (posts/day)</label>
+                          <span className="text-[9px] font-mono text-emerald-400 font-bold">Default: 500</span>
+                        </div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10000}
+                          value={newProfileLimit}
+                          disabled={isBusy || isContinuousLoopActive}
+                          onChange={(e) => setNewProfileLimit(Math.max(1, parseInt(e.target.value) || 500))}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-xs font-mono disabled:opacity-40"
+                        />
+                      </div>
                       <button
-                        onClick={() => handleSaveProfile(newProfileName, newProfileJson)}
+                        onClick={() => handleSaveProfile(newProfileName, newProfileJson, newProfileLimit)}
                         disabled={isBusy || isContinuousLoopActive}
                         className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -3613,6 +3726,9 @@ export default function App() {
                                     Active
                                   </span>
                                 )}
+                                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
+                                  ⚡ Limit: {p.dailyPostLimit || 500}/day
+                                </span>
                                 {p.loginStatus === "logged_in" ? (
                                   <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -3630,9 +3746,46 @@ export default function App() {
                                   </span>
                                 )}
                               </div>
-                              <span className="text-[10px] text-slate-500 block font-mono">
-                                ID: {p.id} • Saved: {new Date(p.updatedAt).toLocaleString()}
-                              </span>
+                              <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  ID: {p.id} • Saved: {new Date(p.updatedAt).toLocaleString()}
+                                </span>
+                                {editingLimitProfileId === p.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={10000}
+                                      value={editingLimitValue}
+                                      onChange={(e) => setEditingLimitValue(parseInt(e.target.value) || 500)}
+                                      className="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white font-mono"
+                                    />
+                                    <button
+                                      onClick={() => handleUpdateProfileLimit(p.id, editingLimitValue)}
+                                      className="px-1.5 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[9px] rounded"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingLimitProfileId(null)}
+                                      className="px-1 py-0.5 bg-slate-800 text-slate-400 text-[9px] rounded hover:text-white"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditingLimitProfileId(p.id);
+                                      setEditingLimitValue(p.dailyPostLimit || 500);
+                                    }}
+                                    disabled={isBusy || isPostingActive || isContinuousLoopActive}
+                                    className="text-[9px] text-emerald-400/80 hover:text-emerald-400 underline font-mono cursor-pointer"
+                                  >
+                                    Edit Limit
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               {!p.isActive && (

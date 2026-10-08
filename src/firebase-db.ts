@@ -247,7 +247,7 @@ export async function saveSessionStateCloud(stateJson: string, profileId?: strin
 export async function getTrendingCoinsCloud(profileId?: string): Promise<any[]> {
   const docPath = profileId ? `coins/trending_${profileId}` : "coins/trending";
   const data = await fetchDoc(docPath, { list: [] });
-  return data.list;
+  return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): Promise<void> {
@@ -262,7 +262,7 @@ export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): 
 export async function getGeneratedMessagesCloud(profileId?: string): Promise<any[]> {
   const docPath = profileId ? `messages/generated_${profileId}` : "messages/generated";
   const data = await fetchDoc(docPath, { list: [] });
-  return data.list;
+  return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function saveGeneratedMessagesCloud(messages: any[], profileId?: string): Promise<void> {
@@ -277,7 +277,7 @@ export async function saveGeneratedMessagesCloud(messages: any[], profileId?: st
 export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
   const docPath = profileId ? `results/all_${profileId}` : "results/all";
   const data = await fetchDoc(docPath, { list: [] });
-  return data.list;
+  return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function savePostResultsCloud(results: any[], profileId?: string): Promise<void> {
@@ -289,16 +289,30 @@ export async function savePostResultsCloud(results: any[], profileId?: string): 
 }
 
 // Bot Progress Sync
-export async function getBotProgressCloud(profileId?: string): Promise<{ next_index: number } | null> {
-  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
-  const data = await fetchDoc(docPath);
-  return data ? { next_index: data.next_index } : null;
+export interface CloudBotProgress {
+  next_index: number;
+  daily_post_count?: number;
+  last_post_date?: string;
+  daily_post_limit?: number;
 }
 
-export async function saveBotProgressCloud(next_index: number, profileId?: string): Promise<void> {
+export async function getBotProgressCloud(profileId?: string): Promise<CloudBotProgress | null> {
   const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  const data = await fetchDoc(docPath);
+  if (!data) return null;
+  return {
+    next_index: typeof data.next_index === "number" ? data.next_index : 0,
+    daily_post_count: typeof data.daily_post_count === "number" ? data.daily_post_count : undefined,
+    last_post_date: typeof data.last_post_date === "string" ? data.last_post_date : undefined,
+    daily_post_limit: typeof data.daily_post_limit === "number" ? data.daily_post_limit : undefined,
+  };
+}
+
+export async function saveBotProgressCloud(progress: number | CloudBotProgress, profileId?: string): Promise<void> {
+  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  const progressObj = typeof progress === "number" ? { next_index: progress } : progress;
   await writeDoc(docPath, {
-    next_index,
+    ...progressObj,
     lastUpdated: new Date().toISOString()
   });
 }

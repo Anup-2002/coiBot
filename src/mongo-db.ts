@@ -191,27 +191,41 @@ export async function savePostResultsMongo(results: any[], profileId?: string): 
 }
 
 // 5. Bot Progress
-export async function getBotProgressMongo(profileId?: string): Promise<{ next_index: number } | null> {
+export interface MongoBotProgress {
+  next_index: number;
+  daily_post_count?: number;
+  last_post_date?: string;
+  daily_post_limit?: number;
+}
+
+export async function getBotProgressMongo(profileId?: string): Promise<MongoBotProgress | null> {
   try {
     const database = await getMongoDb();
     if (!database) return null;
     const docId = profileId ? `progress_${profileId}` : "progress";
     const res = await database.collection("bot_progress").findOne({ _id: docId as any });
-    return res ? { next_index: res.next_index } : null;
+    if (!res) return null;
+    return {
+      next_index: typeof res.next_index === "number" ? res.next_index : 0,
+      daily_post_count: typeof res.daily_post_count === "number" ? res.daily_post_count : undefined,
+      last_post_date: typeof res.last_post_date === "string" ? res.last_post_date : undefined,
+      daily_post_limit: typeof res.daily_post_limit === "number" ? res.daily_post_limit : undefined,
+    };
   } catch (err) {
     console.error("[MONGODB] Error fetching bot progress:", (err as Error).message);
     return null;
   }
 }
 
-export async function saveBotProgressMongo(next_index: number, profileId?: string): Promise<void> {
+export async function saveBotProgressMongo(progress: number | MongoBotProgress, profileId?: string): Promise<void> {
   try {
     const database = await getMongoDb();
     if (!database) return;
     const docId = profileId ? `progress_${profileId}` : "progress";
+    const progressObj = typeof progress === "number" ? { next_index: progress } : progress;
     await database.collection("bot_progress").updateOne(
       { _id: docId as any },
-      { $set: { next_index, lastUpdated: new Date().toISOString() } },
+      { $set: { ...progressObj, lastUpdated: new Date().toISOString() } },
       { upsert: true }
     );
   } catch (err) {

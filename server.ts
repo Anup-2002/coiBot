@@ -1,3 +1,4 @@
+import "./src/env";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
@@ -97,14 +98,14 @@ app.use(express.json({ limit: "50mb" }));
 
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
-  // Trigger background refresh without blocking client response
-  syncLocalFromCloudIfStale().catch(() => {});
+  updateActiveProfilePaths();
 
   if (fs.existsSync(LAST_TRENDING_FILE)) {
     return res.sendFile(LAST_TRENDING_FILE);
@@ -113,17 +114,33 @@ app.get("/output/last_trending.json", (req, res) => {
 });
 
 app.get("/output/generated_messages.json", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
-  // Trigger background refresh without blocking client response
-  syncLocalFromCloudIfStale().catch(() => {});
+  updateActiveProfilePaths();
 
   if (fs.existsSync(GENERATED_MESSAGES_FILE)) {
     return res.sendFile(GENERATED_MESSAGES_FILE);
+  }
+  res.json([]);
+});
+
+app.get("/output/results.json", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const activeId = getActiveProfileId();
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  if (!activeId || !sessionExists) {
+    return res.json([]);
+  }
+
+  updateActiveProfilePaths();
+
+  if (fs.existsSync(RESULTS_FILE)) {
+    return res.sendFile(RESULTS_FILE);
   }
   res.json([]);
 });
@@ -233,11 +250,97 @@ function updateActiveProfilePaths() {
 // Initial update of paths
 updateActiveProfilePaths();
 
+// Item 15: Per-Account Daily Post Limit and Progress Structure
+interface BotProgressData {
+  next_index: number;
+  daily_post_count?: number;
+  last_post_date?: string;
+  daily_post_limit?: number;
+  updated_at?: string;
+}
+
+function getTodayDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getActiveProfile(): any | null {
+  try {
+    if (fs.existsSync(PROFILES_FILE)) {
+      const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+      return profiles.find((p: any) => p.isActive) || null;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function getAccountDailyPostLimit(profileId?: string | null): number {
+  if (profileId) {
+    try {
+      if (fs.existsSync(PROFILES_FILE)) {
+        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+        const target = profiles.find((p: any) => p.id === profileId);
+        if (target && typeof target.dailyPostLimit === "number" && target.dailyPostLimit > 0) {
+          return target.dailyPostLimit;
+        }
+      }
+    } catch (_) {}
+  } else {
+    const active = getActiveProfile();
+    if (active && typeof active.dailyPostLimit === "number" && active.dailyPostLimit > 0) {
+      return active.dailyPostLimit;
+    }
+  }
+  const envVal = Number(process.env.DAILY_POST_LIMIT);
+  if (!isNaN(envVal) && envVal > 0) {
+    return envVal;
+  }
+  return 500; // Configurable daily posting limit default: 500 posts/day
+}
+
+function readBotProgress(): BotProgressData {
+  const todayStr = getTodayDateString();
+  const limit = getAccountDailyPostLimit();
+  const data = readJsonFile<BotProgressData>(POST_PROGRESS_FILE, {
+    next_index: 0,
+    daily_post_count: 0,
+    last_post_date: todayStr,
+    daily_post_limit: limit,
+  });
+
+  if (typeof data.next_index !== "number") {
+    data.next_index = 0;
+  }
+
+  // Roll over daily post count if date stamp is from previous calendar day
+  if (!data.last_post_date || data.last_post_date !== todayStr) {
+    data.daily_post_count = 0;
+    data.last_post_date = todayStr;
+  } else if (typeof data.daily_post_count !== "number") {
+    data.daily_post_count = 0;
+  }
+
+  data.daily_post_limit = limit;
+  return data;
+}
+
+function saveBotProgress(updates: Partial<BotProgressData>): BotProgressData {
+  const current = readBotProgress();
+  const merged: BotProgressData = {
+    ...current,
+    ...updates,
+    daily_post_limit: updates.daily_post_limit || getAccountDailyPostLimit(),
+    updated_at: new Date().toISOString()
+  };
+  writeJsonFile(POST_PROGRESS_FILE, merged);
+  return merged;
+}
+
 // In-Memory Logs to display in the UI console
 interface LogEntry {
   timestamp: string;
   level: "info" | "success" | "warning" | "error";
   message: string;
+  profileId?: string | null;
 }
 let logs: LogEntry[] = [];
 
@@ -252,18 +355,19 @@ function triggerLogSync() {
   }, 15000); // Debounce to 15 seconds to prevent excessive write operations during long posting runs
 }
 
-function addLog(level: "info" | "success" | "warning" | "error", message: string) {
+function addLog(level: "info" | "success" | "warning" | "error", message: string, profileId?: string | null) {
   if (!message || !message.trim()) return;
   // Deduplicate consecutive identical logs to prevent clutter
   if (logs.length > 0 && logs[logs.length - 1].message === message) {
     return;
   }
   const timestamp = new Date().toLocaleTimeString();
-  const entry: LogEntry = { timestamp, level, message };
+  const targetProfileId = profileId !== undefined ? profileId : getActiveProfileId();
+  const entry: LogEntry = { timestamp, level, message, profileId: targetProfileId };
   logs.push(entry);
   console.log(`[${level.toUpperCase()}] ${message}`);
-  // Strictly enforce max 100 logs cap (ring-buffer) to prevent unbounded memory growth
-  while (logs.length > 100) {
+  // Strictly enforce max 200 logs cap (ring-buffer) to prevent unbounded memory growth
+  while (logs.length > 200) {
     logs.shift();
   }
   triggerLogSync();
@@ -417,14 +521,7 @@ if (process.env.AUTH_STATE_JSON) {
     addLog("error", `Failed to parse AUTH_STATE_JSON environment variable: ${(err as Error).message}`);
   }
 } else if (!fs.existsSync(AUTH_STATE_FILE)) {
-  addLog("warning", "auth/state.json does not exist. Initializing empty storage state...");
-  try {
-    const defaultState = { cookies: [], origins: [] };
-    fs.writeFileSync(AUTH_STATE_FILE, JSON.stringify(defaultState, null, 2), "utf-8");
-    addLog("success", "Successfully initialized empty auth/state.json storage state. Please upload active session cookies.");
-  } catch (err) {
-    addLog("error", `Failed to initialize empty auth/state.json: ${(err as Error).message}`);
-  }
+  addLog("info", "No active auth/state.json session file found on startup. Waiting for profile restoration or login.");
 } else {
   addLog("info", "Found existing auth/state.json session storage state.");
 }
@@ -548,7 +645,7 @@ async function triggerFullFlowExecution() {
 
   // Clear previous results and progress for the new run
   await writeJsonFile(RESULTS_FILE, []);
-  await writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+  saveBotProgress({ next_index: 0 });
 
   try {
     // Step 1: Fetch
@@ -1174,7 +1271,8 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       await context.storageState({ path: AUTH_STATE_FILE });
       if (fs.existsSync(AUTH_STATE_FILE)) {
         const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-        await saveSessionStateCloud(cookiesStr);
+        const activeId = getActiveProfileId();
+        await saveSessionStateCloud(cookiesStr, activeId || undefined);
         autoSyncSessionToProfiles(cookiesStr);
       }
     } catch (e) {
@@ -1661,7 +1759,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
         try {
           const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          await saveSessionStateCloud(cookiesStr);
+          const activeId = getActiveProfileId();
+          await saveSessionStateCloud(cookiesStr, activeId || undefined);
           await autoSyncSessionToProfiles(cookiesStr, email);
         } catch (e) {
           console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
@@ -1735,7 +1834,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
         try {
           const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          await saveSessionStateCloud(cookiesStr);
+          const activeId = getActiveProfileId();
+          await saveSessionStateCloud(cookiesStr, activeId || undefined);
           await autoSyncSessionToProfiles(cookiesStr, email);
         } catch (e) {
           console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
@@ -1772,7 +1872,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
         try {
           const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          await saveSessionStateCloud(cookiesStr);
+          const activeId = getActiveProfileId();
+          await saveSessionStateCloud(cookiesStr, activeId || undefined);
           await autoSyncSessionToProfiles(cookiesStr, email);
         } catch (e) {
           console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
@@ -1845,7 +1946,6 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
         await visibleBoxes[i].click().catch(() => {});
         await visibleBoxes[i].focus().catch(() => {});
         await visibleBoxes[i].fill(cleanOtp[i]).catch(() => {});
-        await page.keyboard.press(cleanOtp[i]).catch(() => {});
         await page.waitForTimeout(60);
       }
       codeInput = visibleBoxes[0];
@@ -1967,7 +2067,8 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       // Sync successfully saved session to Cloud and Auto-Update Profiles
       try {
         const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-        await saveSessionStateCloud(cookiesStr);
+        const activeId = getActiveProfileId();
+        await saveSessionStateCloud(cookiesStr, activeId || undefined);
         autoSyncSessionToProfiles(cookiesStr, email);
       } catch (e) {
         console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
@@ -2115,6 +2216,20 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     addLog("success", "Session check passed! Comment editor located successfully on posting page.");
     
     const finalComment = message;
+    // Item 13: Check if this specific comment was already published in recent feed
+    try {
+      const isAlreadyPosted = await page.evaluate((textSnippet: string) => {
+        const feed = document.querySelector('.community-feed, [class*="feed" i], [class*="comment" i], [class*="post-list" i], main');
+        const targetText = feed ? (feed as HTMLElement).innerText : document.body.innerText;
+        return targetText.includes(textSnippet);
+      }, finalComment.slice(0, 35));
+
+      if (isAlreadyPosted) {
+        addLog("warning", `Detected comment text snippet already published on this coin's community feed. Skipping duplicate submission.`);
+        return { status: "success", message: "Comment already published on community feed" };
+      }
+    } catch (_) {}
+
     // Focus, write message naturally
     addLog("info", `Editor field focused. Typing comment: "${finalComment}"`);
     await clickResiliently(page, editor, "comment editor input box");
@@ -2222,9 +2337,25 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     // Wait for submission to process
     await page.waitForTimeout(3000);
     
-    const bodyTextAfter = await page.innerText("body").catch(() => "");
-    if (bodyTextAfter.toLowerCase().includes("frequent") || bodyTextAfter.toLowerCase().includes("too fast") || bodyTextAfter.toLowerCase().includes("rate limit") || bodyTextAfter.toLowerCase().includes("seconds before")) {
-      addLog("warning", "Rate limit warning detected after clicking post button.");
+    // Item 12: Scope rate-limit detection near comment editor, toast alerts, or feedback containers
+    let isRateLimited = false;
+    let rateLimitMsg = "";
+    try {
+      const feedbackContainers = await page.$$('[role="alert"], [class*="toast" i], [class*="notification" i], [class*="feedback" i], [class*="error" i], [class*="alert" i], [data-test="editor-error"], .editor-area, form');
+      for (const fc of feedbackContainers) {
+        if (await fc.isVisible().catch(() => false)) {
+          const txt = (await fc.innerText().catch(() => "")).toLowerCase();
+          if (txt.includes("frequent") || txt.includes("too fast") || txt.includes("rate limit") || txt.includes("seconds before") || txt.includes("please wait")) {
+            isRateLimited = true;
+            rateLimitMsg = txt;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (isRateLimited) {
+      addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
       await saveDebugScreenshot(page, "rate_limited_submission");
       return { status: "retry", message: "Rate limited on submission" };
     }
@@ -2237,7 +2368,8 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       await context.storageState({ path: AUTH_STATE_FILE });
       if (fs.existsSync(AUTH_STATE_FILE)) {
         const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-        await saveSessionStateCloud(cookiesStr);
+        const activeId = getActiveProfileId();
+        await saveSessionStateCloud(cookiesStr, activeId || undefined);
         autoSyncSessionToProfiles(cookiesStr);
       }
     } catch (e) {
@@ -2515,7 +2647,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
     } else if (filePath === POST_PROGRESS_FILE) {
       const progressObj = data as any;
       try {
-        await saveBotProgressCloud(progressObj?.next_index || 0, activeId || undefined);
+        await saveBotProgressCloud(progressObj, activeId || undefined);
       } catch (err) {
         console.error("[FIREBASE] Error syncing progress to cloud:", (err as Error).message);
       }
@@ -2539,50 +2671,87 @@ async function syncLocalFromCloudIfStale(force = false) {
   lastCloudSyncTime = now;
   try {
     const activeId = getActiveProfileId();
+    if (!activeId) {
+      return; // No active profile, do not sync profile-scoped data
+    }
+
+    // Always ensure paths are aligned with the active profile FIRST before any sync operations
+    updateActiveProfilePaths();
 
     // 1. Trending Coins
     const localCoins = readJsonFile<any[]>(LAST_TRENDING_FILE, []);
     const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
-    if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
-    } else if (localCoins.length > 0) {
-      // Local has data, sync up to cloud so cloud isn't empty
+    if (localCoins.length > 0) {
+      // Local has active coins for this profile, ensure cloud has them
       saveTrendingCoinsCloud(localCoins, activeId || undefined).catch(() => {});
+    } else if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
+      // Local is empty, hydrate from cloud
+      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
     }
 
     // 2. Generated Messages
     const localMessages = readJsonFile<any[]>(GENERATED_MESSAGES_FILE, []);
     const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
-    if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
-    } else if (localMessages.length > 0) {
+    if (localMessages.length > 0) {
       saveGeneratedMessagesCloud(localMessages, activeId || undefined).catch(() => {});
+    } else if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
+      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
     }
 
-    // 3. Post Results
-    const localResults = readJsonFile<any[]>(RESULTS_FILE, []);
-    const cloudResults = await getPostResultsCloud(activeId || undefined);
-    if (cloudResults && Array.isArray(cloudResults) && cloudResults.length > 0) {
-      if (cloudResults.length >= localResults.length) {
-        fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
-      } else if (localResults.length > 0) {
+    // 3. Post Results (Skip overwriting if posting is active to prevent race conditions)
+    if (!isPostingRunning) {
+      const localResults = readJsonFile<any[]>(RESULTS_FILE, []);
+      const cloudResults = await getPostResultsCloud(activeId || undefined);
+      if (localResults.length > 0) {
+        // Local results exist (e.g. recent posts) - local is authoritative, persist to cloud
         savePostResultsCloud(localResults, activeId || undefined).catch(() => {});
+      } else if (cloudResults && Array.isArray(cloudResults) && cloudResults.length > 0) {
+        // Local is empty and cloud has previous history for this profile - hydrate
+        fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
       }
-    } else if (localResults.length > 0) {
-      savePostResultsCloud(localResults, activeId || undefined).catch(() => {});
+
+      // 4. Bot Progress (Skip overwriting if posting is active)
+      const cloudProgress = await getBotProgressCloud(activeId || undefined);
+      const localProgress = readBotProgress();
+      if (typeof localProgress.next_index === "number" && localProgress.next_index > 0) {
+        saveBotProgressCloud(localProgress, activeId || undefined).catch(() => {});
+      } else if (cloudProgress && typeof cloudProgress.next_index === "number") {
+        const merged = {
+          ...localProgress,
+          next_index: cloudProgress.next_index,
+          daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
+          last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
+          daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
+        };
+        fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(merged, null, 2), "utf-8");
+        currentPostingIndex = cloudProgress.next_index;
+      }
     }
 
-    // 4. Bot Progress
-    const cloudProgress = await getBotProgressCloud(activeId || undefined);
-    if (cloudProgress && typeof cloudProgress.next_index === "number") {
-      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
-      currentPostingIndex = cloudProgress.next_index;
-    }
-
-    // 5. Profiles
+    // 5. Profiles (Refresh active profile paths while preserving current local active selection)
     const cloudProfiles = await getProfilesCloud();
     if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
-      fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
+      const currentActiveId = getActiveProfileId();
+      const localProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      
+      const mergedProfiles = cloudProfiles.map((cp: any) => {
+        const localMatch = localProfiles.find(lp => lp.id === cp.id);
+        return {
+          ...cp,
+          dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 500),
+          isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
+        };
+      });
+
+      // Keep any local-only profiles that haven't synced yet
+      for (const lp of localProfiles) {
+        if (!mergedProfiles.some(mp => mp.id === lp.id)) {
+          mergedProfiles.push(lp);
+        }
+      }
+
+      fs.writeFileSync(PROFILES_FILE, JSON.stringify(mergedProfiles, null, 2), "utf-8");
+      updateActiveProfilePaths();
     }
   } catch (err) {
     console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
@@ -2725,6 +2894,28 @@ app.post("/api/clear-session", async (req, res) => {
 
     loginState = { status: "idle", message: "" };
 
+    // Mark active profile inactive upon logout / clear-session
+    try {
+      if (fs.existsSync(PROFILES_FILE)) {
+        const profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+        let changed = false;
+        const updatedProfiles = profiles.map(p => {
+          if (p.isActive) {
+            changed = true;
+            return { ...p, isActive: false, stateJson: "" };
+          }
+          return p;
+        });
+        if (changed) {
+          fs.writeFileSync(PROFILES_FILE, JSON.stringify(updatedProfiles, null, 2), "utf-8");
+          await saveProfilesCloud(updatedProfiles);
+        }
+      }
+    } catch (profErr) {
+      console.error("[LOGOUT] Error updating profile inactive state:", (profErr as Error).message);
+    }
+    updateActiveProfilePaths();
+
     if (fs.existsSync(AUTH_STATE_FILE)) {
       fs.unlinkSync(AUTH_STATE_FILE);
       addLog("warning", "Deleted auth/state.json session state.");
@@ -2780,12 +2971,18 @@ app.post("/api/save-profile", async (req, res) => {
       }
     }
 
+    const rawLimit = Number(req.body.dailyPostLimit);
+    const dailyLimit = !isNaN(rawLimit) && rawLimit > 0
+      ? rawLimit
+      : (existingIndex >= 0 && profiles[existingIndex].dailyPostLimit ? profiles[existingIndex].dailyPostLimit : 500);
+
     const profileData = {
       id: profileId,
       name,
       stateJson: normalizeStateJson(stateJson),
       isActive: existingIndex >= 0 ? profiles[existingIndex].isActive : false,
       loginStatus: existingIndex >= 0 ? (profiles[existingIndex].loginStatus || "unknown") : "unknown",
+      dailyPostLimit: dailyLimit,
       updatedAt: new Date().toISOString()
     };
 
@@ -2796,7 +2993,7 @@ app.post("/api/save-profile", async (req, res) => {
     }
 
     fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-    addLog("success", `Saved account profile: "${name}"`);
+    addLog("success", `Saved account profile: "${name}" (Daily limit: ${dailyLimit} posts/day)`);
 
     // Sync to Cloud
     try {
@@ -2805,9 +3002,46 @@ app.post("/api/save-profile", async (req, res) => {
       console.error("[FIREBASE] Error syncing profiles to cloud:", (err as Error).message);
     }
 
+    // If active profile was updated, ensure progress file reflects the limit
+    if (profileData.isActive) {
+      saveBotProgress({ daily_post_limit: dailyLimit });
+    }
+
     res.json({ success: true, profile: profileData });
   } catch (error) {
     res.status(400).json({ error: `Invalid payload/JSON: ${(error as Error).message}` });
+  }
+});
+
+// 3bb. Update Account Daily Post Limit
+app.post("/api/update-profile-limit", async (req, res) => {
+  if (isContinuousLoopActive) {
+    return res.status(400).json({ error: "Cannot change account limit while the Continuous Automation Loop is active." });
+  }
+  try {
+    const { id, dailyPostLimit } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Missing profile id." });
+    }
+    const limitNum = Math.max(1, Math.min(10000, Number(dailyPostLimit) || 500));
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const idx = profiles.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Profile not found." });
+    }
+    profiles[idx].dailyPostLimit = limitNum;
+    profiles[idx].updatedAt = new Date().toISOString();
+    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    await saveProfilesCloud(profiles).catch(() => {});
+
+    const activeId = getActiveProfileId();
+    if (activeId === id) {
+      saveBotProgress({ daily_post_limit: limitNum });
+    }
+    addLog("info", `Updated daily post limit for account "${profiles[idx].name}" to ${limitNum} posts/day.`);
+    res.json({ success: true, profile: profiles[idx], dailyPostLimit: limitNum });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
@@ -2845,23 +3079,55 @@ app.post("/api/activate-profile", async (req, res) => {
     // Crucial: Update active profile paths dynamically!
     updateActiveProfilePaths();
 
+    // Ensure target profile subdirectory and isolated storage files are safely initialized
+    const targetDir = path.join(OUTPUT_DIR, activeProfile.id);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const targetResults = path.join(targetDir, "results.json");
+    if (!fs.existsSync(targetResults)) {
+      fs.writeFileSync(targetResults, "[]", "utf-8");
+    }
+    const targetProgress = path.join(targetDir, "post_progress.json");
+    if (!fs.existsSync(targetProgress)) {
+      fs.writeFileSync(targetProgress, JSON.stringify({
+        next_index: 0,
+        daily_post_count: 0,
+        daily_post_limit: activeProfile.dailyPostLimit || 500,
+        last_post_date: getTodayDateString()
+      }, null, 2), "utf-8");
+    }
+
     // Synchronize in-memory progress index for newly activated profile
-    const progress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+    const progress = readBotProgress();
     currentPostingIndex = progress.next_index || 0;
 
-    addLog("success", `Activated account profile: "${activeProfile.name}". Swept active cookies state.`);
+    addLog("success", `Activated account profile: "${activeProfile.name}". Isolated storage and cookies swept.`, activeProfile.id);
 
-    // Sync active session and profiles lists to Cloud in background for non-blocking instantaneous response
-    saveSessionStateCloud(activeProfile.stateJson, activeProfile.id).catch((err) => {
-      console.error("[FIREBASE] Error syncing to cloud on profile activation:", (err as Error).message);
-    });
-    saveProfilesCloud(profiles).catch(() => {});
-    syncLocalFromCloudIfStale(true).catch(() => {});
+    // Sync active session and profiles lists to Cloud so Firestore is immediately consistent
+    try {
+      await Promise.allSettled([
+        saveSessionStateCloud(activeProfile.stateJson, activeProfile.id),
+        saveProfilesCloud(profiles)
+      ]);
+      await syncLocalFromCloudIfStale(true);
+    } catch (syncErr) {
+      console.error("[STORAGE] Error syncing active profile to cloud:", syncErr);
+    }
 
     // Reset login flow state to idle on activation
     loginState = { status: "idle", message: "" };
 
-    res.json({ success: true, message: `Successfully activated profile "${activeProfile.name}"` });
+    res.json({
+      success: true,
+      message: `Successfully activated profile "${activeProfile.name}"`,
+      activeProfile: {
+        id: activeProfile.id,
+        name: activeProfile.name,
+        isActive: true,
+        dailyPostLimit: activeProfile.dailyPostLimit || 500
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -2957,6 +3223,9 @@ app.get("/api/status", async (req, res) => {
       failedCount: 0,
       results: [],
       progressIndex: 0,
+      dailyPostCount: 0,
+      dailyPostLimit: getAccountDailyPostLimit(null),
+      lastPostDate: getTodayDateString(),
       currentCoin: "N/A",
       coinsFetchedAt: null,
       coinsFetchedTime: null,
@@ -2981,7 +3250,8 @@ app.get("/api/status", async (req, res) => {
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
-  const progress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+  const progress = readBotProgress();
+  const dailyPostLimit = getAccountDailyPostLimit(activeId);
   const ts = getRealTimestamps();
 
   res.json({
@@ -2995,6 +3265,9 @@ app.get("/api/status", async (req, res) => {
     failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
     results,
     progressIndex: progress.next_index,
+    dailyPostCount: progress.daily_post_count || 0,
+    dailyPostLimit,
+    lastPostDate: progress.last_post_date || getTodayDateString(),
     currentCoin: currentCoinName,
     coinsFetchedAt: coins.length > 0 ? ts.coinsFetchedAt : null,
     coinsFetchedTime: coins.length > 0 ? ts.coinsFetchedTime : null,
@@ -3038,10 +3311,11 @@ app.post("/api/set-continuous-loop", (req, res) => {
 
   let intervalChanged = false;
   if (intervalMinutes !== undefined && typeof intervalMinutes === "number" && intervalMinutes > 0) {
-    if (continuousLoopIntervalMinutes !== intervalMinutes) {
-      continuousLoopIntervalMinutes = intervalMinutes;
+    const safeMins = Math.max(5, Math.round(intervalMinutes));
+    if (continuousLoopIntervalMinutes !== safeMins) {
+      continuousLoopIntervalMinutes = safeMins;
       intervalChanged = true;
-      addLog("info", `Continuous Loop cooldown interval updated to ${continuousLoopIntervalMinutes} minutes.`);
+      addLog("info", `Continuous Loop cooldown interval updated to ${continuousLoopIntervalMinutes} minutes (minimum enforced: 5 minutes).`);
     }
   }
 
@@ -3685,98 +3959,84 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
       120000,
       "Playwright launch or scrape timed out after 120 seconds"
     );
+    if (coins && coins.length > 0) {
+      addLog("success", `[SOURCE: CMC SCRAPE] Successfully scraped ${coins.length} trending coins directly from CoinMarketCap.`);
+    }
   } catch (scrapeErr) {
-    addLog("warning", `Playwright scraping failed: ${(scrapeErr as Error).message}. Falling back to API...`);
+    addLog("warning", `CoinMarketCap scrape failed: ${(scrapeErr as Error).message}. Attempting fallback market source...`);
   }
 
   if (coins.length === 0) {
     if (process.env.CMC_API_KEY) {
-      addLog("info", "Fetching from CoinMarketCap Pro API...");
-      const response = await fetch("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=50&convert=USD", {
-        headers: {
-          "Accepts": "application/json",
-          "X-CMC_PRO_API_KEY": process.env.CMC_API_KEY,
-        }
-      });
+      addLog("info", "Scrape failed, falling back to CoinMarketCap listings (top by market cap).");
+      try {
+        const response = await fetch("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=50&convert=USD", {
+          headers: {
+            "Accepts": "application/json",
+            "X-CMC_PRO_API_KEY": process.env.CMC_API_KEY,
+          }
+        });
 
-      if (!response.ok) {
-        throw new Error(`CoinMarketCap Pro API returned error status: ${response.status}`);
-      }
-
-      const resData = (await response.json()) as any;
-      creditCount = resData.status?.credit_count || 1;
-      
-      if (resData.data && Array.isArray(resData.data)) {
-        coins = resData.data.map((coin: any) => ({
-          name: coin.name,
-          symbol: coin.symbol,
-          price: parseFloat(coin.quote?.USD?.price?.toFixed(6) || "0"),
-          change_24h: parseFloat(coin.quote?.USD?.percent_change_24h?.toFixed(2) || "0"),
-          change_1h: parseFloat(coin.quote?.USD?.percent_change_1h?.toFixed(2) || "0"),
-          change_7d: parseFloat(coin.quote?.USD?.percent_change_7d?.toFixed(2) || "0"),
-          market_cap: parseFloat(coin.quote?.USD?.market_cap?.toFixed(2) || "0"),
-          volume_24h: parseFloat(coin.quote?.USD?.volume_24h?.toFixed(2) || "0"),
-          cmc_rank: coin.cmc_rank,
-          slug: coin.slug,
-          url: `https://coinmarketcap.com/currencies/${coin.slug}/`,
-        }));
-      }
-    } else {
-      addLog("warning", "No CMC_API_KEY detected in secrets. Fetching real-time market stats from CoinGecko Public Markets API...");
-      
-      const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=30&page=1&sparkline=false&price_change_percentage=1h,24h,7d");
-      
-      if (response.ok) {
-        const cgData = (await response.json()) as any;
-        if (Array.isArray(cgData)) {
-          coins = cgData.map((coin: any, index: number) => ({
-            name: coin.name,
-            symbol: coin.symbol.toUpperCase(),
-            price: coin.current_price,
-            change_24h: parseFloat(coin.price_change_percentage_24h?.toFixed(2) || "0"),
-            change_1h: parseFloat(coin.price_change_percentage_1h_in_currency?.toFixed(2) || "0"),
-            change_7d: parseFloat(coin.price_change_percentage_7d_in_currency?.toFixed(2) || "0"),
-            market_cap: coin.market_cap,
-            volume_24h: coin.total_volume,
-            cmc_rank: index + 1,
-            slug: coin.id,
-            url: `https://coinmarketcap.com/currencies/${coin.id}/`,
-          }));
+        if (!response.ok) {
+          addLog("warning", `CoinMarketCap Pro API returned error status: ${response.status}. Attempting CoinGecko fallback...`);
+        } else {
+          const resData = (await response.json()) as any;
+          creditCount = resData.status?.credit_count || 1;
+          
+          if (resData.data && Array.isArray(resData.data)) {
+            coins = resData.data.map((coin: any) => ({
+              name: coin.name,
+              symbol: coin.symbol,
+              price: parseFloat(coin.quote?.USD?.price?.toFixed(6) || "0"),
+              change_24h: parseFloat(coin.quote?.USD?.percent_change_24h?.toFixed(2) || "0"),
+              change_1h: parseFloat(coin.quote?.USD?.percent_change_1h?.toFixed(2) || "0"),
+              change_7d: parseFloat(coin.quote?.USD?.percent_change_7d?.toFixed(2) || "0"),
+              market_cap: parseFloat(coin.quote?.USD?.market_cap?.toFixed(2) || "0"),
+              volume_24h: parseFloat(coin.quote?.USD?.volume_24h?.toFixed(2) || "0"),
+              cmc_rank: coin.cmc_rank,
+              slug: coin.slug,
+              url: `https://coinmarketcap.com/currencies/${coin.slug}/`,
+            }));
+            addLog("success", `[SOURCE: CMC PRO API] Fetched ${coins.length} coins from CoinMarketCap Pro API.`);
+          }
         }
+      } catch (cmcErr) {
+        addLog("warning", `CoinMarketCap Pro API fetch failed: ${(cmcErr as Error).message}. Attempting CoinGecko fallback...`);
+      }
+    }
+
+    if (coins.length === 0) {
+      addLog("info", "Scrape failed, falling back to CoinGecko markets (top by market cap).");
+      
+      try {
+        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=30&page=1&sparkline=false&price_change_percentage=1h,24h,7d");
+        
+        if (response.ok) {
+          const cgData = (await response.json()) as any;
+          if (Array.isArray(cgData) && cgData.length > 0) {
+            coins = cgData.map((coin: any, index: number) => ({
+              name: coin.name,
+              symbol: coin.symbol.toUpperCase(),
+              price: coin.current_price,
+              change_24h: parseFloat(coin.price_change_percentage_24h?.toFixed(2) || "0"),
+              change_1h: parseFloat(coin.price_change_percentage_1h_in_currency?.toFixed(2) || "0"),
+              change_7d: parseFloat(coin.price_change_percentage_7d_in_currency?.toFixed(2) || "0"),
+              market_cap: coin.market_cap,
+              volume_24h: coin.total_volume,
+              cmc_rank: index + 1,
+              slug: coin.id,
+              url: `https://coinmarketcap.com/currencies/${coin.id}/`,
+            }));
+            addLog("success", `[SOURCE: COINGECKO] Successfully fetched ${coins.length} top market cap coins from CoinGecko API.`);
+          }
+        }
+      } catch (cgErr) {
+        addLog("warning", `CoinGecko fetch failed: ${(cgErr as Error).message}`);
       }
 
       if (coins.length === 0) {
-        addLog("warning", "CoinGecko rate limit or fallback triggered. Loading dynamic high-fidelity trending list...");
-        const mockCoinsRaw = [
-          { name: "Bitcoin", symbol: "BTC", price: 96420, change_24h: 3.42, cap: 1890000000000, vol: 45000000000, slug: "bitcoin" },
-          { name: "Ethereum", symbol: "ETH", price: 3450, change_24h: -1.24, cap: 415000000000, vol: 18000000000, slug: "ethereum" },
-          { name: "Solana", symbol: "SOL", price: 186.4, change_24h: 8.76, cap: 87000000000, vol: 4500000000, slug: "solana" },
-          { name: "Binance Coin", symbol: "BNB", price: 615.2, change_24h: 0.85, cap: 90000000000, vol: 1200000000, slug: "bnb" },
-          { name: "Ripple", symbol: "XRP", price: 1.14, change_24h: 12.15, cap: 65000000000, vol: 3200000000, slug: "xrp" },
-          { name: "Dogecoin", symbol: "DOGE", price: 0.385, change_24h: -4.12, cap: 56000000000, vol: 2800000000, slug: "dogecoin" },
-          { name: "Cardano", symbol: "ADA", price: 0.72, change_24h: 5.34, cap: 25000000000, vol: 850000000, slug: "cardano" },
-          { name: "Avalanche", symbol: "AVAX", price: 34.15, change_24h: -2.31, cap: 14000000000, vol: 420000000, slug: "avalanche" },
-          { name: "Chainlink", symbol: "LINK", price: 22.45, change_24h: 6.89, cap: 13500000000, vol: 610000000, slug: "chainlink" },
-          { name: "Polkadot", symbol: "DOT", price: 6.12, change_24h: 1.45, cap: 8500000000, vol: 180000000, slug: "polkadot" },
-        ];
-
-        coins = mockCoinsRaw.map((coin, index) => {
-          const fluctuation = (Math.random() - 0.5) * 0.01;
-          const finalPrice = parseFloat((coin.price * (1 + fluctuation)).toFixed(coin.price > 100 ? 2 : 4));
-          const finalChange = parseFloat((coin.change_24h + fluctuation * 100).toFixed(2));
-          return {
-            name: coin.name,
-            symbol: coin.symbol,
-            price: finalPrice,
-            change_24h: finalChange,
-            change_1h: parseFloat((fluctuation * 100).toFixed(2)),
-            market_cap: coin.cap,
-            volume_24h: coin.vol,
-            cmc_rank: index + 1,
-            slug: coin.slug,
-            url: `https://coinmarketcap.com/currencies/${coin.slug}/`,
-          };
-        });
+        addLog("error", "All coin sources failed.");
+        throw new Error("Could not fetch trending coins from any source (scrape, CMC API, CoinGecko). Keeping previous coin list.");
       }
     }
   }
@@ -3800,6 +4060,11 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
     } else {
       resolvedCoins.push(coin);
     }
+  }
+
+  if (resolvedCoins.length === 0) {
+    addLog("error", "All coin sources failed.");
+    throw new Error("Could not fetch trending coins from any source (scrape, CMC API, CoinGecko). Keeping previous coin list.");
   }
 
   await writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
@@ -3835,8 +4100,14 @@ async function executeGenerateMessages(): Promise<number> {
   }
 
   const generatedMessages: GeneratedMessage[] = [];
-  let openAiFailed = false;
 
+  // Helper to check which coins are still missing generated comments
+  const getMissingCoins = (): Coin[] => {
+    const existingSymbols = new Set(generatedMessages.map(m => m.symbol.toLowerCase()));
+    return coins.filter(c => !existingSymbols.has(c.symbol.toLowerCase()));
+  };
+
+  // 1. Primary Model: OpenAI gpt-4o-mini
   if (process.env.OPENAI_API_KEY) {
     try {
       lastOpenAiError = null; // Reset previous error if we have a key and are trying again
@@ -3895,7 +4166,7 @@ async function executeGenerateMessages(): Promise<number> {
         if (parsed.messages && Array.isArray(parsed.messages)) {
           parsed.messages.forEach((msg: any) => {
             const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
-            if (matchCoin) {
+            if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
               const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
               generatedMessages.push({
                 name: matchCoin.name,
@@ -3912,17 +4183,17 @@ async function executeGenerateMessages(): Promise<number> {
       const errMsg = (apiError as Error).message;
       addLog("error", `OpenAI API Call failed: ${errMsg}.`);
       lastOpenAiError = errMsg;
-      openAiFailed = true;
     }
   }
 
-  let geminiFailed = false;
+  // 2. Fallback Model: Gemini gemini-3.5-flash (Send ONLY missing coins - Item 6)
+  const missingForGemini = getMissingCoins();
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
-  if ((!process.env.OPENAI_API_KEY || openAiFailed) && geminiKey) {
+  if (missingForGemini.length > 0 && geminiKey) {
     try {
       lastGeminiError = null; // Reset previous error if we have a key and are trying again
-      addLog("info", "Using Gemini API (gemini-3.5-flash) as the primary AI fallback...");
+      addLog("info", `Using Gemini API (gemini-3.5-flash) to generate ${missingForGemini.length} missing comments...`);
       const ai = new GoogleGenAI({
         apiKey: geminiKey,
         httpOptions: {
@@ -3933,13 +4204,13 @@ async function executeGenerateMessages(): Promise<number> {
       });
 
       const batchSize = 10;
-      for (let i = 0; i < coins.length; i += batchSize) {
+      for (let i = 0; i < missingForGemini.length; i += batchSize) {
         if (!isGeneratingRunning) {
           addLog("warning", "Comment generation aborted by user.");
           break;
         }
-        const chunk = coins.slice(i, i + batchSize);
-        addLog("info", `Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gemini-3.5-flash...`);
+        const chunk = missingForGemini.slice(i, i + batchSize);
+        addLog("info", `Generating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingForGemini.length / batchSize)} with gemini-3.5-flash (${chunk.length} coins)...`);
 
         const prompt = `
           Generate ONE unique, creative, organic CoinMarketCap community comment for EACH of the following coins based on their recent market data, AND classify the sentiment as either "bullish" or "bearish".
@@ -3968,60 +4239,78 @@ async function executeGenerateMessages(): Promise<number> {
           ${JSON.stringify(chunk.map(c => ({ name: c.name, symbol: c.symbol, price: c.price, change_24h: c.change_24h, rank: c.cmc_rank })))}
         `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                messages: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      symbol: { type: Type.STRING },
-                      sentiment: { type: Type.STRING },
-                      message: { type: Type.STRING }
-                    },
-                    required: ["symbol", "sentiment", "message"]
-                  }
+        // Retry Gemini up to 3 times with exponential backoff on 503 or 429 (Item 7)
+        let response: any = null;
+        for (let gAttempt = 1; gAttempt <= 3; gAttempt++) {
+          try {
+            response = await ai.models.generateContent({
+              model: "gemini-3.5-flash",
+              contents: prompt,
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    messages: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          symbol: { type: Type.STRING },
+                          sentiment: { type: Type.STRING },
+                          message: { type: Type.STRING }
+                        },
+                        required: ["symbol", "sentiment", "message"]
+                      }
+                    }
+                  },
+                  required: ["messages"]
                 }
-              },
-              required: ["messages"]
+              }
+            });
+            break; // Succeeded!
+          } catch (gErr) {
+            const errStr = (gErr as Error).message || "";
+            if ((errStr.includes("503") || errStr.includes("429") || errStr.toLowerCase().includes("high demand") || errStr.includes("ResourceExhausted") || errStr.includes("Unavailable")) && gAttempt < 3) {
+              addLog("warning", `Gemini returned high-demand or rate-limit status (${errStr}). Retrying batch in ${gAttempt * 2}s (Attempt ${gAttempt + 1}/3)...`);
+              await new Promise(resolve => setTimeout(resolve, gAttempt * 2000));
+            } else {
+              throw gErr;
             }
           }
-        });
+        }
 
-        const rawText = response.text || "{}";
-        const parsed = JSON.parse(rawText.trim());
-        if (parsed.messages && Array.isArray(parsed.messages)) {
-          parsed.messages.forEach((msg: any) => {
-            const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
-            if (matchCoin) {
-              const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
-              generatedMessages.push({
-                name: matchCoin.name,
-                symbol: matchCoin.symbol,
-                url: matchCoin.url,
-                message: formattedComment,
-                sentiment: msg.sentiment === "bearish" ? "bearish" : "bullish",
-              });
-            }
-          });
+        if (response) {
+          const rawText = response.text || "{}";
+          const parsed = JSON.parse(rawText.trim());
+          if (parsed.messages && Array.isArray(parsed.messages)) {
+            parsed.messages.forEach((msg: any) => {
+              const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
+              if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
+                const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
+                generatedMessages.push({
+                  name: matchCoin.name,
+                  symbol: matchCoin.symbol,
+                  url: matchCoin.url,
+                  message: formattedComment,
+                  sentiment: msg.sentiment === "bearish" ? "bearish" : "bullish",
+                });
+              }
+            });
+          }
         }
       }
     } catch (geminiError) {
       const errMsg = (geminiError as Error).message;
       addLog("error", `Gemini API Call failed: ${errMsg}.`);
       lastGeminiError = errMsg;
-      geminiFailed = true;
     }
   }
 
-  if (generatedMessages.length === 0) {
-    addLog("warning", "AI generation was not completed or failed. Falling back to robust rule-based comments...");
+  // 3. Fill ANY remaining missing coins from templates (Item 6)
+  const remainingMissing = getMissingCoins();
+  if (remainingMissing.length > 0) {
+    addLog("warning", `Filling ${remainingMissing.length} remaining comments using rule-based templates...`);
     
     const templates = {
       bullish: [
@@ -4038,7 +4327,7 @@ async function executeGenerateMessages(): Promise<number> {
       ]
     };
 
-    coins.forEach((coin, index) => {
+    remainingMissing.forEach((coin, index) => {
       const isBullish = coin.change_24h >= 0;
       const list = isBullish ? templates.bullish : templates.bearish;
       const fn = list[index % list.length];
@@ -4054,7 +4343,7 @@ async function executeGenerateMessages(): Promise<number> {
   }
 
   await writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
-  await writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+  saveBotProgress({ next_index: 0 });
   updateRealGenerateTime();
   return generatedMessages.length;
 }
@@ -4069,7 +4358,7 @@ app.post("/api/fetch-trending", async (req, res) => {
   }
 
   const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-  const prevProgress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+  const prevProgress = readBotProgress();
   if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
     addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
     return res.status(400).json({
@@ -4118,7 +4407,7 @@ app.post("/api/generate-messages", async (req, res) => {
   }
 
   const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-  const prevProgress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+  const prevProgress = readBotProgress();
   if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
     addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
     return res.status(400).json({
@@ -4251,18 +4540,34 @@ async function runPostingLoop() {
     while (isPostingRunning && currentPostingIndex < messages.length) {
       const item = messages[currentPostingIndex];
       
+      // Item 15: Per-account daily post limit check (default 500 posts/day)
+      const MAX_DAILY_POSTS = getAccountDailyPostLimit();
+      const progressData = readBotProgress();
+      const todayStr = getTodayDateString();
+      let dailyPostCount = progressData.daily_post_count || 0;
+
+      if (dailyPostCount >= MAX_DAILY_POSTS) {
+        addLog("warning", `[DAILY LIMIT] Account reached daily limit of ${MAX_DAILY_POSTS} posts for ${todayStr} (Count: ${dailyPostCount}/${MAX_DAILY_POSTS}). Halting run until tomorrow.`);
+        isPostingRunning = false;
+        botStatus = "Completed";
+        if (isContinuousLoopActive) {
+          scheduleNextAutomationCycle();
+        }
+        break;
+      }
+
       // Check if this coin has already been successfully or unsuccessfully posted
       const currentResults = readJsonFile<PostResult[]>(RESULTS_FILE, []);
       const existingResult = currentResults.find(r => r.symbol.toLowerCase() === item.symbol.toLowerCase());
       if (existingResult) {
         currentPostingIndex++;
-        writeJsonFile(POST_PROGRESS_FILE, { next_index: currentPostingIndex });
+        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
         continue;
       }
 
       activeQueueNum++;
       currentCoinName = `${item.name} (${item.symbol})`;
-      writeJsonFile(POST_PROGRESS_FILE, { next_index: currentPostingIndex });
+      saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
       addLog("info", `----------------------------------------`);
       addLog("info", `Executing Post Sequence [Queue Item #${activeQueueNum} of ${initialPendingCount} remaining]: ${currentCoinName}`);
@@ -4289,7 +4594,8 @@ async function runPostingLoop() {
 
       if (outcome === "success") {
         consecutiveFailures = 0;
-        addLog("success", `SUCCESS: Completed comment posted for ${item.symbol}!`);
+        dailyPostCount++;
+        addLog("success", `SUCCESS: Completed comment posted for ${item.symbol}! (Account daily count: ${dailyPostCount}/${MAX_DAILY_POSTS})`);
         
         results.push({
           name: item.name,
@@ -4303,7 +4609,7 @@ async function runPostingLoop() {
         writeJsonFile(RESULTS_FILE, results);
         
         currentPostingIndex++;
-        writeJsonFile(POST_PROGRESS_FILE, { next_index: currentPostingIndex });
+        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
       } else if (outcome === "skipped") {
         addLog("warning", `SKIPPED: Skipped posting for ${item.symbol} (${messageText}).`);
         
@@ -4319,7 +4625,7 @@ async function runPostingLoop() {
         writeJsonFile(RESULTS_FILE, results);
         
         currentPostingIndex++;
-        writeJsonFile(POST_PROGRESS_FILE, { next_index: currentPostingIndex });
+        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
       } else {
         // Captcha, expired or failed
         consecutiveFailures++;
@@ -4337,7 +4643,19 @@ async function runPostingLoop() {
         writeJsonFile(RESULTS_FILE, results);
         
         currentPostingIndex++;
-        writeJsonFile(POST_PROGRESS_FILE, { next_index: currentPostingIndex });
+        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+
+        // Item 14: Stop account posting run immediately on captcha or expired session instead of looping through all remaining coins
+        if (outcome === "expired" || outcome === "captcha") {
+          addLog("error", `CRITICAL: Automated posting halted immediately because account session is ${outcome.toUpperCase()} (${messageText}). Stopping run to protect account.`);
+          isPostingRunning = false;
+          botStatus = "Idle";
+          if (isContinuousLoopActive) {
+            cancelNextAutomationCycle();
+            addLog("error", `[AUTOMATION] Continuous automation loop disabled due to ${outcome} session state. Re-authenticate account to resume.`);
+          }
+          break;
+        }
 
         if (consecutiveFailures >= 3) {
           addLog("error", "CRITICAL: Automated posting paused due to 3 consecutive failures. Please verify your CoinMarketCap login session and cookies.");
@@ -4417,13 +4735,13 @@ app.post("/api/full-flow", async (req, res) => {
 
   try {
     const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-    const prevProgress = readJsonFile<{ next_index: number }>(POST_PROGRESS_FILE, { next_index: 0 });
+    const prevProgress = readBotProgress();
 
     const reqContinuous = req.body.continuous !== undefined ? !!req.body.continuous : true;
     isContinuousLoopActive = reqContinuous;
-    const reqInterval = req.body.intervalMinutes !== undefined ? Number(req.body.intervalMinutes) : continuousLoopIntervalMinutes;
+    const reqInterval = req.body.intervalMinutes !== undefined ? Math.max(5, Math.round(Number(req.body.intervalMinutes))) : continuousLoopIntervalMinutes;
     if (reqInterval > 0) {
-      continuousLoopIntervalMinutes = reqInterval;
+      continuousLoopIntervalMinutes = Math.max(5, reqInterval);
     }
     if (isContinuousLoopActive) {
       addLog("info", `[AUTOMATION] Continuous Loop Mode has been ENABLED for this execution sequence (${continuousLoopIntervalMinutes}-minute gap).`);
@@ -4448,7 +4766,7 @@ app.post("/api/full-flow", async (req, res) => {
 
     addLog("info", "[FLOW FRESH] All previous coins posted or no previous run. Starting clean full cycle...");
     writeJsonFile(RESULTS_FILE, []);
-    writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+    saveBotProgress({ next_index: 0 });
 
     isFullFlowAborted = false;
 
@@ -4495,7 +4813,9 @@ app.post("/api/full-flow", async (req, res) => {
     botStatus = "Idle";
     isPostingRunning = false;
     isGeneratingRunning = false;
-    isContinuousLoopActive = false;
+    if (isContinuousLoopActive) {
+      scheduleNextAutomationCycle();
+    }
     res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -4513,7 +4833,7 @@ app.post("/api/clear-all", async (req, res) => {
     writeJsonFile(LAST_TRENDING_FILE, []);
     writeJsonFile(GENERATED_MESSAGES_FILE, []);
     writeJsonFile(RESULTS_FILE, []);
-    writeJsonFile(POST_PROGRESS_FILE, { next_index: 0 });
+    saveBotProgress({ next_index: 0, daily_post_count: 0 });
     clearRealTimestamps();
     currentPostingIndex = 0;
     currentCoinName = "N/A";
@@ -4525,7 +4845,7 @@ app.post("/api/clear-all", async (req, res) => {
       await saveTrendingCoinsCloud([], activeId || undefined);
       await saveGeneratedMessagesCloud([], activeId || undefined);
       await savePostResultsCloud([], activeId || undefined);
-      await saveBotProgressCloud(0, activeId || undefined);
+      await saveBotProgressCloud(readBotProgress(), activeId || undefined);
     } catch (err) {
       console.error("[FIREBASE] Error syncing cleared state to cloud for active profile:", (err as Error).message);
     }
@@ -4537,21 +4857,33 @@ app.post("/api/clear-all", async (req, res) => {
   }
 });
 
-// 12. Get current logs stream
+// 12. Get current logs stream with per-profile isolation
 app.get("/api/logs", (req, res) => {
+  const queryProfileId = req.query.profileId as string | undefined;
+  const activeId = queryProfileId || getActiveProfileId();
+  if (activeId) {
+    const profileLogs = logs.filter(l => !l.profileId || l.profileId === activeId);
+    return res.json({ logs: profileLogs.slice(-100) });
+  }
   res.json({ logs: logs.slice(-100) });
 });
 
 // ============================================================================
-// CSV DOWNLOAD EXPORTERS
+// CSV DOWNLOAD EXPORTERS (Item 11: RFC 4180 Escaping)
 // ============================================================================
+function escapeCsvField(val: any): string {
+  if (val === null || val === undefined) return '""';
+  const str = String(val);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
 app.get("/api/download/trending_coins.csv", (req, res) => {
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   let csv = "Name,Symbol,Price,Change_1h,Change_24h,Change_7d,Market_Cap,Volume_24h,Rank,Slug,Url\n";
   coins.forEach(c => {
-    csv += `"${c.name}","${c.symbol}",${c.price},${c.change_1h || 0},${c.change_24h},${c.change_7d || 0},${c.market_cap},${c.volume_24h},${c.cmc_rank || ""},"${c.slug}","${c.url}"\n`;
+    csv += `${escapeCsvField(c.name)},${escapeCsvField(c.symbol)},${escapeCsvField(c.price)},${escapeCsvField(c.change_1h || 0)},${escapeCsvField(c.change_24h)},${escapeCsvField(c.change_7d || 0)},${escapeCsvField(c.market_cap)},${escapeCsvField(c.volume_24h)},${escapeCsvField(c.cmc_rank || "")},${escapeCsvField(c.slug)},${escapeCsvField(c.url)}\n`;
   });
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=trending_coins.csv");
@@ -4564,8 +4896,7 @@ app.get("/api/download/generated_comments.csv", (req, res) => {
   const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   let csv = "Asset Name,Symbol,Sentiment,Generated Comment,Target URL\n";
   messages.forEach(m => {
-    const cleanMsg = (m.message || "").replace(/"/g, '""').replace(/\n/g, ' ');
-    csv += `"${m.name}","${m.symbol}","${m.sentiment || "bullish"}","${cleanMsg}","${m.url}"\n`;
+    csv += `${escapeCsvField(m.name)},${escapeCsvField(m.symbol)},${escapeCsvField(m.sentiment || "bullish")},${escapeCsvField(m.message || "")},${escapeCsvField(m.url)}\n`;
   });
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=generated_comments.csv");
@@ -4578,8 +4909,7 @@ app.get("/api/download/post_submissions.csv", (req, res) => {
   const results = (!activeId || !sessionExists) ? [] : readJsonFile<PostResult[]>(RESULTS_FILE, []);
   let csv = "Timestamp,Asset Name,Symbol,Sentiment,Post Status,Log Message,Target URL\n";
   results.forEach(r => {
-    const cleanMsg = (r.message || "").replace(/"/g, '""').replace(/\n/g, ' ');
-    csv += `"${r.timestamp || "N/A"}","${r.name}","${r.symbol}","${r.sentiment || "bullish"}","${r.status}","${cleanMsg}","${r.url}"\n`;
+    csv += `${escapeCsvField(r.timestamp || "N/A")},${escapeCsvField(r.name)},${escapeCsvField(r.symbol)},${escapeCsvField(r.sentiment || "bullish")},${escapeCsvField(r.status)},${escapeCsvField(r.message || "")},${escapeCsvField(r.url)}\n`;
   });
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=post_submissions.csv");
@@ -4597,14 +4927,14 @@ app.get("/api/download/overall_report.csv", (req, res) => {
   const successRate = results.length > 0 ? ((successCount / results.length) * 100).toFixed(1) : "0.0";
 
   let csv = "Metric,Value,Description\n";
-  csv += `"Total Trending Coins",${coins.length},"Total coins fetched from market"\n`;
-  csv += `"Generated Comments Count",${messages.length},"Custom comments prepared for submission"\n`;
-  csv += `"Total Submissions Executed",${results.length},"Posts attempted"\n`;
-  csv += `"Successful Posts",${successCount},"Successfully posted comments"\n`;
-  csv += `"Failed/Skipped Posts",${failedCount},"Posts that failed or were manually skipped"\n`;
-  csv += `"Overall Success Rate",${successRate}%,"Success rate percentage"\n`;
-  csv += `"Execution Mode","${runMode}","Execution environment configuration"\n`;
-  csv += `"Report Generated At","${new Date().toLocaleString()}","Timestamp of export"\n`;
+  csv += `${escapeCsvField("Total Trending Coins")},${escapeCsvField(coins.length)},${escapeCsvField("Total coins fetched from market")}\n`;
+  csv += `${escapeCsvField("Generated Comments Count")},${escapeCsvField(messages.length)},${escapeCsvField("Custom comments prepared for submission")}\n`;
+  csv += `${escapeCsvField("Total Submissions Executed")},${escapeCsvField(results.length)},${escapeCsvField("Posts attempted")}\n`;
+  csv += `${escapeCsvField("Successful Posts")},${escapeCsvField(successCount)},${escapeCsvField("Successfully posted comments")}\n`;
+  csv += `${escapeCsvField("Failed/Skipped Posts")},${escapeCsvField(failedCount)},${escapeCsvField("Posts that failed or were manually skipped")}\n`;
+  csv += `${escapeCsvField("Overall Success Rate")},${escapeCsvField(`${successRate}%`)},${escapeCsvField("Success rate percentage")}\n`;
+  csv += `${escapeCsvField("Execution Mode")},${escapeCsvField(runMode)},${escapeCsvField("Execution environment configuration")}\n`;
+  csv += `${escapeCsvField("Report Generated At")},${escapeCsvField(new Date().toLocaleString())},${escapeCsvField("Timestamp of export")}\n`;
 
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=overall_report.csv");
@@ -4615,6 +4945,17 @@ app.get("/api/download/overall_report.csv", (req, res) => {
 // ============================================================================
 // VITE OR STATIC FILES SERVING MIDDLEWARE
 // ============================================================================
+function sessionHasValidCookies(str: string): boolean {
+  if (!str || !str.trim()) return false;
+  try {
+    const parsed = JSON.parse(str);
+    const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
+    return Array.isArray(cookies) && cookies.length > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 function synchronizeSessionsAndProfilesOnStartup() {
   try {
     let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
@@ -4624,13 +4965,14 @@ function synchronizeSessionsAndProfilesOnStartup() {
       sessionContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8").trim();
     }
 
+    const hasValidLocalSession = sessionExists && sessionHasValidCookies(sessionContent);
     const activeProfile = profiles.find(p => p.isActive);
 
-    if (sessionExists && sessionContent) {
-      // We have a session file. Is there an active profile matching it?
+    if (hasValidLocalSession) {
+      // We have a verified local session file with real cookies
       if (activeProfile) {
         if (activeProfile.stateJson !== sessionContent) {
-          // Update active profile's cookies with the session file cookies (session file is the ground truth)
+          // Update active profile's cookies with the session file cookies
           activeProfile.stateJson = sessionContent;
           activeProfile.updatedAt = new Date().toISOString();
           fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
@@ -4638,7 +4980,7 @@ function synchronizeSessionsAndProfilesOnStartup() {
           addLog("success", `[SYNC] Synchronized active profile "${activeProfile.name}" with auth/state.json cookies.`);
         }
       } else {
-        // We have a session file but no active profile. Let's create/activate one!
+        // We have a valid session with real cookies but no active profile. Create/activate one!
         const name = "Imported Session";
         const profileId = `profile-${Date.now()}`;
         const newProfile = {
@@ -4654,17 +4996,19 @@ function synchronizeSessionsAndProfilesOnStartup() {
         addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
       }
     } else {
-      // Session file does not exist or is empty. But do we have an active profile?
-      if (activeProfile && activeProfile.stateJson) {
+      // Session file does not exist or has empty/invalid cookies.
+      // Do we have an active profile with valid cookies?
+      if (activeProfile && sessionHasValidCookies(activeProfile.stateJson)) {
         // Restore session file from active profile!
         fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-        saveSessionStateCloud(activeProfile.stateJson).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
+        saveSessionStateCloud(activeProfile.stateJson, activeProfile.id).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
         addLog("success", `[SYNC] Restored auth/state.json session state from active profile "${activeProfile.name}".`);
       } else {
-        // No session file and no active profile. Mark all profiles as inactive.
+        // No valid local session and active profile has no valid cookies.
+        // Mark inactive if activeProfile has no valid cookies, but do NOT auto-create empty profiles
         let changed = false;
         profiles = profiles.map(p => {
-          if (p.isActive) {
+          if (p.isActive && !sessionHasValidCookies(p.stateJson)) {
             changed = true;
             return { ...p, isActive: false };
           }
@@ -4684,57 +5028,10 @@ function synchronizeSessionsAndProfilesOnStartup() {
 async function hydrateLocalFromCloud() {
   addLog("info", `[STORAGE] Hydrating local ephemeral storage from ${getActiveStoreName()} cloud database...`);
   try {
-    // 1. Session cookies
-    const cloudSession = await getSessionStateCloud();
-    if (cloudSession) {
-      const normalizedSession = normalizeStateJson(cloudSession);
-      fs.writeFileSync(AUTH_STATE_FILE, normalizedSession, "utf-8");
-      addLog("success", "[FIREBASE] Hydrated login session cookies from Firestore!");
-      
-      // If the session was corrected, write the normalized version back to Firestore
-      if (normalizedSession !== cloudSession) {
-        addLog("info", "[FIREBASE] Automatically updating Firestore cloud with corrected/normalized session cookies...");
-        saveSessionStateCloud(normalizedSession).catch((e) => {
-          console.error("[FIREBASE] Error updating normalized session back to cloud:", e.message);
-        });
-      }
-    } else {
-      addLog("info", "[FIREBASE] No session cookies found in Firestore.");
-    }
-
-    // 2. Trending Coins
-    const cloudCoins = await getTrendingCoinsCloud();
-    if (cloudCoins && cloudCoins.length > 0) {
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudCoins.length} trending coins from Firestore!`);
-    }
-
-    // 3. Generated Messages
-    const cloudMessages = await getGeneratedMessagesCloud();
-    if (cloudMessages && cloudMessages.length > 0) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudMessages.length} generated messages from Firestore!`);
-    }
-
-    // 4. Post Results
-    const cloudResults = await getPostResultsCloud();
-    if (cloudResults && cloudResults.length > 0) {
-      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudResults.length} post results from Firestore!`);
-    }
-
-    // 5. Bot Progress
-    const cloudProgress = await getBotProgressCloud();
-    if (cloudProgress) {
-      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify({ next_index: cloudProgress.next_index }, null, 2), "utf-8");
-      currentPostingIndex = cloudProgress.next_index;
-      addLog("success", `[FIREBASE] Hydrated bot posting progress index to ${cloudProgress.next_index} from Firestore!`);
-    }
-
-    // 5b. Profiles
+    // 1. Profiles FIRST so active profile id is known for subsequent scoped hydrations (Item 2 & 3)
     try {
       const cloudProfiles = await getProfilesCloud();
-      if (cloudProfiles && cloudProfiles.length > 0) {
+      if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
         fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
         addLog("success", `[FIREBASE] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
       }
@@ -4742,15 +5039,75 @@ async function hydrateLocalFromCloud() {
       console.error("[FIREBASE] Could not hydrate profiles from cloud:", e);
     }
 
-    // 6. System Logs
+    // Refresh active profile file paths immediately after profiles are loaded (Item 3)
+    updateActiveProfilePaths();
+    const activeId = getActiveProfileId();
+
+    // 2. Session cookies for the active profile (Item 2)
+    const cloudSession = await getSessionStateCloud(activeId || undefined);
+    if (cloudSession && sessionHasValidCookies(cloudSession)) {
+      const normalizedSession = normalizeStateJson(cloudSession);
+      fs.writeFileSync(AUTH_STATE_FILE, normalizedSession, "utf-8");
+      addLog("success", "[FIREBASE] Hydrated login session cookies from Firestore!");
+      
+      // If the session was corrected, write the normalized version back to Firestore
+      if (normalizedSession !== cloudSession) {
+        addLog("info", "[FIREBASE] Automatically updating Firestore cloud with corrected/normalized session cookies...");
+        saveSessionStateCloud(normalizedSession, activeId || undefined).catch((e) => {
+          console.error("[FIREBASE] Error updating normalized session back to cloud:", e.message);
+        });
+      }
+    } else {
+      addLog("info", "[FIREBASE] No session cookies found in Firestore for current active profile.");
+    }
+
+    // 3. Trending Coins for active profile (Item 2)
+    const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
+    if (cloudCoins && cloudCoins.length > 0) {
+      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+      addLog("success", `[FIREBASE] Hydrated ${cloudCoins.length} trending coins from Firestore!`);
+    }
+
+    // 4. Generated Messages for active profile (Item 2)
+    const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
+    if (cloudMessages && cloudMessages.length > 0) {
+      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
+      addLog("success", `[FIREBASE] Hydrated ${cloudMessages.length} generated messages from Firestore!`);
+    }
+
+    // 5. Post Results for active profile (Item 2)
+    const cloudResults = await getPostResultsCloud(activeId || undefined);
+    if (cloudResults && cloudResults.length > 0) {
+      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+      addLog("success", `[FIREBASE] Hydrated ${cloudResults.length} post results from Firestore!`);
+    }
+
+    // 6. Bot Progress for active profile (Item 2)
+    const cloudProgress = await getBotProgressCloud(activeId || undefined);
+    if (cloudProgress) {
+      const localProgress = readBotProgress();
+      const mergedProgress = {
+        ...localProgress,
+        next_index: cloudProgress.next_index,
+        daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
+        last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
+        daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
+      };
+      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(mergedProgress, null, 2), "utf-8");
+      currentPostingIndex = cloudProgress.next_index;
+      addLog("success", `[FIREBASE] Hydrated bot posting progress (index ${cloudProgress.next_index}, daily posts ${mergedProgress.daily_post_count}/${mergedProgress.daily_post_limit}) from Firestore!`);
+    }
+
+    // 7. System Logs
     const cloudLogs = await getSystemLogsCloud();
     if (cloudLogs && cloudLogs.length > 0) {
       logs = cloudLogs.slice(-100);
       addLog("success", `[FIREBASE] Hydrated ${logs.length} system logs from Firestore!`);
     }
 
-    // Run unified sessions/profiles synchronization
+    // Run unified sessions/profiles synchronization and re-verify paths
     synchronizeSessionsAndProfilesOnStartup();
+    updateActiveProfilePaths();
 
     addLog("success", "[FIREBASE] Local storage state successfully synchronized with Cloud database.");
   } catch (err) {

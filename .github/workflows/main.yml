@@ -17,13 +17,11 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: 'npm'
 
       - name: Install Dependencies
-        run: |
-          rm -f package-lock.json
-          npm install
+        run: npm ci
 
       - name: Run Linter
         run: npm run lint

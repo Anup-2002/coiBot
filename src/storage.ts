@@ -1,16 +1,25 @@
 import * as firebaseStorage from "./firebase-db";
 import * as mongoStorage from "./mongo-db";
 
+export function isCloudSyncDisabled(): boolean {
+  return process.env.DISABLE_CLOUD_SYNC === "true";
+}
+
 export function isMongoEnabled(): boolean {
+  if (isCloudSyncDisabled()) return false;
   return !!process.env.MONGO_URI;
 }
 
 export function getActiveStoreName(): string {
+  if (isCloudSyncDisabled()) {
+    return "Cloud Sync Disabled (Local Only)";
+  }
   return "Firebase (Primary) + MongoDB (Fallback)";
 }
 
 // 1. Session State
 export async function getSessionStateCloud(profileId?: string): Promise<string | null> {
+  if (isCloudSyncDisabled()) return null;
   try {
     const firebaseRes = await firebaseStorage.getSessionStateCloud(profileId);
     if (firebaseRes) return firebaseRes;
@@ -30,6 +39,7 @@ export async function getSessionStateCloud(profileId?: string): Promise<string |
 }
 
 export async function saveSessionStateCloud(stateJson: string, profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   // 1. Save to Firebase (Primary)
   await firebaseStorage.saveSessionStateCloud(stateJson, profileId).catch((err) => {
     console.warn("[STORAGE] Firebase saveSessionState error, saving to MongoDB fallback:", err?.message || err);
@@ -43,6 +53,7 @@ export async function saveSessionStateCloud(stateJson: string, profileId?: strin
 
 // 2. Trending Coins
 export async function getTrendingCoinsCloud(profileId?: string): Promise<any[]> {
+  if (isCloudSyncDisabled()) return [];
   try {
     const firebaseRes = await firebaseStorage.getTrendingCoinsCloud(profileId);
     if (firebaseRes && Array.isArray(firebaseRes) && firebaseRes.length > 0) {
@@ -65,6 +76,7 @@ export async function getTrendingCoinsCloud(profileId?: string): Promise<any[]> 
 }
 
 export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   await firebaseStorage.saveTrendingCoinsCloud(coins, profileId).catch(() => {});
   if (isMongoEnabled()) {
     await mongoStorage.saveTrendingCoinsMongo(coins, profileId).catch(() => {});
@@ -73,6 +85,7 @@ export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): 
 
 // 3. Generated Messages
 export async function getGeneratedMessagesCloud(profileId?: string): Promise<any[]> {
+  if (isCloudSyncDisabled()) return [];
   try {
     const firebaseRes = await firebaseStorage.getGeneratedMessagesCloud(profileId);
     if (firebaseRes && Array.isArray(firebaseRes) && firebaseRes.length > 0) {
@@ -95,6 +108,7 @@ export async function getGeneratedMessagesCloud(profileId?: string): Promise<any
 }
 
 export async function saveGeneratedMessagesCloud(messages: any[], profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   await firebaseStorage.saveGeneratedMessagesCloud(messages, profileId).catch(() => {});
   if (isMongoEnabled()) {
     await mongoStorage.saveGeneratedMessagesMongo(messages, profileId).catch(() => {});
@@ -103,6 +117,7 @@ export async function saveGeneratedMessagesCloud(messages: any[], profileId?: st
 
 // 4. Post Results
 export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
+  if (isCloudSyncDisabled()) return [];
   try {
     const firebaseRes = await firebaseStorage.getPostResultsCloud(profileId);
     if (firebaseRes && Array.isArray(firebaseRes) && firebaseRes.length > 0) {
@@ -125,6 +140,7 @@ export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
 }
 
 export async function savePostResultsCloud(results: any[], profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   await firebaseStorage.savePostResultsCloud(results, profileId).catch(() => {});
   if (isMongoEnabled()) {
     await mongoStorage.savePostResultsMongo(results, profileId).catch(() => {});
@@ -132,7 +148,15 @@ export async function savePostResultsCloud(results: any[], profileId?: string): 
 }
 
 // 5. Bot Progress
-export async function getBotProgressCloud(profileId?: string): Promise<{ next_index: number } | null> {
+export interface StorageBotProgress {
+  next_index: number;
+  daily_post_count?: number;
+  last_post_date?: string;
+  daily_post_limit?: number;
+}
+
+export async function getBotProgressCloud(profileId?: string): Promise<StorageBotProgress | null> {
+  if (isCloudSyncDisabled()) return null;
   try {
     const firebaseRes = await firebaseStorage.getBotProgressCloud(profileId);
     if (firebaseRes && typeof firebaseRes.next_index === "number") {
@@ -154,15 +178,17 @@ export async function getBotProgressCloud(profileId?: string): Promise<{ next_in
   return null;
 }
 
-export async function saveBotProgressCloud(next_index: number, profileId?: string): Promise<void> {
-  await firebaseStorage.saveBotProgressCloud(next_index, profileId).catch(() => {});
+export async function saveBotProgressCloud(progress: number | StorageBotProgress, profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
+  await firebaseStorage.saveBotProgressCloud(progress, profileId).catch(() => {});
   if (isMongoEnabled()) {
-    await mongoStorage.saveBotProgressMongo(next_index, profileId).catch(() => {});
+    await mongoStorage.saveBotProgressMongo(progress, profileId).catch(() => {});
   }
 }
 
 // 6. System Logs
 export async function getSystemLogsCloud(): Promise<any[]> {
+  if (isCloudSyncDisabled()) return [];
   try {
     const firebaseRes = await firebaseStorage.getSystemLogsCloud();
     if (firebaseRes && Array.isArray(firebaseRes) && firebaseRes.length > 0) {
@@ -185,6 +211,7 @@ export async function getSystemLogsCloud(): Promise<any[]> {
 }
 
 export async function saveSystemLogsCloud(logs: any[]): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   await firebaseStorage.saveSystemLogsCloud(logs).catch(() => {});
   if (isMongoEnabled()) {
     await mongoStorage.saveSystemLogsMongo(logs).catch(() => {});
@@ -193,6 +220,7 @@ export async function saveSystemLogsCloud(logs: any[]): Promise<void> {
 
 // 7. User Profiles
 export async function getProfilesCloud(): Promise<any[]> {
+  if (isCloudSyncDisabled()) return [];
   try {
     const firebaseRes = await firebaseStorage.getProfilesCloud();
     if (firebaseRes && Array.isArray(firebaseRes) && firebaseRes.length > 0) {
@@ -215,6 +243,7 @@ export async function getProfilesCloud(): Promise<any[]> {
 }
 
 export async function saveProfilesCloud(profiles: any[]): Promise<void> {
+  if (isCloudSyncDisabled()) return;
   await firebaseStorage.saveProfilesCloud(profiles).catch(() => {});
   if (isMongoEnabled()) {
     await mongoStorage.saveProfilesMongo(profiles).catch(() => {});
