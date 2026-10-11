@@ -287,3 +287,31 @@ export async function saveProfilesMongo(profiles: any[]): Promise<void> {
     console.error("[MONGODB] Error saving profiles:", (err as Error).message);
   }
 }
+
+// 8. Bot Settings
+export async function getSettingsMongo(): Promise<{ schedulerEnabled?: boolean } | null> {
+  try {
+    const database = await getMongoDb();
+    if (!database) return null;
+    const res = await database.collection("bot_settings").findOne({ _id: "settings" as any });
+    return res && typeof res.schedulerEnabled === "boolean" ? { schedulerEnabled: res.schedulerEnabled } : null;
+  } catch (err) {
+    console.error("[MONGODB] Error fetching settings:", (err as Error).message);
+    return null;
+  }
+}
+
+export async function saveSettingsMongo(settings: { schedulerEnabled: boolean }): Promise<void> {
+  try {
+    const database = await getMongoDb();
+    if (!database) return;
+    await database.collection("bot_settings").updateOne(
+      { _id: "settings" as any },
+      { $set: { schedulerEnabled: !!settings.schedulerEnabled, lastUpdated: new Date().toISOString() } },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error("[MONGODB] Error saving settings:", (err as Error).message);
+  }
+}
+

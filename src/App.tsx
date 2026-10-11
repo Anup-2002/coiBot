@@ -33,8 +33,22 @@ import {
   X,
   Info,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Zap,
+  Sliders,
+  Cpu,
+  Server,
+  ToggleLeft,
+  ToggleRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUp,
+  ChevronsDown,
+  GripVertical,
+  FileCode,
+  Copy
 } from "lucide-react";
+import { api, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo } from "./api";
 
 // Types matching backend server structures
 interface Coin {
@@ -67,6 +81,7 @@ interface PostResult {
   message: string;
   timestamp: string;
   sentiment?: "bullish" | "bearish" | "neutral";
+  profileId?: string;
 }
 
 interface LogEntry {
@@ -156,30 +171,32 @@ function areProfilesEqual(prev: any[], next: any[]): boolean {
 }
 
 // User-friendly time age helper to see how fresh or stale fetched coins and generated comments are
-function formatTimeAgo(timestamp: number | null | undefined): { text: string; full: string; isStale: boolean; isVeryStale: boolean; hasTimestamp: boolean } {
+function formatTimeAgo(timestamp: number | null | undefined): { text: string; full: string; isStale: boolean; isVeryStale: boolean; isExpired2Days: boolean; hasTimestamp: boolean } {
   if (!timestamp) {
-    return { text: "Previous session", full: "Exact time not recorded in this session", isStale: true, isVeryStale: false, hasTimestamp: false };
+    return { text: "Previous session", full: "Exact time not recorded in this session", isStale: true, isVeryStale: false, isExpired2Days: false, hasTimestamp: false };
   }
   const time = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
   if (isNaN(time) || time <= 0) {
-    return { text: "Previous session", full: "N/A", isStale: true, isVeryStale: false, hasTimestamp: false };
+    return { text: "Previous session", full: "N/A", isStale: true, isVeryStale: false, isExpired2Days: false, hasTimestamp: false };
   }
   const diffSec = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  const full = new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const full = new Date(time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const isExpired2Days = diffSec >= (48 * 3600);
   if (diffSec < 60) {
-    return { text: "Just now (<1m ago)", full, isStale: false, isVeryStale: false, hasTimestamp: true };
+    return { text: "Just now (<1m ago)", full, isStale: false, isVeryStale: false, isExpired2Days: false, hasTimestamp: true };
   }
   const mins = Math.floor(diffSec / 60);
   if (mins < 60) {
-    return { text: `${mins}m ago`, full, isStale: mins >= 30, isVeryStale: mins >= 60, hasTimestamp: true };
+    return { text: `${mins}m ago`, full, isStale: mins >= 30, isVeryStale: mins >= 60, isExpired2Days: false, hasTimestamp: true };
   }
   const hours = Math.floor(mins / 60);
   const remMins = mins % 60;
   if (hours < 24) {
-    return { text: `${hours}h ${remMins}m ago`, full, isStale: true, isVeryStale: hours >= 3, hasTimestamp: true };
+    return { text: `${hours}h ${remMins}m ago`, full, isStale: true, isVeryStale: hours >= 3, isExpired2Days: false, hasTimestamp: true };
   }
   const days = Math.floor(hours / 24);
-  return { text: `${days}d ago`, full, isStale: true, isVeryStale: true, hasTimestamp: true };
+  const remHours = hours % 24;
+  return { text: `${days}d ${remHours}h ago`, full, isStale: true, isVeryStale: true, isExpired2Days, hasTimestamp: true };
 }
 
 // Dedicated isolated countdown component to prevent re-rendering the entire 3,400-line App every second
@@ -260,6 +277,9 @@ export default function App() {
   const [activeSessionContent, setActiveSessionContent] = useState<string>("");
   const [showConfirmFetchModal, setShowConfirmFetchModal] = useState<boolean>(false);
   const [showConfirmGenerateModal, setShowConfirmGenerateModal] = useState<boolean>(false);
+  const [showStaleWarningModal, setShowStaleWarningModal] = useState<boolean>(false);
+  const [isDataStale, setIsDataStale] = useState<boolean>(false);
+  const [isRefreshingFreshData, setIsRefreshingFreshData] = useState<boolean>(false);
 
   // Account Profiles support
   const [profilesList, setProfilesList] = useState<any[]>([]);
@@ -272,22 +292,34 @@ export default function App() {
   const [dailyPostLimit, setDailyPostLimit] = useState<number>(500);
   const [lastPostDate, setLastPostDate] = useState<string>("");
   const [activeProfile, setActiveProfile] = useState<any | null>(null);
+  const activeProfileIdRef = useRef<string | null>(null);
   const [showProfileAddForm, setShowProfileAddForm] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Routing state between Main Dashboard and Admin Screen
-  const [currentView, setCurrentView] = useState<"dashboard" | "admin">(() => {
+  // Routing state between Main Dashboard, Multi-Account Scheduler, and Admin Screen
+  const [currentView, setCurrentView] = useState<"dashboard" | "scheduler" | "admin">(() => {
     if (typeof window !== "undefined") {
-      if (window.location.pathname.startsWith("/admin") || window.location.hash.startsWith("#/admin")) {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
+      if (p.startsWith("/scheduler") || h.startsWith("#/scheduler") || h === "#scheduler") {
+        return "scheduler";
+      }
+      if (p.startsWith("/admin") || h.startsWith("#/admin")) {
         return "admin";
       }
     }
     return "dashboard";
   });
 
+  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles">("all");
+
   useEffect(() => {
     const handleNav = () => {
-      if (window.location.pathname.startsWith("/admin") || window.location.hash.startsWith("#/admin")) {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
+      if (p.startsWith("/scheduler") || h.startsWith("#/scheduler") || h === "#scheduler") {
+        setCurrentView("scheduler");
+      } else if (p.startsWith("/admin") || h.startsWith("#/admin")) {
         setCurrentView("admin");
       } else {
         setCurrentView("dashboard");
@@ -301,9 +333,12 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "admin") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles") => {
     setCurrentView(view);
-    const path = view === "admin" ? "/admin" : "/";
+    if (section) setAdminSection(section);
+    let path = "/";
+    if (view === "scheduler") path = "/scheduler";
+    else if (view === "admin") path = "/admin";
     if (window.location.pathname !== path) {
       window.history.pushState({}, "", path);
     }
@@ -435,6 +470,227 @@ export default function App() {
     }
   };
 
+
+  // Sequential Multi-Account Scheduler State (Part 3)
+  const [schedulerData, setSchedulerData] = useState<SchedulerStatusResponse | null>(null);
+  const [isSchedulerActionPending, setIsSchedulerActionPending] = useState<boolean>(false);
+  const [schedulerIntervalInput, setSchedulerIntervalInput] = useState<number>(20);
+  const [draggedAccountIndex, setDraggedAccountIndex] = useState<number | null>(null);
+  const [schedulerLogQuery, setSchedulerLogQuery] = useState<string>("");
+
+  const fetchSchedulerStatus = async () => {
+    try {
+      const data = await api.getScheduler();
+      setSchedulerData(data);
+      if (data.intervalMinutes) {
+        setSchedulerIntervalInput(data.intervalMinutes);
+      }
+    } catch (err) {
+      console.error("Error fetching scheduler:", err);
+    }
+  };
+
+  // Poll GET /api/scheduler frequently when on schedule tab or admin scheduler view
+  useEffect(() => {
+    let isMounted = true;
+    const poll = async () => {
+      try {
+        const data = await api.getScheduler();
+        if (isMounted) {
+          setSchedulerData(data);
+          if (data.intervalMinutes) setSchedulerIntervalInput(data.intervalMinutes);
+        }
+      } catch (_) {}
+    };
+
+    poll();
+
+    const interval = setInterval(poll, activeTab === "schedule" || adminSection === "scheduler" ? 3000 : 7000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeTab, adminSection]);
+
+  const handleToggleScheduler = async (explicitVal?: boolean | unknown) => {
+    setIsSchedulerActionPending(true);
+    const nextVal = typeof explicitVal === "boolean" ? explicitVal : !Boolean(schedulerData?.enabled);
+    try {
+      const res = await api.setSchedulerSettings({ enabled: nextVal });
+      if (res.success) {
+        setSchedulerData(prev => prev ? { ...prev, enabled: nextVal } : null);
+        showToast(`Sequential scheduler set to: ${nextVal ? "ENABLED" : "DISABLED"}`, "success");
+        await fetchSchedulerStatus();
+      } else {
+        showToast(res.error || "Failed to update scheduler", "error");
+      }
+    } catch (err) {
+      showToast("Error updating scheduler: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleSaveInterval = async (mins: number) => {
+    setIsSchedulerActionPending(true);
+    try {
+      const res = await api.setSchedulerSettings({ intervalMinutes: mins });
+      if (res.success) {
+        showToast(`Gap cooldown interval updated to ${mins} minutes!`, "success");
+        await fetchSchedulerStatus();
+      } else {
+        showToast(res.error || "Failed to save interval", "error");
+      }
+    } catch (err) {
+      showToast("Error updating interval: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleUpdateSchedulerInterval = handleSaveInterval;
+
+  const handleRunSchedulerNow = async () => {
+    setIsSchedulerActionPending(true);
+    try {
+      const res = await api.runSchedulerNow();
+      if (res.success) {
+        showToast("Sequential scheduled cycle started successfully!", "success");
+        await fetchSchedulerStatus();
+      } else {
+        showToast(res.error || "Could not run scheduled cycle", "error");
+      }
+    } catch (err) {
+      showToast("Error starting cycle: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleStopScheduler = async () => {
+    setIsSchedulerActionPending(true);
+    try {
+      await api.stopScheduler().catch(() => {});
+      await api.stopPosting().catch(() => {});
+      showToast("Stop signal sent. Halting scheduler cycle cleanly...", "info");
+      await fetchSchedulerStatus();
+    } catch (err) {
+      showToast("Error stopping scheduler: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleUpdateAccountSchedule = async (params: {
+    id: string;
+    enabled?: boolean;
+    frequency?: "every_cycle" | "daily" | "weekly" | "custom";
+    customHours?: number;
+    order?: number;
+    useForNow?: boolean;
+  }) => {
+    try {
+      const res = await api.updateProfileSchedule(params);
+      if (res.success) {
+        showToast("Account schedule updated.", "success");
+        await fetchSchedulerStatus();
+      } else {
+        showToast(res.error || "Failed to update account schedule", "error");
+      }
+    } catch (err) {
+      showToast("Error updating account: " + (err as Error).message, "error");
+    }
+  };
+
+  const handleReorderAccounts = async (orderedIds: string[]) => {
+    setIsSchedulerActionPending(true);
+    // Optimistic local update
+    if (schedulerData?.accounts) {
+      const idToOrder = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+      const newAccounts = [...schedulerData.accounts].map(acc => {
+        const ord = idToOrder.get(acc.id);
+        return ord ? { ...acc, schedule: { ...acc.schedule, order: ord } } : acc;
+      }).sort((a, b) => a.schedule.order - b.schedule.order);
+      setSchedulerData({ ...schedulerData, accounts: newAccounts });
+    }
+    try {
+      const res = await api.reorderSchedulerAccounts(orderedIds);
+      if (res.success) {
+        showToast("Account order updated successfully!", "success");
+        await fetchSchedulerStatus();
+      } else {
+        showToast(res.error || "Failed to reorder accounts", "error");
+      }
+    } catch (err) {
+      showToast("Error reordering accounts: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleMoveAccount = async (index: number, action: "up" | "down" | "top" | "bottom") => {
+    if (!schedulerData?.accounts) return;
+    const sorted = [...schedulerData.accounts].sort((a, b) => a.schedule.order - b.schedule.order);
+    if (index < 0 || index >= sorted.length) return;
+
+    const item = sorted[index];
+    const remaining = sorted.filter((_, idx) => idx !== index);
+    let targetIdx = index;
+    if (action === "up") targetIdx = Math.max(0, index - 1);
+    else if (action === "down") targetIdx = Math.min(sorted.length - 1, index + 1);
+    else if (action === "top") targetIdx = 0;
+    else if (action === "bottom") targetIdx = remaining.length;
+
+    remaining.splice(targetIdx, 0, item);
+    const orderedIds = remaining.map(a => a.id);
+    await handleReorderAccounts(orderedIds);
+  };
+
+  const handleMoveAccountOrder = handleMoveAccount;
+
+  const handleDirectOrderInput = async (accId: string, newOrderVal: number) => {
+    if (!schedulerData?.accounts) return;
+    const sorted = [...schedulerData.accounts].sort((a, b) => a.schedule.order - b.schedule.order);
+    const fromIdx = sorted.findIndex(a => a.id === accId);
+    if (fromIdx === -1) return;
+
+    const targetIdx = Math.max(0, Math.min(sorted.length - 1, newOrderVal - 1));
+    if (fromIdx === targetIdx) return;
+
+    const item = sorted[fromIdx];
+    const remaining = sorted.filter((_, idx) => idx !== fromIdx);
+    remaining.splice(targetIdx, 0, item);
+    const orderedIds = remaining.map(a => a.id);
+    await handleReorderAccounts(orderedIds);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedAccountIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedAccountIndex === null || draggedAccountIndex === targetIndex) {
+      setDraggedAccountIndex(null);
+      return;
+    }
+    if (!schedulerData?.accounts) return;
+    const sorted = [...schedulerData.accounts].sort((a, b) => a.schedule.order - b.schedule.order);
+    const item = sorted[draggedAccountIndex];
+    const remaining = sorted.filter((_, idx) => idx !== draggedAccountIndex);
+    remaining.splice(targetIndex, 0, item);
+    setDraggedAccountIndex(null);
+    const orderedIds = remaining.map(a => a.id);
+    await handleReorderAccounts(orderedIds);
+  };
+
+
   const isPostingActive =
     status === "Posting" ||
     status === "Stopping" ||
@@ -459,7 +715,8 @@ export default function App() {
     isPending.post ||
     isPending.full ||
     isPending.login ||
-    isPending.clear;
+    isPending.clear ||
+    Boolean(schedulerData?.cycleRunning);
 
   // Browser Simulator Visual Typing State
   const [simText, setSimText] = useState("");
@@ -605,6 +862,9 @@ export default function App() {
         const list = data.profiles || [];
         setProfilesList(prev => areProfilesEqual(prev, list) ? prev : list);
         const active = list.find((p: any) => p.isActive);
+        if (active) {
+          activeProfileIdRef.current = active.id;
+        }
         setActiveProfile(prev => {
           if (prev && active && prev.id === active.id && prev.name === active.name && prev.stateJson === active.stateJson && prev.isActive === active.isActive && prev.loginStatus === active.loginStatus) {
             return prev;
@@ -686,6 +946,7 @@ export default function App() {
       return;
     }
     setSwitchingProfileId(id);
+    activeProfileIdRef.current = id;
     
     // Instant optimistic update in UI
     setProfilesList(prev => prev.map(p => ({ ...p, isActive: p.id === id })));
@@ -763,8 +1024,12 @@ export default function App() {
   // Fetch Status Stats
   const fetchStats = async () => {
     const reqTime = Date.now();
+    const curPid = activeProfileIdRef.current || activeProfile?.id || "";
     try {
-      const res = await fetch(resolveUrl("/api/status"));
+      const url = curPid
+        ? resolveUrl(`/api/status?profileId=${encodeURIComponent(curPid)}&t=${reqTime}`)
+        : resolveUrl(`/api/status?t=${reqTime}`);
+      const res = await fetch(url);
       if (res.ok) {
         if (reqTime < lastRequestTimestamp.current) {
           return; // Skip stale out-of-order poll response
@@ -777,8 +1042,14 @@ export default function App() {
         setGeneratedCount(data.generatedMessages || 0);
         setPostedCount(data.postedCount || 0);
         setFailedCount(data.failedCount || 0);
-        const resList = data.results || [];
+        const rawResList: PostResult[] = Array.isArray(data.results) ? data.results : [];
+        const resList = curPid
+          ? rawResList.filter(r => r.profileId === curPid)
+          : rawResList;
         setResults(prev => areResultsEqual(prev, resList) ? prev : resList);
+        if (data.isDataStale !== undefined) {
+          setIsDataStale(!!data.isDataStale);
+        }
         setProgressIndex(data.progressIndex || 0);
         if (data.dailyPostCount !== undefined) {
           setDailyPostCount(data.dailyPostCount);
@@ -993,6 +1264,12 @@ export default function App() {
       const data = await parseResponseJson(res, {});
       if (data && data.error) {
         showToast(data.error, "error", 5000);
+      } else if (data && data.status === "stale_warning") {
+        setIsStartingPost(false);
+        setStatus("Idle");
+        setShowStaleWarningModal(true);
+        showToast("Market data is >2 days old. We recommend fetching new coins before posting.", "info", 5000);
+        return;
       } else {
         // Successful response feedback
         if (endpoint.includes("check-login")) {
@@ -1075,6 +1352,41 @@ export default function App() {
       console.error(error);
     } finally {
       setIsPending(prev => ({ ...prev, [pendingKey]: false }));
+    }
+  };
+
+  // Check if trending coins or generated comments are > 2 days old (48 hours)
+  const isDataOlderThan2Days = () => {
+    const now = Date.now();
+    const TWO_DAYS_MS = 48 * 60 * 60 * 1000;
+    const coinsStale = (coinsList.length > 0 && coinsFetchedAt) ? (now - coinsFetchedAt > TWO_DAYS_MS) : false;
+    const commentsStale = (messagesList.length > 0 && commentsGeneratedAt) ? (now - commentsGeneratedAt > TWO_DAYS_MS) : false;
+    return isDataStale || coinsStale || commentsStale;
+  };
+
+  const handleRefreshFreshData = async (autoStartPosting = false) => {
+    setIsRefreshingFreshData(true);
+    setShowStaleWarningModal(false);
+    showToast("Fetching live trending coins and generating fresh AI comments...", "process");
+    try {
+      const res = await fetch(resolveUrl("/api/fetch-and-generate-fresh"), { method: "POST" });
+      if (res.ok) {
+        const data = await parseResponseJson(res, {});
+        await Promise.all([fetchCoins(), fetchMessages(), fetchStats(), fetchLogs()]);
+        setIsDataStale(false);
+        showToast(`Refreshed ${data.coinsCount || ""} coins & ${data.messagesCount || ""} comments successfully!`, "success", 4000);
+        if (autoStartPosting) {
+          setIsStartingPost(true);
+          await runCommand("/api/post-chat", "post", { force: true });
+        }
+      } else {
+        const errData = await parseResponseJson(res, { error: "Failed to refresh market data." });
+        showToast(errData.error || "Failed to refresh market data.", "error");
+      }
+    } catch (err) {
+      showToast("Error refreshing market data: " + (err as Error).message, "error");
+    } finally {
+      setIsRefreshingFreshData(false);
     }
   };
 
@@ -1248,9 +1560,18 @@ export default function App() {
 
   // Log filter Logic
   const filteredLogs = logsList.filter(l => {
-    const matchesLevel = logFilter === "all" || l.level === logFilter;
+    let matchesLevel = logFilter === "all" || l.level === logFilter;
+    if (logFilter === "scheduler") {
+      matchesLevel = l.message.includes("[SCHEDULER]") || l.message.includes("[SYNC]") || l.message.includes("Run finished") || l.message.includes("Sequential");
+    }
     const matchesQuery = !logSearchQuery.trim() || l.message.toLowerCase().includes(logSearchQuery.toLowerCase());
     return matchesLevel && matchesQuery;
+  });
+
+  const schedulerLogs = logsList.filter(l => {
+    const isSched = l.message.includes("[SCHEDULER]") || l.message.includes("[SYNC]") || l.message.includes("Run finished") || l.message.includes("Sequential");
+    const matchesQ = !schedulerLogQuery.trim() || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase());
+    return isSched && matchesQ;
   });
 
   return (
@@ -1394,6 +1715,33 @@ export default function App() {
               </span>
             </button>
 
+            {/* Scheduler Screen Link Button (/scheduler) */}
+            <button
+              onClick={() => navigateTo(currentView === "scheduler" ? "dashboard" : "scheduler")}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer shadow-sm ${
+                currentView === "scheduler"
+                  ? "bg-indigo-600/30 border-indigo-500/60 text-indigo-300 ring-1 ring-indigo-500/30"
+                  : schedulerData?.cycleRunning
+                    ? "bg-indigo-950/60 border-indigo-500/50 text-indigo-300 animate-pulse"
+                    : schedulerData?.enabled
+                      ? "bg-indigo-950/40 border-indigo-500/30 text-indigo-300 hover:text-white hover:bg-indigo-900/50"
+                      : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Open Dedicated Sequential Multi-Account Scheduler & Settings Screen (/scheduler)"
+            >
+              <Clock className={`h-3.5 w-3.5 ${schedulerData?.cycleRunning ? "text-indigo-400 animate-spin" : (schedulerData?.enabled ? "text-indigo-400" : "text-slate-400")}`} />
+              <span>Scheduler</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                schedulerData?.cycleRunning
+                  ? "bg-indigo-500 text-slate-950 animate-pulse"
+                  : schedulerData?.enabled
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : "bg-slate-800 text-slate-400"
+              }`}>
+                {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+              </span>
+            </button>
+
             {/* Admin Switch Button */}
             <button
               onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
@@ -1459,7 +1807,75 @@ export default function App() {
             </div>
           </div>
 
+          {/* ADMIN SUB-NAVIGATION BAR */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-xs shadow-md">
+            <button
+              onClick={() => setAdminSection("all")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                adminSection === "all"
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              All Admin Tools
+            </button>
+            <button
+              onClick={() => setAdminSection("diagnostics")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "diagnostics"
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5 text-emerald-400" />
+              <span>System Diagnostics</span>
+            </button>
+            <button
+              onClick={() => setAdminSection("secrets")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "secrets"
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Key className="h-3.5 w-3.5 text-blue-400" />
+              <span>API Keys & Storage</span>
+            </button>
+            <button
+              onClick={() => setAdminSection("profiles")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "profiles"
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Users className="h-3.5 w-3.5 text-purple-400" />
+              <span>Accounts ({profilesList.length})</span>
+            </button>
+            <button
+              onClick={() => setAdminSection("scheduler")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "scheduler"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-indigo-400 hover:text-indigo-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Clock className="h-3.5 w-3.5" />
+              <span>Multi-Account Scheduler</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                schedulerData?.cycleRunning
+                  ? "bg-indigo-400 text-slate-950 animate-pulse"
+                  : schedulerData?.enabled
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-slate-800 text-slate-400"
+              }`}>
+                {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+              </span>
+            </button>
+          </div>
+
           {/* 1. SYSTEM ENVIRONMENT DIAGNOSTICS CARD */}
+          {(adminSection === "all" || adminSection === "diagnostics") && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
               <div className="flex items-center gap-3">
@@ -1602,8 +2018,10 @@ export default function App() {
               </div>
             )}
           </section>
+          )}
 
           {/* 2. TWO-COLUMN GRID: API SECRETS MATRIX & STORAGE CACHE MAINTENANCE */}
+          {(adminSection === "all" || adminSection === "secrets") && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Active Secrets Key Matrix - High-Density Modern Deck */}
             <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-slate-700/80 transition-all duration-300">
@@ -1786,8 +2204,10 @@ export default function App() {
               </div>
             </section>
           </div>
+          )}
 
           {/* 3. MULTI-ACCOUNT PROFILES OVERVIEW */}
+          {(adminSection === "all" || adminSection === "profiles") && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
@@ -1850,7 +2270,195 @@ export default function App() {
               </div>
             )}
           </section>
-        </main>
+          )}
+
+          {/* 4. SEQUENTIAL MULTI-ACCOUNT SCHEDULER ADMIN CONTROLLER */}
+          {(adminSection === "all" || adminSection === "scheduler") && (
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5 transition-all duration-350 hover:border-slate-700/80">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <span className={`p-2 rounded-lg border flex items-center justify-center ${
+                  schedulerData?.cycleRunning
+                    ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse"
+                    : schedulerData?.enabled
+                      ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
+                }`}>
+                  <Clock className={`h-5 w-5 ${schedulerData?.cycleRunning ? "animate-spin text-indigo-400" : ""}`} />
+                </span>
+                <div>
+                  <h2 className="font-bold text-white tracking-tight text-base flex items-center gap-2">
+                    <span>Sequential Multi-Account Scheduler</span>
+                    <span className={`text-xs px-2.5 py-0.5 rounded font-mono font-bold uppercase ${
+                      schedulerData?.cycleRunning
+                        ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse"
+                        : schedulerData?.enabled
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : "bg-slate-800 text-slate-400 border border-slate-700"
+                    }`}>
+                      {schedulerData?.cycleRunning ? "Cycle Running" : (schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled")}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Controls continuous automated multi-account rotation. Strictly one account at a time in order.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => navigateTo("scheduler")}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Open Dedicated Scheduler Screen (/scheduler)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Controls Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Master Switch */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300">Run Accounts in Sequence</span>
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending}
+                    onClick={() => handleToggleScheduler()}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  When enabled, the bot iterates through accounts in the queue every {schedulerData?.intervalMinutes || 20} minutes.
+                </p>
+              </div>
+
+              {/* Cycle Trigger & Stop */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+                <span className="text-xs font-bold text-slate-300 mb-2">Cycle Execution Controls</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning}
+                    onClick={handleRunSchedulerNow}
+                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    <span>Run Cycle Now</span>
+                  </button>
+                  <button
+                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    onClick={handleStopScheduler}
+                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5"
+                  >
+                    <Pause className="h-3.5 w-3.5" />
+                    <span>Stop</span>
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-2 text-center font-mono">
+                  Current: {schedulerData?.cycleRunning ? "RUNNING" : "IDLE"}
+                </div>
+              </div>
+
+              {/* Interval Setting */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300">Cycle Interval</span>
+                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 20} mins</span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={schedulerIntervalInput}
+                    onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
+                    disabled={isSchedulerActionPending}
+                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
+                  >
+                    Save
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">Delay between scheduled full multi-account runs</p>
+              </div>
+            </div>
+
+            {/* Current Sequence Preview */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                  <span>Execution Sequence Queue ({schedulerData?.accounts?.length || 0} accounts)</span>
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Accounts run strictly in numerical order
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
+                  <span className="text-xs text-slate-500 italic">No accounts configured yet.</span>
+                ) : (
+                  [...schedulerData.accounts]
+                    .sort((a, b) => a.schedule.order - b.schedule.order)
+                    .map((acc, idx) => {
+                      const isCurrent = acc.id === schedulerData.currentAccountId;
+                      return (
+                        <div
+                          key={acc.id}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition ${
+                            isCurrent
+                              ? "bg-indigo-500/20 border-indigo-500 text-white font-bold ring-2 ring-indigo-500/40"
+                              : "bg-slate-900 border-slate-800 text-slate-300"
+                          }`}
+                        >
+                          <span className="font-mono text-indigo-400 font-bold">#{acc.schedule.order}</span>
+                          <span className="font-semibold">{acc.name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">({acc.schedule.frequency})</span>
+                          {acc.schedule.useForNow && (
+                            <span className="text-[9px] px-1 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">Checked</span>
+                          )}
+                          {isCurrent && (
+                            <span className="text-[9px] px-1 bg-indigo-500 text-slate-950 font-bold rounded animate-pulse">RUNNING</span>
+                          )}
+                          {idx < schedulerData.accounts.length - 1 && (
+                            <span className="text-slate-600 ml-1">➔</span>
+                          )}
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
+
+            {/* Quick Files & Logs Links */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+              <span>View live scheduler files & detailed logs in the Accounts Schedule tab.</span>
+              <a
+                href="/api/scheduler/logs/download"
+                download="scheduler_execution.log"
+                className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-semibold"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Download Scheduler Logs (.log)</span>
+              </a>
+            </div>
+          </section>
+          )}
+
+          </main>
       ) : (
         /* MAIN BOT DASHBOARD */
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
@@ -2065,44 +2673,73 @@ export default function App() {
                     )}
                   </button>
                 ) : (
-                  <button
-                    onClick={async () => {
-                      if (coinsList.length === 0) {
-                        showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
-                        return;
-                      }
-                      if (messagesList.length === 0) {
-                        showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
-                        return;
-                      }
-                      setIsStartingPost(true);
-                      await runCommand("/api/post-chat", "post");
-                    }}
-                    disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
-                    className="p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
-                    id="btn-start"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform">
-                        {isStartingPost ? (
-                          <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
-                        ) : (
-                          <Play className="h-4 w-4 fill-emerald-400" />
-                        )}
-                      </span>
-                      <div>
-                        <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
-                          {isStartingPost ? "Starting..." : "Start Posting"}
-                        </h3>
-                        <p className="text-[10px] text-slate-400">Launch real browser</p>
+                  <div className="space-y-2">
+                    {/* Stale Market Data Warning Banner (> 2 Days Old) */}
+                    {isDataOlderThan2Days() && (
+                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 text-xs text-amber-300">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                          <div className="truncate">
+                            <span className="font-bold text-[11px] block">Market Data Over 2 Days Old</span>
+                            <span className="text-[10px] text-amber-400/80 block truncate">
+                              Prices & sentiments may be outdated. Recommend fresh fetch.
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRefreshFreshData(false)}
+                          disabled={isRefreshingFreshData || isBusy}
+                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] transition shrink-0 cursor-pointer disabled:opacity-50"
+                        >
+                          {isRefreshingFreshData ? "Refreshing..." : "Refresh Now"}
+                        </button>
                       </div>
-                    </div>
-                    {isStartingPost || isPending.post ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
                     )}
-                  </button>
+
+                    <button
+                      onClick={async () => {
+                        if (coinsList.length === 0) {
+                          showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
+                          return;
+                        }
+                        if (messagesList.length === 0) {
+                          showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
+                          return;
+                        }
+                        // Check if data is older than 2 days
+                        if (isDataOlderThan2Days()) {
+                          setShowStaleWarningModal(true);
+                          return;
+                        }
+                        setIsStartingPost(true);
+                        await runCommand("/api/post-chat", "post");
+                      }}
+                      disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
+                      className="w-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                      id="btn-start"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform">
+                          {isStartingPost ? (
+                            <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                          ) : (
+                            <Play className="h-4 w-4 fill-emerald-400" />
+                          )}
+                        </span>
+                        <div>
+                          <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                            {isStartingPost ? "Starting..." : "Start Posting"}
+                          </h3>
+                          <p className="text-[10px] text-slate-400">Launch real browser</p>
+                        </div>
+                      </div>
+                      {isStartingPost || isPending.post ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
+                      )}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2519,7 +3156,11 @@ export default function App() {
                   activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                3. Post Submissions ({results.length})
+                {(() => {
+                  const activePid = activeProfileIdRef.current || activeProfile?.id;
+                  const count = results.filter(r => !activePid || r.profileId === activePid).length;
+                  return `3. Post Submissions (${count})`;
+                })()}
               </button>
               <button
                 onClick={() => setActiveTab("reports")}
@@ -2528,6 +3169,30 @@ export default function App() {
                 }`}
               >
                 4. CSV Exports & Reports
+              </button>
+              <button
+                onClick={() => navigateTo("scheduler")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  currentView === "scheduler"
+                    ? "bg-indigo-600/40 text-white border border-indigo-500 shadow"
+                    : schedulerData?.enabled
+                      ? "text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30"
+                      : "text-slate-400 hover:text-slate-200"
+                }`}
+                title="Open dedicated Sequential Multi-Account Scheduler (/scheduler)"
+              >
+                <Clock className={`h-3.5 w-3.5 ${schedulerData?.cycleRunning ? "text-indigo-400 animate-spin" : (schedulerData?.enabled ? "text-indigo-400" : "text-indigo-500/70")}`} />
+                <span>5. Accounts Schedule</span>
+                <span className={`px-1.5 py-0.5 text-[9px] rounded font-mono font-bold ${
+                  schedulerData?.cycleRunning
+                    ? "bg-indigo-500 text-slate-950 animate-pulse"
+                    : schedulerData?.enabled
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-slate-800 text-slate-400"
+                }`}>
+                  {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+                </span>
+                <ArrowRight className="h-3 w-3 text-slate-500" />
               </button>
             </div>
           </div>
@@ -2660,8 +3325,10 @@ export default function App() {
 
             {/* TAB 2: GENERATED COMMENTS */}
             {activeTab === "comments" && (() => {
-              const pendingCoins = messagesList.filter(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
-              const failedCoins = messagesList.filter(msgItem => results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase() && r.status !== "success"));
+              const activePid = activeProfileIdRef.current || activeProfile?.id;
+              const profileResults = results.filter(r => !activePid || r.profileId === activePid);
+              const pendingCoins = messagesList.filter(msgItem => !profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
+              const failedCoins = messagesList.filter(msgItem => profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase() && r.status !== "success"));
               return (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
@@ -2807,7 +3474,7 @@ export default function App() {
                             </tr>
                           ) : (
                             failedCoins.map((item, index) => {
-                              const resEntry = results.find(r => r.symbol.toLowerCase() === item.symbol.toLowerCase());
+                              const resEntry = profileResults.find(r => r.symbol.toLowerCase() === item.symbol.toLowerCase());
                               return (
                                 <tr key={index} className="hover:bg-slate-800/40 transition-colors bg-rose-500/[0.03]">
                                   <td className="py-4 px-4 font-bold text-white border-r border-slate-800/80">
@@ -2890,61 +3557,64 @@ export default function App() {
         })()}
 
             {/* TAB 3: SUBMISSION RESULTS */}
-            {activeTab === "results" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-xs text-slate-400 font-mono">
-                    Showing submission history and queue status ({results.length} posted results)
-                  </span>
-                  <button
-                    onClick={handleManualRefresh}
-                    disabled={isRefreshingData}
-                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                    Refresh Submissions
-                  </button>
-                </div>
+            {activeTab === "results" && (() => {
+              const activePid = activeProfileIdRef.current || activeProfile?.id;
+              const profileResults = results.filter(r => !activePid || r.profileId === activePid);
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span className="text-xs text-slate-400 font-mono">
+                      Showing submission history and queue status ({profileResults.length} posted results)
+                    </span>
+                    <button
+                      onClick={handleManualRefresh}
+                      disabled={isRefreshingData}
+                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                      Refresh Submissions
+                    </button>
+                  </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
-                  <table className="w-full text-left text-xs border border-slate-700/80 border-collapse min-w-[850px]">
-                    <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
-                      <tr>
-                        <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Time</th>
-                        <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Asset</th>
-                        <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Sentiment</th>
-                        <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Log Status</th>
-                        <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Execution Message / Details</th>
-                        <th className="py-3 px-4 text-center border-r border-slate-700/80 whitespace-nowrap">Interactive Controls</th>
-                        <th className="py-3 px-4 text-right whitespace-nowrap">Target Link</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
-                      {messagesList.length === 0 ? (
+                  <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
+                    <table className="w-full text-left text-xs border border-slate-700/80 border-collapse min-w-[850px]">
+                      <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
                         <tr>
-                          <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
-                            <div className="space-y-3 max-w-md mx-auto">
-                              <p className="text-slate-500 font-medium">No generated comments or submissions found for this profile.</p>
-                              <p className="text-[11px] text-slate-400">
-                                If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> or <strong>"Full Cycle"</strong> in the Control Center to populate.
-                              </p>
-                              <button
-                                onClick={handleManualRefresh}
-                                disabled={isRefreshingData}
-                                className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
-                                Refresh Now
-                              </button>
-                            </div>
-                          </td>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Time</th>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Asset</th>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Sentiment</th>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Log Status</th>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Execution Message / Details</th>
+                          <th className="py-3 px-4 text-center border-r border-slate-700/80 whitespace-nowrap">Interactive Controls</th>
+                          <th className="py-3 px-4 text-right whitespace-nowrap">Target Link</th>
                         </tr>
-                      ) : (() => {
-                      const pendingItems = messagesList.filter(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
-                      return messagesList.map((msgItem, index) => {
-                        const item = results.find(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
-                        const pendingIndex = pendingItems.findIndex(p => p.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
-                        const seqStr = pendingIndex !== -1 ? `Seq #${pendingIndex + 1}` : "";
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
+                        {messagesList.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
+                              <div className="space-y-3 max-w-md mx-auto">
+                                <p className="text-slate-500 font-medium">No generated comments or submissions found for this profile.</p>
+                                <p className="text-[11px] text-slate-400">
+                                  If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> or <strong>"Full Cycle"</strong> in the Control Center to populate.
+                                </p>
+                                <button
+                                  onClick={handleManualRefresh}
+                                  disabled={isRefreshingData}
+                                  className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                                  Refresh Now
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (() => {
+                        const pendingItems = messagesList.filter(msgItem => !profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
+                        return messagesList.map((msgItem, index) => {
+                          const item = profileResults.find(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
+                          const pendingIndex = pendingItems.findIndex(p => p.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
+                          const seqStr = pendingIndex !== -1 ? `Seq #${pendingIndex + 1}` : "";
                         
                         return (
                           <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
@@ -3065,7 +3735,8 @@ export default function App() {
                 </table>
               </div>
             </div>
-          )}
+          );
+        })()}
 
             {/* TAB 4: CSV EXPORTS & REPORTS */}
             {activeTab === "reports" && (
@@ -3295,6 +3966,592 @@ export default function App() {
               </div>
             </div>
           )}
+
+            </div>
+          )}
+
+          </div>
+        </section>
+
+      </main>
+      ) : currentView === "scheduler" ? (
+        /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          {/* SCHEDULER HEADER & CONTROLS DECK */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                <Clock className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                  Sequential Multi-Account Scheduler
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                    /scheduler
+                  </span>
+                  <span className={`px-2 py-0.5 text-[10px] rounded-full font-mono font-semibold uppercase tracking-wider ${
+                    schedulerData?.enabled
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-slate-800 text-slate-400 border border-slate-700"
+                  }`}>
+                    {schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled"}
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-400">
+                  Fully isolated multi-account automation: rotates through accounts in order. Completely separated from manual single-account posting.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateTo("dashboard")}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+              >
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              </button>
+            </div>
+          </div>
+
+          {/* TOP MASTER SWITCH & CYCLE METRICS PANEL */}
+          <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-lg space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <span>Scheduler Engine Controls</span>
+                  {schedulerData?.cycleRunning && (
+                    <span className="px-2 py-0.5 text-[10px] rounded-full font-mono font-bold bg-indigo-500 text-slate-950 animate-pulse">
+                      CYCLE IN PROGRESS
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  When enabled, the bot iterates sequentially through queued accounts every {schedulerData?.intervalMinutes || 20} minutes without affecting your single-account manual tabs.
+                </p>
+              </div>
+
+              {/* Master Switch: Run accounts in sequence */}
+              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2.5 rounded-xl border border-slate-800">
+                <span className="text-xs font-semibold text-slate-200">
+                  Run accounts in sequence
+                </span>
+                <button
+                  type="button"
+                  disabled={isSchedulerActionPending}
+                  onClick={() => handleToggleScheduler()}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* CYCLE STATUS & CONTROLS BAR */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+              {/* Status & Current Account */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Cycle State
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
+                  <span className="text-sm font-bold text-white">
+                    {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 truncate">
+                  Current Account: <span className="font-semibold text-slate-200">
+                    {(() => {
+                      if (!schedulerData?.currentAccountId) return "None";
+                      const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
+                      return cur ? cur.name : schedulerData.currentAccountId;
+                    })()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Interval Settings */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
+                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 20} mins</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={schedulerIntervalInput}
+                    onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
+                    disabled={isSchedulerActionPending}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
+                  >
+                    Save Interval
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Delay between consecutive sequential multi-account runs
+                </div>
+              </div>
+
+              {/* Cycle Action Buttons */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-center gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning}
+                    onClick={handleRunSchedulerNow}
+                    className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    <span>Run cycle now</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    onClick={handleStopScheduler}
+                    className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Pause className="h-3.5 w-3.5" />
+                    <span>Stop</span>
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500 text-center">
+                  Live state updates automatically every 3 seconds
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* MANUAL WEEKLY CHECK NOTICE BANNER */}
+          <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3.5 flex items-start gap-3">
+            <Info className="h-4.5 w-4.5 text-indigo-400 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-slate-300 leading-relaxed">
+              <strong className="text-white">Manual Weekly Checking:</strong> For accounts with frequency set to <span className="text-indigo-300 font-semibold">Weekly</span>, you can manually check the <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> checkbox whenever you want that account to participate in the cycle. Account 1 continues posting every cycle, while weekly accounts only post when checked!
+            </div>
+          </div>
+
+          {/* ACCOUNTS SCHEDULE TABLE */}
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Configured Accounts & Execution Order</span>
+                <span className="text-xs font-normal text-slate-400">
+                  ({schedulerData?.accounts?.length || 0} accounts)
+                </span>
+              </h4>
+              <span className="text-xs text-slate-400">
+                Accounts run strictly sequentially: Account 1, then Account 2, then Account 3.
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[11px] border-b border-slate-800">
+                    <th className="py-3 px-4 font-semibold text-center w-24">Order</th>
+                    <th className="py-3 px-4 font-semibold">Account</th>
+                    <th className="py-3 px-4 font-semibold min-w-[220px]">Use this account for now</th>
+                    <th className="py-3 px-4 font-semibold min-w-[200px]">Posting Frequency</th>
+                    <th className="py-3 px-4 font-semibold min-w-[180px]">Last Run</th>
+                    <th className="py-3 px-4 font-semibold min-w-[150px]">Next Due</th>
+                    <th className="py-3 px-4 font-semibold text-center w-32">Session</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
+                        No profiles found. Create or import profiles in the Profiles section of the Admin screen.
+                      </td>
+                    </tr>
+                  ) : (
+                    [...schedulerData.accounts]
+                      .sort((a, b) => a.schedule.order - b.schedule.order)
+                      .map((acc, index, sortedArr) => {
+                        const isCurrent = acc.id === schedulerData.currentAccountId;
+                        const isFirst = index === 0;
+                        const isLast = index === sortedArr.length - 1;
+                        const isCheckedNow = acc.schedule.frequency === "weekly"
+                          ? Boolean(acc.schedule.useForNow)
+                          : Boolean(acc.schedule.enabled);
+
+                        return (
+                          <tr
+                            key={acc.id}
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, index)}
+                            className={`transition-all duration-150 select-none ${
+                              draggedAccountIndex === index
+                                ? "opacity-30 border-2 border-dashed border-indigo-400 bg-indigo-950/40"
+                                : "hover:bg-slate-900/60"
+                            } ${
+                              isCurrent ? "bg-indigo-950/30 border-l-4 border-indigo-500" : ""
+                            }`}
+                          >
+                            {/* Order, Drag Handle, Quick Position Select & Movement Arrows */}
+                            <td className="py-3 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {/* Drag grip handle */}
+                                <div
+                                  title="Drag row to reorder"
+                                  className="p-1 cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-400 rounded hover:bg-slate-800 transition"
+                                >
+                                  <GripVertical className="h-4 w-4" />
+                                </div>
+
+                                {/* Direct position number dropdown */}
+                                <select
+                                  value={acc.schedule.order}
+                                  onChange={(e) => handleDirectOrderInput(acc.id, parseInt(e.target.value) || 1)}
+                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer"
+                                  title="Click to pick position number directly"
+                                >
+                                  {sortedArr.map((_, pIdx) => (
+                                    <option key={pIdx + 1} value={pIdx + 1}>
+                                      #{pIdx + 1}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {/* Quick navigation arrows (up / down) */}
+                                <div className="flex flex-col gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={isFirst}
+                                    onClick={() => handleMoveAccount(index, "up")}
+                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
+                                    title="Move 1 step up"
+                                  >
+                                    <ChevronUp className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isLast}
+                                    onClick={() => handleMoveAccount(index, "down")}
+                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
+                                    title="Move 1 step down"
+                                  >
+                                    <ChevronDown className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Account name & info */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                                  {acc.name}
+                                  {isCurrent && (
+                                    <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
+                                      RUNNING NOW
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">
+                                  {acc.id}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Checkbox: Use this account for now (Manual weekly checking) */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col gap-1 items-start">
+                                <label className="inline-flex items-center gap-2 cursor-pointer group select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={isCheckedNow}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      if (acc.schedule.frequency === "weekly") {
+                                        handleUpdateAccountSchedule({
+                                          id: acc.id,
+                                          enabled: true,
+                                          useForNow: checked,
+                                        });
+                                      } else {
+                                        handleUpdateAccountSchedule({
+                                          id: acc.id,
+                                          enabled: checked,
+                                          useForNow: checked,
+                                        });
+                                      }
+                                    }}
+                                    className="h-4.5 w-4.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 transition cursor-pointer accent-indigo-600"
+                                  />
+                                  <span className={`text-xs font-semibold transition ${
+                                    isCheckedNow ? "text-emerald-300 font-bold" : "text-slate-300 group-hover:text-white"
+                                  }`}>
+                                    Use this account for now
+                                  </span>
+                                </label>
+
+                                {/* Contextual status badges */}
+                                {acc.schedule.frequency === "weekly" ? (
+                                  <div className="pl-6.5">
+                                    {acc.schedule.useForNow ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                                        <CheckCircle className="h-3 w-3" />
+                                        Manually checked for this week
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-300/90 italic flex items-center gap-1">
+                                        <Clock className="h-3 w-3 text-amber-400" />
+                                        Weekly account: check manually when ready
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : acc.schedule.enabled ? (
+                                  <span className="text-[10px] text-emerald-400/90 pl-6.5 font-mono">
+                                    Active in queue
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 pl-6.5 italic">
+                                    Skipped (unchecked)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Frequency dropdown & custom input */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={acc.schedule.frequency}
+                                  onChange={(e) =>
+                                    handleUpdateAccountSchedule({
+                                      id: acc.id,
+                                      frequency: e.target.value as any,
+                                      ...(e.target.value === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {})
+                                    })
+                                  }
+                                  className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                                >
+                                  <option value="every_cycle">Every cycle</option>
+                                  <option value="daily">Daily (24h)</option>
+                                  <option value="weekly">Weekly (Manual check)</option>
+                                  <option value="custom">Custom hours</option>
+                                </select>
+
+                                {acc.schedule.frequency === "custom" && (
+                                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={720}
+                                      value={acc.schedule.customHours || 24}
+                                      onChange={(e) => {
+                                        const val = Math.min(720, Math.max(1, parseInt(e.target.value) || 1));
+                                        handleUpdateAccountSchedule({ id: acc.id, customHours: val });
+                                      }}
+                                      className="w-12 bg-transparent text-xs text-white text-center focus:outline-none"
+                                    />
+                                    <span className="text-[10px] text-slate-400">hrs</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Last run (time + status badge + posted/failed) */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-slate-300 font-mono text-[11px]">
+                                    {acc.lastRun.at ? new Date(acc.lastRun.at).toLocaleString() : "Never run"}
+                                  </span>
+                                  {acc.lastRun.status && (
+                                    <span className={`px-1.5 py-0.5 text-[9px] rounded font-semibold uppercase ${
+                                      acc.lastRun.status === "completed"
+                                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                        : acc.lastRun.status === "skipped_not_due"
+                                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                          : acc.lastRun.status === "skipped_missing_session"
+                                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                            : acc.lastRun.status === "skipped_expired"
+                                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                              : acc.lastRun.status === "stopped_daily_limit"
+                                                ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
+                                                : acc.lastRun.status === "stopped_captcha"
+                                                  ? "bg-rose-600/30 text-rose-200 border border-rose-500"
+                                                  : acc.lastRun.status === "stopped_by_user"
+                                                    ? "bg-amber-600/20 text-amber-300 border border-amber-500/30"
+                                                    : "bg-red-500/20 text-red-300 border border-red-500/30"
+                                    }`}>
+                                      {acc.lastRun.status.replace(/_/g, " ")}
+                                    </span>
+                                  )}
+                                </div>
+                                {acc.lastRun.at && (
+                                  <span className="text-[10px] text-slate-400">
+                                    {acc.lastRun.posted} posted, {acc.lastRun.failed} failed
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Next due */}
+                            <td className="py-3.5 px-4 font-mono text-[11px]">
+                              {acc.schedule.enabled === false ? (
+                                <span className="text-slate-500 italic">Disabled</span>
+                              ) : acc.schedule.useForNow ? (
+                                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Due now (Checked)
+                                </span>
+                              ) : acc.schedule.frequency === "every_cycle" ? (
+                                <span className="text-indigo-400 font-semibold">Every cycle</span>
+                              ) : acc.schedule.frequency === "weekly" ? (
+                                <span className="text-amber-300/80 italic">Check box when ready</span>
+                              ) : acc.nextDueAt ? (
+                                <div className="flex flex-col">
+                                  <span className="text-slate-300">{new Date(acc.nextDueAt).toLocaleString()}</span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {new Date(acc.nextDueAt).getTime() <= Date.now() ? "Due now" : "Upcoming"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-400 font-semibold">Due now</span>
+                              )}
+                            </td>
+
+                            {/* Session */}
+                            <td className="py-3.5 px-4 text-center">
+                              {acc.hasValidSession ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Valid
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Missing
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SCHEDULER LIVE LOGS VIEWER */}
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl space-y-0">
+            <div className="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60">
+              <div className="flex items-center gap-2.5">
+                <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
+                  <TerminalIcon className="h-4 w-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Sequential Scheduler Execution Logs</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 font-mono font-semibold">
+                      {schedulerLogs.length} events
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Live stream of trending fetch, AI comment generation, account session checks, and posting loop steps
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Filter scheduler logs..."
+                    value={schedulerLogQuery}
+                    onChange={(e) => setSchedulerLogQuery(e.target.value)}
+                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
+                  />
+                  {schedulerLogQuery && (
+                    <button
+                      onClick={() => setSchedulerLogQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <a
+                  href="/api/scheduler/logs/download"
+                  download="scheduler_execution.log"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Download complete execution log file to disk"
+                >
+                  <Download className="h-3.5 w-3.5 text-indigo-400" />
+                  <span>Download Logs</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Log Terminal Screen */}
+            <div className="p-4 bg-slate-950 font-mono text-xs max-h-80 overflow-y-auto space-y-1.5 border-t border-slate-900">
+              {schedulerLogs.length === 0 ? (
+                <div className="text-slate-500 italic py-6 text-center">
+                  No scheduler events recorded yet. Run a cycle or enable the scheduler to stream live sequential execution events.
+                </div>
+              ) : (
+                schedulerLogs.map((l, lIdx) => {
+                  const isErr = l.level === "error";
+                  const isWarn = l.level === "warning";
+                  const isSucc = l.level === "success";
+                  return (
+                    <div
+                      key={lIdx}
+                      className={`flex items-start gap-2.5 leading-relaxed py-0.5 px-1.5 rounded transition ${
+                        isErr
+                          ? "bg-rose-950/20 text-rose-300"
+                          : isWarn
+                            ? "bg-amber-950/20 text-amber-300"
+                            : isSucc
+                              ? "bg-emerald-950/20 text-emerald-300"
+                              : "text-slate-300 hover:bg-slate-900/40"
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-500 shrink-0 font-mono select-none">
+                        {l.timestamp}
+                      </span>
+                      <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
+                        isErr
+                          ? "bg-rose-500/20 text-rose-300"
+                          : isWarn
+                            ? "bg-amber-500/20 text-amber-300"
+                            : isSucc
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-slate-800 text-slate-400"
+                      }`}>
+                        {l.level}
+                      </span>
+                      <span className="break-all whitespace-pre-wrap">{l.message}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+        </main>
+      ) : (
+        /* MAIN BOT DASHBOARD */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
 
           </div>
         </section>
@@ -4100,6 +5357,93 @@ export default function App() {
         </div>
       )}
 
+      {/* STALE MARKET DATA WARNING MODAL (> 2 DAYS OLD) */}
+      {showStaleWarningModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-lg w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                  <AlertTriangle className="h-6 w-6 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-tight">Warning: Market Data Over 2 Days Old</h3>
+                  <p className="text-xs text-amber-400/90 font-medium">Trending coins & comments were fetched over 48 hours ago</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowStaleWarningModal(false)}
+                className="text-slate-500 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Age summary cards */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Coins Fetched</div>
+                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                  {formatTimeAgo(coinsFetchedAt).text}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  {formatTimeAgo(coinsFetchedAt).full}
+                </div>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Comments Generated</div>
+                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                  {formatTimeAgo(commentsGeneratedAt).text}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  {formatTimeAgo(commentsGeneratedAt).full}
+                </div>
+              </div>
+            </div>
+
+            {/* Warning Explanation */}
+            <div className="space-y-2 text-xs text-slate-300 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+              <p className="font-semibold text-slate-200">
+                Why we recommend fetching fresh market data:
+              </p>
+              <ul className="space-y-1.5 text-[11px] text-slate-400 list-disc list-inside">
+                <li>Crypto prices, percentage gains, and trends shift dramatically in 48 hours.</li>
+                <li>Posting comments quoting outdated prices can appear robotic or incorrect to community members.</li>
+                <li>Fetching fresh coins ensures your account posts timely, accurate commentary with relevant AI insights.</li>
+              </ul>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button
+                onClick={() => handleRefreshFreshData(false)}
+                disabled={isRefreshingFreshData}
+                className="flex-1 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingFreshData ? "animate-spin" : ""}`} />
+                {isRefreshingFreshData ? "Refreshing Data..." : "Fetch New Data First (Recommended)"}
+              </button>
+              <button
+                onClick={async () => {
+                  setShowStaleWarningModal(false);
+                  setIsStartingPost(true);
+                  await runCommand("/api/post-chat", "post", { force: true });
+                }}
+                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium rounded-xl text-xs transition border border-slate-700 cursor-pointer text-center"
+              >
+                Post Anyway
+              </button>
+              <button
+                onClick={() => setShowStaleWarningModal(false)}
+                className="py-2.5 px-3 text-slate-400 hover:text-slate-200 font-medium rounded-xl text-xs transition hover:bg-slate-800/50 cursor-pointer text-center"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic Floating Toast with Process Indicator, Turn Off toggle, and Dismiss (No persistent history) */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4.5 py-3 rounded-2xl border shadow-2xl bg-slate-900/95 border-slate-800 text-xs text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -4146,6 +5490,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+
 
     </div>
   );

@@ -120,4 +120,139 @@ export const api = {
     const res = await fetch("/api/check-system");
     return res.json();
   },
+
+  async getScheduler(): Promise<SchedulerStatusResponse> {
+    const res = await fetch("/api/scheduler");
+    if (!res.ok) throw new Error(`Scheduler error: ${res.status}`);
+    return res.json();
+  },
+
+  async setSchedulerSettings(params: { enabled?: boolean; intervalMinutes?: number } | boolean): Promise<{ success: boolean; enabled: boolean; intervalMinutes?: number; error?: string }> {
+    const payload: { enabled?: boolean; intervalMinutes?: number } = {};
+    if (typeof params === "boolean") {
+      payload.enabled = params;
+    } else if (params && typeof params === "object") {
+      if (typeof params.enabled === "boolean") payload.enabled = params.enabled;
+      if (typeof params.intervalMinutes === "number" && !isNaN(params.intervalMinutes)) {
+        payload.intervalMinutes = Math.round(params.intervalMinutes);
+      }
+    }
+    const res = await fetch("/api/scheduler/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async updateProfileSchedule(params: {
+    id: string;
+    enabled?: boolean;
+    frequency?: "every_cycle" | "daily" | "weekly" | "custom";
+    customHours?: number;
+    order?: number;
+    useForNow?: boolean;
+  }): Promise<{ success: boolean; profile?: any; error?: string }> {
+    const payload: Record<string, any> = { id: String(params.id) };
+    if (typeof params.enabled === "boolean") payload.enabled = params.enabled;
+    if (typeof params.frequency === "string") payload.frequency = params.frequency;
+    if (typeof params.customHours === "number" && !isNaN(params.customHours)) payload.customHours = params.customHours;
+    if (typeof params.order === "number" && !isNaN(params.order)) payload.order = params.order;
+    if (typeof params.useForNow === "boolean") payload.useForNow = params.useForNow;
+
+    const res = await fetch("/api/profile-schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async reorderSchedulerAccounts(orderedIds: string[]): Promise<{ success: boolean; profiles?: any[]; error?: string }> {
+    const cleanIds = Array.isArray(orderedIds) ? orderedIds.map(id => String(id)) : [];
+    const res = await fetch("/api/scheduler/reorder-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedIds: cleanIds }),
+    });
+    return res.json();
+  },
+
+  async getSchedulerFilesInfo(): Promise<{ success: boolean; files: SchedulerFileInfo[] }> {
+    const res = await fetch("/api/scheduler/files-info");
+    if (!res.ok) throw new Error(`Files info error: ${res.status}`);
+    return res.json();
+  },
+
+  async getSchedulerFileContent(key: string): Promise<{ success: boolean; exists: boolean; path?: string; content?: string | null; error?: string }> {
+    const res = await fetch(`/api/scheduler/file-content?key=${encodeURIComponent(key)}`);
+    return res.json();
+  },
+
+  async getSchedulerLogs(): Promise<{ success: boolean; logs: { timestamp: string; level: "info" | "success" | "warning" | "error"; message: string }[] }> {
+    const res = await fetch("/api/scheduler/logs");
+    return res.json();
+  },
+
+  async runSchedulerNow(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await fetch("/api/scheduler/run-now", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async stopScheduler(): Promise<{ success: boolean; message?: string }> {
+    const res = await fetch("/api/scheduler/stop", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async stopPosting(): Promise<{ success: boolean; message?: string }> {
+    const res = await fetch("/api/stop-posting", {
+      method: "POST",
+    });
+    return res.json();
+  },
 };
+
+export interface SchedulerFileInfo {
+  key: string;
+  name: string;
+  path: string;
+  description: string;
+  exists: boolean;
+  sizeBytes: number;
+  itemCount?: number;
+  updatedAt: string | null;
+}
+
+export interface SchedulerAccountItem {
+  id: string;
+  name: string;
+  schedule: {
+    enabled: boolean;
+    frequency: "every_cycle" | "daily" | "weekly" | "custom";
+    customHours?: number;
+    order: number;
+    useForNow?: boolean;
+  };
+  lastRun: {
+    at: string | null;
+    status: string | null;
+    posted: number;
+    failed: number;
+  };
+  nextDueAt: string | null;
+  hasValidSession: boolean;
+}
+
+export interface SchedulerStatusResponse {
+  enabled: boolean;
+  intervalMinutes: number;
+  cycleRunning: boolean;
+  currentAccountId: string | null;
+  queue: string[];
+  accounts: SchedulerAccountItem[];
+}
+

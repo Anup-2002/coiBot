@@ -230,13 +230,15 @@ async function writeDoc(docPath: string, data: any): Promise<boolean> {
 
 // Session State Sync
 export async function getSessionStateCloud(profileId?: string): Promise<string | null> {
-  const docPath = profileId ? `bot/session_${profileId}` : "bot/session";
+  if (!profileId) return null;
+  const docPath = `bot/session_${profileId}`;
   const data = await fetchDoc(docPath);
   return data ? data.stateJson : null;
 }
 
 export async function saveSessionStateCloud(stateJson: string, profileId?: string): Promise<void> {
-  const docPath = profileId ? `bot/session_${profileId}` : "bot/session";
+  if (!profileId) return;
+  const docPath = `bot/session_${profileId}`;
   await writeDoc(docPath, {
     stateJson,
     updatedAt: new Date().toISOString()
@@ -245,13 +247,15 @@ export async function saveSessionStateCloud(stateJson: string, profileId?: strin
 
 // Trending Coins Sync
 export async function getTrendingCoinsCloud(profileId?: string): Promise<any[]> {
-  const docPath = profileId ? `coins/trending_${profileId}` : "coins/trending";
+  if (!profileId) return [];
+  const docPath = `coins/trending_${profileId}`;
   const data = await fetchDoc(docPath, { list: [] });
   return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): Promise<void> {
-  const docPath = profileId ? `coins/trending_${profileId}` : "coins/trending";
+  if (!profileId) return;
+  const docPath = `coins/trending_${profileId}`;
   await writeDoc(docPath, {
     list: coins,
     lastUpdated: new Date().toISOString()
@@ -260,13 +264,15 @@ export async function saveTrendingCoinsCloud(coins: any[], profileId?: string): 
 
 // Generated Messages Sync
 export async function getGeneratedMessagesCloud(profileId?: string): Promise<any[]> {
-  const docPath = profileId ? `messages/generated_${profileId}` : "messages/generated";
+  if (!profileId) return [];
+  const docPath = `messages/generated_${profileId}`;
   const data = await fetchDoc(docPath, { list: [] });
   return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function saveGeneratedMessagesCloud(messages: any[], profileId?: string): Promise<void> {
-  const docPath = profileId ? `messages/generated_${profileId}` : "messages/generated";
+  if (!profileId) return;
+  const docPath = `messages/generated_${profileId}`;
   await writeDoc(docPath, {
     list: messages,
     lastUpdated: new Date().toISOString()
@@ -275,13 +281,15 @@ export async function saveGeneratedMessagesCloud(messages: any[], profileId?: st
 
 // Post Results Sync
 export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
-  const docPath = profileId ? `results/all_${profileId}` : "results/all";
+  if (!profileId) return [];
+  const docPath = `results/all_${profileId}`;
   const data = await fetchDoc(docPath, { list: [] });
   return (data && Array.isArray(data.list)) ? data.list : [];
 }
 
 export async function savePostResultsCloud(results: any[], profileId?: string): Promise<void> {
-  const docPath = profileId ? `results/all_${profileId}` : "results/all";
+  if (!profileId) return;
+  const docPath = `results/all_${profileId}`;
   await writeDoc(docPath, {
     list: results,
     lastUpdated: new Date().toISOString()
@@ -297,7 +305,8 @@ export interface CloudBotProgress {
 }
 
 export async function getBotProgressCloud(profileId?: string): Promise<CloudBotProgress | null> {
-  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  if (!profileId) return null;
+  const docPath = `bot/progress_${profileId}`;
   const data = await fetchDoc(docPath);
   if (!data) return null;
   return {
@@ -309,7 +318,8 @@ export async function getBotProgressCloud(profileId?: string): Promise<CloudBotP
 }
 
 export async function saveBotProgressCloud(progress: number | CloudBotProgress, profileId?: string): Promise<void> {
-  const docPath = profileId ? `bot/progress_${profileId}` : "bot/progress";
+  if (!profileId) return;
+  const docPath = `bot/progress_${profileId}`;
   const progressObj = typeof progress === "number" ? { next_index: progress } : progress;
   await writeDoc(docPath, {
     ...progressObj,
@@ -341,6 +351,52 @@ export async function getProfilesCloud(): Promise<any[]> {
 export async function saveProfilesCloud(profiles: any[]): Promise<void> {
   await writeDoc("bot/profiles", {
     list: profiles,
+    lastUpdated: new Date().toISOString()
+  });
+}
+
+// Timestamps Sync (Coins fetched / comments generated real timestamps)
+export interface CloudTimestamps {
+  coinsFetchedAt: number | null;
+  coinsFetchedTime: string | null;
+  commentsGeneratedAt: number | null;
+  commentsGeneratedTime: string | null;
+}
+
+export async function getTimestampsCloud(profileId?: string): Promise<CloudTimestamps | null> {
+  if (!profileId) return null;
+  const docPath = `timestamps/profile_${profileId}`;
+  const data = await fetchDoc(docPath);
+  if (!data) return null;
+  return {
+    coinsFetchedAt: data.coinsFetchedAt ?? null,
+    coinsFetchedTime: data.coinsFetchedTime ?? null,
+    commentsGeneratedAt: data.commentsGeneratedAt ?? null,
+    commentsGeneratedTime: data.commentsGeneratedTime ?? null,
+  };
+}
+
+export async function saveTimestampsCloud(ts: CloudTimestamps, profileId?: string): Promise<void> {
+  if (!profileId) return;
+  const docPath = `timestamps/profile_${profileId}`;
+  await writeDoc(docPath, {
+    ...ts,
+    lastUpdated: new Date().toISOString()
+  });
+}
+
+// 9. Bot Settings Sync (bot/settings doc)
+export async function getSettingsCloud(): Promise<{ schedulerEnabled?: boolean } | null> {
+  const data = await fetchDoc("bot/settings");
+  if (!data) return null;
+  return {
+    schedulerEnabled: typeof data.schedulerEnabled === "boolean" ? data.schedulerEnabled : false,
+  };
+}
+
+export async function saveSettingsCloud(settings: { schedulerEnabled: boolean }): Promise<void> {
+  await writeDoc("bot/settings", {
+    schedulerEnabled: !!settings.schedulerEnabled,
     lastUpdated: new Date().toISOString()
   });
 }

@@ -249,3 +249,53 @@ export async function saveProfilesCloud(profiles: any[]): Promise<void> {
     await mongoStorage.saveProfilesMongo(profiles).catch(() => {});
   }
 }
+
+// 8. Timestamps
+export async function getTimestampsCloud(profileId?: string): Promise<firebaseStorage.CloudTimestamps | null> {
+  if (isCloudSyncDisabled()) return null;
+  try {
+    return await firebaseStorage.getTimestampsCloud(profileId);
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function saveTimestampsCloud(ts: firebaseStorage.CloudTimestamps, profileId?: string): Promise<void> {
+  if (isCloudSyncDisabled()) return;
+  await firebaseStorage.saveTimestampsCloud(ts, profileId).catch(() => {});
+}
+
+// 9. Bot Settings (bot/settings doc)
+export interface CloudSettings {
+  schedulerEnabled: boolean;
+}
+
+export async function getSettingsCloud(): Promise<CloudSettings | null> {
+  if (isCloudSyncDisabled()) return null;
+  try {
+    const res = await firebaseStorage.getSettingsCloud();
+    if (res && typeof res.schedulerEnabled === "boolean") {
+      return { schedulerEnabled: res.schedulerEnabled };
+    }
+  } catch (_) {}
+
+  if (isMongoEnabled()) {
+    try {
+      const res = await mongoStorage.getSettingsMongo();
+      if (res && typeof res.schedulerEnabled === "boolean") {
+        return { schedulerEnabled: res.schedulerEnabled };
+      }
+    } catch (_) {}
+  }
+
+  return null;
+}
+
+export async function saveSettingsCloud(settings: CloudSettings): Promise<void> {
+  if (isCloudSyncDisabled()) return;
+  await firebaseStorage.saveSettingsCloud(settings).catch(() => {});
+  if (isMongoEnabled()) {
+    await mongoStorage.saveSettingsMongo(settings).catch(() => {});
+  }
+}
+
