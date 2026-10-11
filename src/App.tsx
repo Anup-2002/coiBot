@@ -27,6 +27,7 @@ import {
   Eye,
   Shield,
   ArrowLeft,
+  ArrowRight,
   HardDrive,
   Bell,
   BellOff,
@@ -2459,7 +2460,7 @@ export default function App() {
           )}
 
           </main>
-      ) : (
+      ) : currentView !== "scheduler" ? (
         /* MAIN BOT DASHBOARD */
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
 
@@ -3966,15 +3967,10 @@ export default function App() {
               </div>
             </div>
           )}
-
-            </div>
-          )}
-
           </div>
         </section>
-
       </main>
-      ) : currentView === "scheduler" ? (
+      ) : (
         /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
           {/* SCHEDULER HEADER & CONTROLS DECK */}
@@ -4549,14 +4545,6 @@ export default function App() {
           </div>
 
         </main>
-      ) : (
-        /* MAIN BOT DASHBOARD */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
-
-          </div>
-        </section>
-
-      </main>
       )}
 
       {/* FOOTER */}
