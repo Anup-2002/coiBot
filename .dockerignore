@@ -1,3 +1,15 @@
 node_modules
 .git
+.gitignore
 .env
+.env.*
+!.env.example
+output/
+auth/
+.cache/
+npm-debug.log*
+*.log
+dist
+coverage
+tests
+

@@ -315,3 +315,49 @@ export async function saveSettingsMongo(settings: { schedulerEnabled: boolean })
   }
 }
 
+// 9. Profile Timestamps
+export interface MongoTimestamps {
+  coinsFetchedAt: number | null;
+  coinsFetchedTime: string | null;
+  commentsGeneratedAt: number | null;
+  commentsGeneratedTime: string | null;
+}
+
+export async function getTimestampsMongo(profileId?: string): Promise<MongoTimestamps | null> {
+  try {
+    const database = await getMongoDb();
+    if (!database) return null;
+    const docId = profileId ? `timestamps_${profileId}` : "timestamps";
+    const res = await database.collection("timestamps").findOne({ _id: docId as any });
+    if (!res) return null;
+    return {
+      coinsFetchedAt: res.coinsFetchedAt ?? null,
+      coinsFetchedTime: res.coinsFetchedTime ?? null,
+      commentsGeneratedAt: res.commentsGeneratedAt ?? null,
+      commentsGeneratedTime: res.commentsGeneratedTime ?? null,
+    };
+  } catch (err) {
+    console.error("[MONGODB] Error fetching timestamps:", (err as Error).message);
+    return null;
+  }
+}
+
+export async function saveTimestampsMongo(ts: MongoTimestamps, profileId?: string): Promise<void> {
+  try {
+    const database = await getMongoDb();
+    if (!database) return;
+    const docId = profileId ? `timestamps_${profileId}` : "timestamps";
+    await database.collection("timestamps").updateOne(
+      { _id: docId as any },
+      { $set: { ...ts, lastUpdated: new Date().toISOString() } },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error("[MONGODB] Error saving timestamps:", (err as Error).message);
+  }
+}
+
+export function isMongoConnected(): boolean {
+  return !!db && !isFailed;
+}
+

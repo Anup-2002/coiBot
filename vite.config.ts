@@ -17,6 +17,15 @@ export default defineConfig(() => {
       assetsDir: 'assets',
       emptyOutDir: true,
       sourcemap: true,
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-lucide': ['lucide-react'],
+          },
+        },
+      },
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',

@@ -48,7 +48,9 @@ import {
   getSettingsCloud,
   saveSettingsCloud,
   getActiveStoreName,
-  isMongoEnabled
+  isMongoEnabled,
+  isFirebaseDisabled,
+  isMongoPrimary
 } from "./src/storage";
 
 import {
@@ -753,24 +755,41 @@ export type SystemProcessType =
 
 let activeSystemProcess: SystemProcessType = "none";
 let activeProcessDetails: string = "";
+let activeProcessStartTime: number = 0;
 
 function acquireProcessLock(type: SystemProcessType, description: string): { success: boolean; reason?: string } {
+  const now = Date.now();
   if (activeSystemProcess !== "none" && activeSystemProcess !== type) {
-    const desc = activeProcessDetails || activeSystemProcess;
-    return {
-      success: false,
-      reason: `Another automated process (${desc}) is currently active. Please wait for it to complete or stop it first.`
-    };
+    // Deadlock prevention & self-healing: detect orphaned locks or expired locks
+    if (activeSystemProcess === "single_posting" && !isPostingRunning && !isSinglePostingRunning) {
+      console.warn(`[PROCESS LOCK] Auto-clearing orphaned single_posting lock.`);
+      activeSystemProcess = "none";
+      activeProcessDetails = "";
+      activeProcessStartTime = 0;
+    } else if (activeProcessStartTime > 0 && now - activeProcessStartTime > 15 * 60 * 1000) {
+      console.warn(`[PROCESS LOCK] Auto-clearing stale lock (${activeSystemProcess}) held for >15 minutes.`);
+      activeSystemProcess = "none";
+      activeProcessDetails = "";
+      activeProcessStartTime = 0;
+    } else {
+      const desc = activeProcessDetails || activeSystemProcess;
+      return {
+        success: false,
+        reason: `Another automated process (${desc}) is currently active. Please wait for it to complete or stop it first.`
+      };
+    }
   }
   activeSystemProcess = type;
   activeProcessDetails = description;
+  activeProcessStartTime = now;
   return { success: true };
 }
 
 function releaseProcessLock(type: SystemProcessType): void {
-  if (activeSystemProcess === type) {
+  if (activeSystemProcess === type || type === ("all" as any)) {
     activeSystemProcess = "none";
     activeProcessDetails = "";
+    activeProcessStartTime = 0;
   }
 }
 
@@ -786,7 +805,7 @@ let continuousLoopIntervalMinutes = 20; // Customizable, default 20 minutes
 async function interruptibleSleep(ms: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
-    if (!isPostingRunning) {
+    if (!isPostingRunning || isStopping || isSingleStopping || stopSchedulerRequested) {
       break;
     }
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -883,6 +902,7 @@ async function triggerFullFlowExecution() {
     // Step 3: Post
     addLog("info", "[FLOW STEP 3/3] Launching automated comment submitter...");
     isStopping = false;
+    isSingleStopping = false;
     stopSchedulerRequested = false;
     isPostingRunning = true;
     botStatus = "Posting";
@@ -2890,7 +2910,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
 }
 
 let lastCloudSyncTime = 0;
-const CLOUD_SYNC_THROTTLE_MS = 5000; // 5 seconds throttle
+const CLOUD_SYNC_THROTTLE_MS = 30000; // 30 seconds throttle to strictly protect database quotas
 
 async function syncLocalFromCloudIfStale(force = false) {
   const now = Date.now();
@@ -2909,107 +2929,116 @@ async function syncLocalFromCloudIfStale(force = false) {
 
     // 1. Trending Coins
     const localCoins = readJsonFile<any[]>(LAST_TRENDING_FILE, []);
-    const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
-    if (localCoins.length > 0) {
-      // Local has active coins for this profile, ensure cloud has them
-      saveTrendingCoinsCloud(localCoins, activeId || undefined).catch(() => {});
-    } else if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
+    if (localCoins.length === 0) {
       // Local is empty, hydrate from cloud
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+      const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
+      if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
+        fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
+      }
+    } else if (force) {
+      // Local has active coins for this profile, ensure cloud has them only when forced
+      saveTrendingCoinsCloud(localCoins, activeId || undefined).catch(() => {});
     }
 
     // 2. Generated Messages
     const localMessages = readJsonFile<any[]>(GENERATED_MESSAGES_FILE, []);
-    const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
-    if (localMessages.length > 0) {
+    if (localMessages.length === 0) {
+      const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
+      if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
+        fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
+      }
+    } else if (force) {
       saveGeneratedMessagesCloud(localMessages, activeId || undefined).catch(() => {});
-    } else if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
     }
 
     // 3. Post Results (Strictly isolated by profileId)
     if (!isPostingRunning) {
       const localResults = getIsolatedResults(activeId);
-      const rawCloudResults = await getPostResultsCloud(activeId);
-      const cloudResults = (rawCloudResults || [])
-        .filter((r: any) => !r.profileId || r.profileId === activeId)
-        .map((r: any) => ({ ...r, profileId: activeId }));
-
-      if (localResults.length > 0) {
-        // Local results exist - local is authoritative for this active profile, persist to cloud
+      if (localResults.length === 0) {
+        const rawCloudResults = await getPostResultsCloud(activeId);
+        const cloudResults = (rawCloudResults || [])
+          .filter((r: any) => !r.profileId || r.profileId === activeId)
+          .map((r: any) => ({ ...r, profileId: activeId }));
+        if (cloudResults.length > 0) {
+          fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
+        }
+      } else if (force) {
         savePostResultsCloud(localResults, activeId).catch(() => {});
-      } else if (cloudResults.length > 0) {
-        // Local is empty and cloud has previous history strictly for this profile - hydrate
-        fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
       }
 
       // 4. Bot Progress (Skip overwriting if posting is active)
-      const cloudProgress = await getBotProgressCloud(activeId || undefined);
       const localProgress = readBotProgress();
-      if (typeof localProgress.next_index === "number" && localProgress.next_index > 0) {
+      if (!localProgress || localProgress.next_index === 0) {
+        const cloudProgress = await getBotProgressCloud(activeId || undefined);
+        if (cloudProgress && typeof cloudProgress.next_index === "number") {
+          const merged = {
+            ...localProgress,
+            next_index: cloudProgress.next_index,
+            daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
+            last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
+            daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
+          };
+          fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(merged, null, 2), "utf-8");
+          currentPostingIndex = cloudProgress.next_index;
+        }
+      } else if (force) {
         saveBotProgressCloud(localProgress, activeId || undefined).catch(() => {});
-      } else if (cloudProgress && typeof cloudProgress.next_index === "number") {
-        const merged = {
-          ...localProgress,
-          next_index: cloudProgress.next_index,
-          daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
-          last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
-          daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
-        };
-        fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(merged, null, 2), "utf-8");
-        currentPostingIndex = cloudProgress.next_index;
       }
 
       // 4.5 Timestamps
-      const cloudTs = await getTimestampsCloud(activeId || undefined);
-      if (cloudTs && (cloudTs.coinsFetchedAt || cloudTs.commentsGeneratedAt)) {
-        const localTs = readJsonFile<ProfileTimestamps>(TIMESTAMPS_FILE, {
-          coinsFetchedAt: null,
-          coinsFetchedTime: null,
-          commentsGeneratedAt: null,
-          commentsGeneratedTime: null,
-        });
-        let tsChanged = false;
-        if (!localTs.coinsFetchedAt && cloudTs.coinsFetchedAt) {
-          localTs.coinsFetchedAt = cloudTs.coinsFetchedAt;
-          localTs.coinsFetchedTime = cloudTs.coinsFetchedTime;
-          tsChanged = true;
-        }
-        if (!localTs.commentsGeneratedAt && cloudTs.commentsGeneratedAt) {
-          localTs.commentsGeneratedAt = cloudTs.commentsGeneratedAt;
-          localTs.commentsGeneratedTime = cloudTs.commentsGeneratedTime;
-          tsChanged = true;
-        }
-        if (tsChanged) {
-          fs.writeFileSync(TIMESTAMPS_FILE, JSON.stringify(localTs, null, 2), "utf-8");
+      if (force) {
+        const cloudTs = await getTimestampsCloud(activeId || undefined);
+        if (cloudTs && (cloudTs.coinsFetchedAt || cloudTs.commentsGeneratedAt)) {
+          const localTs = readJsonFile<ProfileTimestamps>(TIMESTAMPS_FILE, {
+            coinsFetchedAt: null,
+            coinsFetchedTime: null,
+            commentsGeneratedAt: null,
+            commentsGeneratedTime: null,
+          });
+          let tsChanged = false;
+          if (!localTs.coinsFetchedAt && cloudTs.coinsFetchedAt) {
+            localTs.coinsFetchedAt = cloudTs.coinsFetchedAt;
+            localTs.coinsFetchedTime = cloudTs.coinsFetchedTime;
+            tsChanged = true;
+          }
+          if (!localTs.commentsGeneratedAt && cloudTs.commentsGeneratedAt) {
+            localTs.commentsGeneratedAt = cloudTs.commentsGeneratedAt;
+            localTs.commentsGeneratedTime = cloudTs.commentsGeneratedTime;
+            tsChanged = true;
+          }
+          if (tsChanged) {
+            fs.writeFileSync(TIMESTAMPS_FILE, JSON.stringify(localTs, null, 2), "utf-8");
+          }
         }
       }
     }
 
     // 5. Profiles (Refresh active profile paths while preserving current local active selection)
-    const cloudProfiles = await getProfilesCloud();
-    if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
-      const currentActiveId = getActiveProfileId();
-      const localProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
-      
-      const mergedProfiles = cloudProfiles.map((cp: any) => {
-        const localMatch = localProfiles.find(lp => lp.id === cp.id);
-        return {
-          ...cp,
-          dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 500),
-          isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
-        };
-      });
+    const localProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    if (localProfiles.length === 0 || force) {
+      const cloudProfiles = await getProfilesCloud();
+      if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
+        const currentActiveId = getActiveProfileId();
+        
+        const mergedProfiles = cloudProfiles.map((cp: any) => {
+          const localMatch = localProfiles.find(lp => lp.id === cp.id);
+          return {
+            ...cp,
+            dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 500),
+            isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
+          };
+        });
 
-      // Keep any local-only profiles that haven't synced yet
-      for (const lp of localProfiles) {
-        if (!mergedProfiles.some(mp => mp.id === lp.id)) {
-          mergedProfiles.push(lp);
+        // Keep any local-only profiles that haven't synced yet
+        for (const lp of localProfiles) {
+          if (!mergedProfiles.some(mp => mp.id === lp.id)) {
+            mergedProfiles.push(lp);
+          }
         }
-      }
 
-      fs.writeFileSync(PROFILES_FILE, JSON.stringify(mergedProfiles, null, 2), "utf-8");
-      updateActiveProfilePaths();
+        fs.writeFileSync(PROFILES_FILE, JSON.stringify(mergedProfiles, null, 2), "utf-8");
+        updateActiveProfilePaths();
+      }
     }
   } catch (err) {
     console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
@@ -3520,10 +3549,16 @@ app.get("/api/status", async (req, res) => {
       continuousLoopIntervalMinutes,
       activeProcess: activeSystemProcess,
       activeProcessDescription: activeProcessDetails,
+      storageInfo: {
+        activeStore: getActiveStoreName(),
+        isMongoConnected: isMongoEnabled(),
+        isFirebaseDisabled: isFirebaseDisabled(),
+        isMongoPrimary: isMongoPrimary(),
+      },
     });
   }
 
-  await syncLocalFromCloudIfStale();
+  syncLocalFromCloudIfStale().catch(() => {});
 
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
@@ -3582,6 +3617,12 @@ app.get("/api/status", async (req, res) => {
     continuousLoopIntervalMinutes,
     activeProcess: activeSystemProcess,
     activeProcessDescription: activeProcessDetails,
+    storageInfo: {
+      activeStore: getActiveStoreName(),
+      isMongoConnected: isMongoEnabled(),
+      isFirebaseDisabled: isFirebaseDisabled(),
+      isMongoPrimary: isMongoPrimary(),
+    },
   });
 });
 
@@ -3889,8 +3930,13 @@ app.post("/api/start-login", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot start login while the Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
+  if (isBusy() || activeSystemProcess !== "none") {
+    return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish." });
+  }
+
+  const lock = acquireProcessLock("authenticating", "Interactive credential login");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   // 1. Check profiles
@@ -3899,6 +3945,7 @@ app.post("/api/start-login", async (req, res) => {
 
   // 2. Check if we reached the maximum of 5 accounts only if creating a new profile
   if (!existingProfile && profiles.length >= 5) {
+    releaseProcessLock("authenticating");
     return res.status(400).json({ error: "Maximum limit of 5 accounts reached. Please delete an existing profile to add a new one." });
   }
 
@@ -3912,12 +3959,14 @@ app.post("/api/start-login", async (req, res) => {
       loginState = { status: mappedStatus, message: result.message };
       if (result.status !== "requires_otp") {
         botStatus = "Idle";
+        releaseProcessLock("authenticating");
       } else {
         botStatus = "Verifying Code";
       }
     })
     .catch((error) => {
       botStatus = "Idle";
+      releaseProcessLock("authenticating");
       loginState = { status: "failed", message: (error as Error).message };
     });
 
@@ -3941,6 +3990,7 @@ app.post("/api/submit-otp", async (req, res) => {
   // Run asynchronously in background to prevent 504 Gateway Timeout on AWS/Nginx proxy
   executeSubmitOtp(otp)
     .then((result) => {
+      releaseProcessLock("authenticating");
       loginState = { status: result.status, message: result.message };
       botStatus = "Idle";
       if (result.status === "success") {
@@ -3952,6 +4002,7 @@ app.post("/api/submit-otp", async (req, res) => {
       }
     })
     .catch((error) => {
+      releaseProcessLock("authenticating");
       botStatus = "Idle";
       loginState = { status: "failed", message: (error as Error).message };
     });
@@ -3964,6 +4015,7 @@ app.post("/api/cancel-login", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot cancel login while the Continuous Automation Loop is active." });
   }
+  releaseProcessLock("authenticating");
   try {
     await executeCancelLogin();
     botStatus = "Idle";
@@ -3978,6 +4030,7 @@ app.post("/api/cancel-login", async (req, res) => {
 
 // 5.3b. Reset login state to idle cleanly (for logging into another account)
 app.post("/api/reset-login-state", async (req, res) => {
+  releaseProcessLock("authenticating");
   try {
     if (activeLoginSession) {
       await activeLoginSession.browser.close().catch(() => {});
@@ -3996,8 +4049,13 @@ app.post("/api/retry-single", async (req, res) => {
     return res.status(400).json({ error: "Missing coin symbol." });
   }
 
-  if (isBusy() || isPostingRunning || isGeneratingRunning) {
-    return res.status(400).json({ error: "An automated posting process is currently active. Please wait for the current coin to finish." });
+  if (isBusy() || isPostingRunning || isGeneratingRunning || isSchedulerCycleRunning) {
+    return res.status(409).json({ error: "Another automated process is currently active. Please wait for the current coin to finish." });
+  }
+
+  const lock = acquireProcessLock("retry_single", `Retrying post for ${symbol}`);
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   // Lock status to active posting so other frontend elements disable and pause updates correctly
@@ -4077,8 +4135,10 @@ app.post("/api/retry-single", async (req, res) => {
     addLog("error", `Error in individual retry: ${(error as Error).message}`);
     return res.status(500).json({ error: (error as Error).message });
   } finally {
+    releaseProcessLock("retry_single");
     isPostingRunning = false;
     botStatus = "Idle";
+    currentCoinName = "N/A";
   }
 });
 
@@ -4897,6 +4957,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
   }
   isPostingRunning = true;
 
+  const isHaltRequested = () => {
+    if (isSchedulerCall) {
+      return stopSchedulerRequested;
+    }
+    return isSingleStopping || isStopping || !isPostingRunning;
+  };
+
   const logWithPrefix = (level: "info" | "success" | "warning" | "error", message: string, profileId?: string) => {
     addLog(level, `${prefix}${message}`, profileId);
   };
@@ -4924,6 +4991,11 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       }
     } catch (err) {
       logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
+    }
+
+    if (isHaltRequested()) {
+      logWithPrefix("warning", "Posting loop paused: stop command was received during session verification.");
+      return { posted: 0, failed: 0, stopReason: "stopped_by_user" };
     }
 
     // CRITICAL: Re-read active paths, messages, and results after session check and autoSyncSessionToProfiles!
@@ -4969,10 +5041,20 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
     logWithPrefix("info", `Queue verified: ${initialPendingCount} coins pending out of ${messages.length} total comments.`);
 
+    if (isHaltRequested()) {
+      return { posted: 0, failed: 0, stopReason: "stopped_by_user" };
+    }
+
     // Re-assert posting state
     isPostingRunning = true;
-    if (!isSchedulerCall) isSinglePostingRunning = true;
+    if (!isSchedulerCall) {
+      isSinglePostingRunning = true;
+    }
     botStatus = "Posting";
+
+    if (isHaltRequested()) {
+      return { posted: 0, failed: 0, stopReason: "stopped_by_user" };
+    }
 
     try {
       logWithPrefix("info", "Pre-launching single shared Playwright browser instance for full posting sequence...");
@@ -4993,13 +5075,6 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       logWithPrefix("warning", `Pre-launching shared browser failed: ${(browserErr as Error).message}. Will launch context on-demand for individual posts.`);
       sharedBrowser = null;
     }
-
-    const isHaltRequested = () => {
-      if (isSchedulerCall) {
-        return stopSchedulerRequested;
-      }
-      return isSingleStopping || isStopping;
-    };
 
     while (isPostingRunning && !isHaltRequested() && currentPostingIndex < messages.length) {
       const item = messages[currentPostingIndex];
@@ -5170,7 +5245,11 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         logWithPrefix("info", `[AUTOMATION] Continuous automation mode is enabled. Triggering ${continuousLoopIntervalMinutes}-minute gap interval...`);
         scheduleNextAutomationCycle();
       }
-    } else if (!isPostingRunning && stopReason === "completed") {
+    } else if (stopReason === "stopped_daily_limit" || stopReason === "stopped_captcha" || stopReason === "skipped_expired" || stopReason === "failed") {
+      botStatus = "Idle";
+      isPostingRunning = false;
+      if (!isSchedulerCall) isSinglePostingRunning = false;
+    } else if (!isPostingRunning) {
       logWithPrefix("info", `Posting run settled. (Posted: ${runPosted}, Failed: ${runFailed})`);
       botStatus = "Idle";
     }
@@ -5233,8 +5312,12 @@ app.post("/api/full-flow", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
-  if (isBusy() && !isPostingRunning) {
-    return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
+  if (isBusy() || isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning) {
+    return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish or stop it first." });
+  }
+  const lock = acquireProcessLock("continuous_loop", "Full bot flow cycle");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   addLog("info", "========================================");
@@ -5260,6 +5343,8 @@ app.post("/api/full-flow", async (req, res) => {
       addLog("info", `[FLOW RESUME] Resuming the posting sequence from index ${prevProgress.next_index}...`);
       
       if (!isPostingRunning) {
+        isStopping = false;
+        isSingleStopping = false;
         isPostingRunning = true;
         botStatus = "Posting";
         currentPostingIndex = prevProgress.next_index;
@@ -5302,11 +5387,14 @@ app.post("/api/full-flow", async (req, res) => {
     if (isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Generation phase.");
       botStatus = "Idle";
+      releaseProcessLock("continuous_loop");
       return res.json({ success: false, message: "Sequence aborted by user." });
     }
 
     // Step 3: Post
     addLog("info", "[FLOW STEP 3/3] Launching automated comment submitter...");
+    isStopping = false;
+    isSingleStopping = false;
     isPostingRunning = true;
     botStatus = "Posting";
     currentPostingIndex = 0;
@@ -5317,6 +5405,7 @@ app.post("/api/full-flow", async (req, res) => {
       message: "End-to-End sequence started successfully. Monitoring logs...",
     });
   } catch (error) {
+    releaseProcessLock("continuous_loop");
     addLog("error", `Full Flow failed: ${(error as Error).message}`);
     botStatus = "Idle";
     isPostingRunning = false;
@@ -5548,8 +5637,8 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     const currentSettings = getLocalBotSettings();
     if (!currentSettings.schedulerEnabled) return;
 
-    if (isPostingRunning || isContinuousLoopActive || botStatus === "Fetching" || botStatus === "Generating") {
-      addLog("warning", "[SCHEDULER] User's single-account task is currently active. Postponing scheduled cycle by 2 minutes...");
+    if (isPostingRunning || isSinglePostingRunning || isContinuousLoopActive || isBusy() || activeSystemProcess !== "none") {
+      addLog("warning", "[SCHEDULER] User's manual single-account task is currently active. Postponing scheduled cycle by 2 minutes...");
       scheduleNextSchedulerCycle(2 * 60 * 1000);
       return;
     }
@@ -5565,6 +5654,11 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
 async function runScheduledCycle(): Promise<void> {
   if (isSchedulerCycleRunning) {
     addLog("warning", "[SCHEDULER] A scheduled multi-account cycle is already running. Skipping overlapping execution.");
+    return;
+  }
+  if ((isBusy() && activeSystemProcess !== "none") || isSinglePostingRunning || isPostingRunning) {
+    addLog("warning", "[SCHEDULER] Another process or manual posting is currently active. Postponing scheduled cycle by 2 minutes...");
+    scheduleNextSchedulerCycle(2 * 60 * 1000);
     return;
   }
   const lock = acquireProcessLock("scheduler_cycle", "Sequential multi-account cycle");

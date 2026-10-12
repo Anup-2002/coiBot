@@ -260,6 +260,12 @@ export default function App() {
     openaiError?: string | null;
     geminiError?: string | null;
   }>({ openai: false, gemini: false, cmc: false, openaiError: null, geminiError: null });
+  const [storageInfo, setStorageInfo] = useState<{
+    activeStore?: string;
+    isMongoConnected?: boolean;
+    isFirebaseDisabled?: boolean;
+    isMongoPrimary?: boolean;
+  }>({});
   const [isContinuousLoopActive, setIsContinuousLoopActive] = useState<boolean>(false);
   const [nextCycleStartTime, setNextCycleStartTime] = useState<number | null>(null);
   const [continuousInterval, setContinuousInterval] = useState<number>(20);
@@ -1077,6 +1083,9 @@ export default function App() {
           if (JSON.stringify(prev) === JSON.stringify(apiStat)) return prev;
           return apiStat;
         });
+        if (data.storageInfo) {
+          setStorageInfo(data.storageInfo);
+        }
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
         setNextCycleStartTime(data.nextCycleStartTime);
         if (data.continuousLoopIntervalMinutes !== undefined && !isInitialIntervalLoaded.current) {
@@ -1091,12 +1100,13 @@ export default function App() {
         // Synchronize stopping & starting status
         if (data.status === "Stopping" || data.isStopping) {
           setIsStoppingPost(true);
-        } else if (data.status === "Idle" && !data.isStopping) {
+        } else {
           setIsStoppingPost(false);
-          setIsStartingPost(false);
-        }
-        if (data.status === "Posting") {
-          setIsStartingPost(false);
+          if (data.status === "Posting") {
+            setIsStartingPost(false);
+          } else if (data.status === "Idle" || data.status === "Completed") {
+            setIsStartingPost(false);
+          }
         }
 
         if (data.sessionStatus === "Session active") {
@@ -1324,7 +1334,8 @@ export default function App() {
         setStatus("Stopping");
       }
       if (endpoint.includes("post-chat")) {
-        setIsStartingPost(true);
+        setIsStartingPost(false);
+        setIsStoppingPost(false);
         setStatus("Posting");
       }
       if (endpoint.includes("clear-all")) {
@@ -1654,6 +1665,23 @@ export default function App() {
               ) : (
                 <span className="text-blue-400 font-bold flex items-center gap-1">
                   <Globe className="h-3 w-3" /> CG Public
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-[11px] sm:text-xs">
+              <span className="text-slate-400 font-mono">DB:</span>
+              {storageInfo.isFirebaseDisabled ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
+                  <Database className="h-3 w-3 text-emerald-400" /> Mongo (Quota Safe)
+                </span>
+              ) : storageInfo.isMongoConnected ? (
+                <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
+                  <Database className="h-3 w-3 text-cyan-400" /> Mongo + Cloud
+                </span>
+              ) : (
+                <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
+                  <Database className="h-3 w-3 text-amber-400" /> Firebase
                 </span>
               )}
             </div>
