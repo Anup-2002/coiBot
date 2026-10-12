@@ -731,9 +731,48 @@ let currentCoinName = "N/A";
 let activePostingTimeout: NodeJS.Timeout | null = null;
 let currentPostingIndex = 0;
 let isPostingRunning = false;
+let isSinglePostingRunning = false;
+let isSingleStopping = false;
 let isGeneratingRunning = false;
 let isStopping = false;
 const runMode = "Real Browser";
+
+// Global Process Mutex System to guarantee strict process isolation
+export type SystemProcessType =
+  | "none"
+  | "single_posting"
+  | "scheduler_cycle"
+  | "continuous_loop"
+  | "fetching_coins"
+  | "generating_comments"
+  | "refresh_fresh"
+  | "retry_single"
+  | "authenticating"
+  | "checking_login"
+  | "clearing_storage";
+
+let activeSystemProcess: SystemProcessType = "none";
+let activeProcessDetails: string = "";
+
+function acquireProcessLock(type: SystemProcessType, description: string): { success: boolean; reason?: string } {
+  if (activeSystemProcess !== "none" && activeSystemProcess !== type) {
+    const desc = activeProcessDetails || activeSystemProcess;
+    return {
+      success: false,
+      reason: `Another automated process (${desc}) is currently active. Please wait for it to complete or stop it first.`
+    };
+  }
+  activeSystemProcess = type;
+  activeProcessDetails = description;
+  return { success: true };
+}
+
+function releaseProcessLock(type: SystemProcessType): void {
+  if (activeSystemProcess === type) {
+    activeSystemProcess = "none";
+    activeProcessDetails = "";
+  }
+}
 
 let lastOpenAiError: string | null = null;
 let lastGeminiError: string | null = null;
@@ -843,6 +882,8 @@ async function triggerFullFlowExecution() {
 
     // Step 3: Post
     addLog("info", "[FLOW STEP 3/3] Launching automated comment submitter...");
+    isStopping = false;
+    stopSchedulerRequested = false;
     isPostingRunning = true;
     botStatus = "Posting";
     currentPostingIndex = 0;
@@ -896,6 +937,7 @@ let stopSchedulerRequested = false;
 
 function isBusy(): boolean {
   return (
+    activeSystemProcess !== "none" ||
     botStatus === "Fetching" ||
     botStatus === "Generating" ||
     botStatus === "Posting" ||
@@ -904,6 +946,7 @@ function isBusy(): boolean {
     botStatus === "Verifying Code" ||
     botStatus === "Checking Login" ||
     isPostingRunning ||
+    isSinglePostingRunning ||
     isGeneratingRunning ||
     isSchedulerCycleRunning
   );
@@ -3475,6 +3518,8 @@ app.get("/api/status", async (req, res) => {
       isContinuousLoopActive: false,
       nextCycleStartTime: null,
       continuousLoopIntervalMinutes,
+      activeProcess: activeSystemProcess,
+      activeProcessDescription: activeProcessDetails,
     });
   }
 
@@ -3535,6 +3580,8 @@ app.get("/api/status", async (req, res) => {
     isContinuousLoopActive,
     nextCycleStartTime,
     continuousLoopIntervalMinutes,
+    activeProcess: activeSystemProcess,
+    activeProcessDescription: activeProcessDetails,
   });
 });
 
@@ -3737,9 +3784,9 @@ app.get("/api/verify-env", (req, res) => {
       gemini: {
         configured: hasGemini,
         maskedKey: hasGemini ? `${(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!.slice(0, 6)}...` : null,
-        model: "gemini-3.5-flash"
+        model: "gemini-3.8-flash"
       },
-      activeAiModel: hasOpenAi ? "OpenAI (gpt-4o-mini)" : hasGemini ? "Gemini (gemini-3.5-flash)" : "Rule-based templates (No AI Key)"
+      activeAiModel: hasOpenAi ? "OpenAI (gpt-4o-mini)" : hasGemini ? "Gemini (gemini-3.8-flash)" : "Rule-based templates (No AI Key)"
     },
     dataSources: {
       coinMarketCapApi: {
@@ -3765,14 +3812,16 @@ app.post("/api/check-login", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot check session while the Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another process is currently running. Please wait for it to finish." });
+  const lock = acquireProcessLock("checking_login", "Verifying CoinMarketCap session");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
   addLog("info", "Checking live login session validity on CoinMarketCap using Playwright...");
   botStatus = "Checking Login";
 
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!sessionExists) {
+    releaseProcessLock("checking_login");
     addLog("error", "Login check failed: auth/state.json does not exist. Please upload active session cookies.");
     botStatus = "Idle";
     
@@ -3825,6 +3874,8 @@ app.post("/api/check-login", async (req, res) => {
     } catch (_) {}
 
     return res.json({ status: "failed", message: (err as Error).message });
+  } finally {
+    releaseProcessLock("checking_login");
   }
 });
 
@@ -4437,14 +4488,14 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     }
   }
 
-  // 2. Fallback Model: Gemini gemini-3.5-flash (Send ONLY missing coins - Item 6)
+  // 2. Fallback Model: Gemini gemini-2.5-flash (Send ONLY missing coins - Item 6)
   const missingForGemini = getMissingCoins();
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (missingForGemini.length > 0 && geminiKey) {
     try {
       lastGeminiError = null; // Reset previous error if we have a key and are trying again
-      addLog("info", `Using Gemini API (gemini-3.5-flash) to generate ${missingForGemini.length} missing comments...`);
+      addLog("info", `Using Gemini API (gemini-2.5-flash) to generate ${missingForGemini.length} missing comments...`);
       const ai = new GoogleGenAI({
         apiKey: geminiKey,
         httpOptions: {
@@ -4461,7 +4512,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
           break;
         }
         const chunk = missingForGemini.slice(i, i + batchSize);
-        addLog("info", `Generating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingForGemini.length / batchSize)} with gemini-3.5-flash (${chunk.length} coins)...`);
+        addLog("info", `Generating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingForGemini.length / batchSize)} with gemini-2.5-flash (${chunk.length} coins)...`);
 
         const prompt = `
           Generate ONE unique, creative, organic CoinMarketCap community comment for EACH of the following coins based on their recent market data, AND classify the sentiment as either "bullish" or "bearish".
@@ -4495,7 +4546,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         for (let gAttempt = 1; gAttempt <= 3; gAttempt++) {
           try {
             response = await ai.models.generateContent({
-              model: "gemini-3.5-flash",
+              model: "gemini-2.5-flash",
               contents: prompt,
               config: {
                 responseMimeType: "application/json",
@@ -4613,21 +4664,19 @@ app.post("/api/fetch-trending", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
+  const lock = acquireProcessLock("fetching_coins", "Fetching trending coins from CoinMarketCap");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const prevProgress = readBotProgress();
   if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
+    releaseProcessLock("fetching_coins");
     addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
     return res.status(400).json({
       error: `A posting run is in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please complete it or click Reset Storage first.`
     });
-  }
-
-  if (botStatus === "Fetching") {
-    return res.status(409).json({ error: "Cryptocurrencylistings fetch is already in progress." });
   }
 
   addLog("info", "Starting cryptocurrency listings fetch...");
@@ -4643,6 +4692,8 @@ app.post("/api/fetch-trending", async (req, res) => {
     addLog("error", `Failed fetching coins: ${(error as Error).message}`);
     botStatus = "Idle";
     res.status(500).json({ status: "error", message: (error as Error).message });
+  } finally {
+    releaseProcessLock("fetching_coins");
   }
 });
 
@@ -4651,17 +4702,15 @@ app.post("/api/generate-messages", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
-  }
-
-  if (isGeneratingRunning) {
-    return res.status(409).json({ error: "A message generation run is already in progress." });
+  const lock = acquireProcessLock("generating_comments", "Generating AI comments for coins");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   // DATA CONSISTENCY CHECK: Ensure we actually have trending coins
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
+    releaseProcessLock("generating_comments");
     addLog("error", "Data inconsistency: Trending coins list is empty. Please fetch trending data first.");
     return res.status(400).json({ error: "Cannot generate comments: Trending coins list is empty. Please fetch trending data first." });
   }
@@ -4669,6 +4718,7 @@ app.post("/api/generate-messages", async (req, res) => {
   const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const prevProgress = readBotProgress();
   if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
+    releaseProcessLock("generating_comments");
     addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
     return res.status(400).json({
       error: `A posting run is in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please complete it or click Reset Storage first.`
@@ -4691,6 +4741,7 @@ app.post("/api/generate-messages", async (req, res) => {
     res.status(500).json({ status: "error", message: (error as Error).message });
   } finally {
     isGeneratingRunning = false;
+    releaseProcessLock("generating_comments");
   }
 });
 
@@ -4699,9 +4750,11 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Another process is currently running. Please wait for it to finish." });
+  const lock = acquireProcessLock("refresh_fresh", "Refreshing trending coins & AI comments");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
+
   try {
     addLog("info", "[FRESH RUN] Fetching new cryptocurrency trending listings from CoinMarketCap...");
     botStatus = "Fetching";
@@ -4729,6 +4782,8 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
     isGeneratingRunning = false;
     addLog("error", `[FRESH RUN] Failed to refresh trending data & comments: ${(error as Error).message}`);
     res.status(500).json({ error: (error as Error).message });
+  } finally {
+    releaseProcessLock("refresh_fresh");
   }
 });
 
@@ -4737,28 +4792,30 @@ app.post("/api/post-chat", (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
-  if (isBusy() && !isPostingRunning) {
-    return res.status(400).json({ error: "Another automated process is currently running. Please wait for it to finish." });
+  if (isPostingRunning || isSinglePostingRunning) {
+    return res.json({ status: "success", message: "Bot posting sequence is already active." });
   }
 
-  if (isPostingRunning) {
-    return res.json({ status: "success", message: "Bot posting sequence is already active." });
+  const lock = acquireProcessLock("single_posting", "Posting comments to CoinMarketCap");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
 
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
 
   if (coins.length === 0) {
+    releaseProcessLock("single_posting");
     addLog("error", "Data inconsistency: Trending coins list is empty. Please fetch trending data first.");
     return res.status(400).json({ error: "Cannot start posting: Trending coins list is empty. Please fetch trending data and generate comments first." });
   }
 
   if (messages.length === 0) {
+    releaseProcessLock("single_posting");
     addLog("error", "Data inconsistency: Generated comments are empty. Please generate comments first.");
     return res.status(400).json({ error: "Cannot start posting: No generated comments found. Please generate comments first." });
   }
 
-  // Let's also verify that there is no misalignment (e.g. they should correspond to the active profile's latest session)
   addLog("info", `Consistency check passed: ${coins.length} coins and ${messages.length} comments are loaded for the active account.`);
 
   // Stale Market Data Check (2+ days / 48 hours old)
@@ -4777,8 +4834,8 @@ app.post("/api/post-chat", (req, res) => {
     addLog("warning", `[DATA STALE WARNING] Trending data or AI comments are ~${daysOld} days old (>48 hours). Market prices shift rapidly. Recommend fetching fresh trending coins before posting.`);
   }
 
-  // If data is older than 2 days (>48 hours) and user has not explicitly forced posting
   if (isDataStale && !req.body?.force) {
+    releaseProcessLock("single_posting");
     return res.json({
       status: "stale_warning",
       isDataStale: true,
@@ -4790,15 +4847,19 @@ app.post("/api/post-chat", (req, res) => {
     });
   }
 
+  isStopping = false;
+  isSingleStopping = false;
   isPostingRunning = true;
+  isSinglePostingRunning = true;
   botStatus = "Posting";
   addLog("info", "Initiating automated posting cycle...");
 
-  // Start from index 0 to scan and find all pending coins, skipping any completed or failed ones
   currentPostingIndex = 0;
 
   // Start asynchronous runner
-  runPostingLoop();
+  runPostingLoop().catch((err) => {
+    addLog("error", `Posting runner encountered error: ${(err as Error).message}`);
+  });
 
   res.json({
     status: "success",
@@ -4821,17 +4882,29 @@ export interface PostingLoopSummary {
 
 // Asynchronous Posting Loop
 async function runPostingLoop(options: PostingLoopOptions = {}): Promise<PostingLoopSummary> {
+  const isSchedulerCall = Boolean(options.accountLogPrefix);
   const scheduleNextCycle = options.scheduleNextCycle ?? true;
   const disableLoopOnFailures = options.disableLoopOnFailures ?? true;
   const prefix = options.accountLogPrefix || "";
+
+  // Reset cancellation flags for this specific execution context
+  if (isSchedulerCall) {
+    stopSchedulerRequested = false;
+  } else {
+    isStopping = false;
+    isSingleStopping = false;
+    isSinglePostingRunning = true;
+  }
+  isPostingRunning = true;
 
   const logWithPrefix = (level: "info" | "success" | "warning" | "error", message: string, profileId?: string) => {
     addLog(level, `${prefix}${message}`, profileId);
   };
 
-  const activeId = getActiveProfileId();
-  const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-  const results = getIsolatedResults(activeId);
+  let activeId = getActiveProfileId();
+  updateActiveProfilePaths();
+  let messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  let results = getIsolatedResults(activeId);
   
   let consecutiveFailures = 0;
   let sharedBrowser: any = null;
@@ -4853,24 +4926,53 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
     }
 
-    // Find the first truly pending coin in the list
-    const firstPendingIdx = messages.findIndex(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
-    if (firstPendingIdx === -1) {
-      logWithPrefix("success", "All coins in the queue have already been processed (either successfully posted or failed). No pending coins left to post.");
+    // CRITICAL: Re-read active paths, messages, and results after session check and autoSyncSessionToProfiles!
+    updateActiveProfilePaths();
+    activeId = getActiveProfileId();
+    messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+    results = getIsolatedResults(activeId);
+
+    if (messages.length === 0) {
+      logWithPrefix("error", "Data inconsistency: Generated comments queue is empty for this account. Please generate comments before posting.");
       isPostingRunning = false;
+      if (!isSchedulerCall) isSinglePostingRunning = false;
+      botStatus = "Idle";
+      currentCoinName = "N/A";
+      return { posted: 0, failed: 0, stopReason: "completed" };
+    }
+
+    const matchSymbol = (a?: string, b?: string) => {
+      const sa = String(a || "").trim().toLowerCase();
+      const sb = String(b || "").trim().toLowerCase();
+      return sa.length > 0 && sa === sb;
+    };
+
+    // Find truly pending coins safely
+    const pendingList = messages.filter(msgItem => !results.some(r => matchSymbol(r.symbol, msgItem.symbol)));
+    if (pendingList.length === 0) {
+      logWithPrefix("success", `All ${messages.length} coins in the queue have already been processed (either successfully posted or failed). No pending coins left to post.`);
+      isPostingRunning = false;
+      if (!isSchedulerCall) isSinglePostingRunning = false;
       botStatus = "Completed";
       currentCoinName = "N/A";
-      if (isContinuousLoopActive && scheduleNextCycle) {
+      if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
         logWithPrefix("info", `[AUTOMATION] All coins already processed. Triggering ${continuousLoopIntervalMinutes}-minute gap interval before next cycle...`);
         scheduleNextAutomationCycle();
       }
       return { posted: 0, failed: 0, stopReason: "completed" };
     }
-    currentPostingIndex = firstPendingIdx;
 
-    const initialPendingList = messages.filter(msgItem => !results.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
-    const initialPendingCount = initialPendingList.length;
+    const firstPendingIdx = messages.findIndex(msgItem => !results.some(r => matchSymbol(r.symbol, msgItem.symbol)));
+    currentPostingIndex = firstPendingIdx !== -1 ? firstPendingIdx : 0;
+    const initialPendingCount = pendingList.length;
     let activeQueueNum = 0;
+
+    logWithPrefix("info", `Queue verified: ${initialPendingCount} coins pending out of ${messages.length} total comments.`);
+
+    // Re-assert posting state
+    isPostingRunning = true;
+    if (!isSchedulerCall) isSinglePostingRunning = true;
+    botStatus = "Posting";
 
     try {
       logWithPrefix("info", "Pre-launching single shared Playwright browser instance for full posting sequence...");
@@ -4884,14 +4986,24 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           "--disable-blink-features=AutomationControlled",
         ]
       });
+      if (sharedBrowser) {
+        logWithPrefix("info", "Shared Playwright browser instance pre-launched successfully.");
+      }
     } catch (browserErr) {
-      logWithPrefix("error", `Failed to pre-launch shared browser: ${(browserErr as Error).message}. Will launch on-demand.`);
+      logWithPrefix("warning", `Pre-launching shared browser failed: ${(browserErr as Error).message}. Will launch context on-demand for individual posts.`);
+      sharedBrowser = null;
     }
 
-    while (isPostingRunning && !isStopping && !stopSchedulerRequested && currentPostingIndex < messages.length) {
+    const isHaltRequested = () => {
+      if (isSchedulerCall) {
+        return stopSchedulerRequested;
+      }
+      return isSingleStopping || isStopping;
+    };
+
+    while (isPostingRunning && !isHaltRequested() && currentPostingIndex < messages.length) {
       const item = messages[currentPostingIndex];
       
-      // Item 15: Per-account daily post limit check (default 500 posts/day)
       const MAX_DAILY_POSTS = getAccountDailyPostLimit();
       const progressData = readBotProgress();
       const todayStr = getTodayDateString();
@@ -4901,17 +5013,19 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         stopReason = "stopped_daily_limit";
         logWithPrefix("warning", `[DAILY LIMIT] Account reached daily limit of ${MAX_DAILY_POSTS} posts for ${todayStr} (Count: ${dailyPostCount}/${MAX_DAILY_POSTS}). Halting run.`);
         isPostingRunning = false;
+        if (!isSchedulerCall) isSinglePostingRunning = false;
         botStatus = "Completed";
-        if (isContinuousLoopActive && scheduleNextCycle) {
+        if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
           scheduleNextAutomationCycle();
         }
         break;
       }
 
-      // Check if this coin has already been successfully or unsuccessfully posted
+      // Check if this coin has already been posted or recorded
       const currentResults = getIsolatedResults(activeId);
-      const existingResult = currentResults.find(r => r.symbol.toLowerCase() === item.symbol.toLowerCase());
+      const existingResult = currentResults.find(r => matchSymbol(r.symbol, item?.symbol));
       if (existingResult) {
+        logWithPrefix("info", `[SKIP] Coin ${item.symbol} was already processed (${existingResult.status}). Moving to next.`);
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
         continue;
@@ -4924,10 +5038,9 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       logWithPrefix("info", `----------------------------------------`);
       logWithPrefix("info", `Executing Post Sequence [Queue Item #${activeQueueNum} of ${initialPendingCount} remaining]: ${currentCoinName}`);
 
-      // Wait 1-2 seconds to simulate browser startup/navigation
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
 
-      if (!isPostingRunning || isStopping || stopSchedulerRequested) {
+      if (!isPostingRunning || isHaltRequested()) {
         stopReason = "stopped_by_user";
         break;
       }
@@ -5005,13 +5118,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
-        // Item 14: Stop account posting run immediately on captcha or expired session instead of looping through all remaining coins
         if (outcome === "expired" || outcome === "captcha") {
           stopReason = outcome === "expired" ? "skipped_expired" : "stopped_captcha";
           logWithPrefix("error", `CRITICAL: Automated posting halted immediately because account session is ${outcome.toUpperCase()} (${messageText}). Stopping run to protect account.`);
           isPostingRunning = false;
+          if (!isSchedulerCall) isSinglePostingRunning = false;
           botStatus = "Idle";
-          if (isContinuousLoopActive && disableLoopOnFailures) {
+          if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
             cancelNextAutomationCycle();
             logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to ${outcome} session state. Re-authenticate account to resume.`);
           }
@@ -5022,8 +5135,9 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           stopReason = "failed";
           logWithPrefix("error", "CRITICAL: Automated posting paused due to 3 consecutive failures. Please verify your CoinMarketCap login session and cookies.");
           isPostingRunning = false;
+          if (!isSchedulerCall) isSinglePostingRunning = false;
           botStatus = "Idle";
-          if (isContinuousLoopActive && disableLoopOnFailures) {
+          if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
             cancelNextAutomationCycle();
             logWithPrefix("error", "[AUTOMATION] Continuous automation loop disabled due to 3 consecutive authentication failures.");
           }
@@ -5032,7 +5146,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         logWithPrefix("info", "Skipping to next coin to maintain end-to-end automation run...");
       }
 
-      if (!isPostingRunning || isStopping || stopSchedulerRequested) {
+      if (!isPostingRunning || isHaltRequested()) {
         stopReason = "stopped_by_user";
         break;
       }
@@ -5043,27 +5157,38 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       await interruptibleSleep(spacing);
     }
 
-    if (isStopping || stopSchedulerRequested) {
+    if (isHaltRequested()) {
       stopReason = "stopped_by_user";
-    } else if (currentPostingIndex >= messages.length) {
+      logWithPrefix("warning", "Posting loop paused: stop command was received.");
+    } else if (currentPostingIndex >= messages.length || runPosted + runFailed >= initialPendingCount) {
       stopReason = "completed";
-      logWithPrefix("success", "CONGRATULATIONS: Complete automated posting run finished successfully!");
+      logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Posted: ${runPosted}, Failed: ${runFailed})`);
       botStatus = "Completed";
       isPostingRunning = false;
-      if (isContinuousLoopActive && scheduleNextCycle) {
+      if (!isSchedulerCall) isSinglePostingRunning = false;
+      if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
         logWithPrefix("info", `[AUTOMATION] Continuous automation mode is enabled. Triggering ${continuousLoopIntervalMinutes}-minute gap interval...`);
         scheduleNextAutomationCycle();
       }
     } else if (!isPostingRunning && stopReason === "completed") {
+      logWithPrefix("info", `Posting run settled. (Posted: ${runPosted}, Failed: ${runFailed})`);
       botStatus = "Idle";
     }
+  } catch (loopErr) {
+    stopReason = "failed";
+    logWithPrefix("error", `Critical error in automated posting loop: ${(loopErr as Error).message}`);
   } finally {
     if (sharedBrowser) {
       logWithPrefix("info", "Closing shared Playwright browser instance...");
       await sharedBrowser.close().catch(() => {});
       sharedBrowser = null;
     }
-    isPostingRunning = false;
+    if (!isSchedulerCall) {
+      isSinglePostingRunning = false;
+      isSingleStopping = false;
+      releaseProcessLock("single_posting");
+    }
+    isPostingRunning = isSchedulerCycleRunning;
     isStopping = false;
     if (botStatus !== "Completed") {
       botStatus = "Idle";
@@ -5077,21 +5202,28 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
 // 9. Stop posting loop
 app.post("/api/stop-posting", (req, res) => {
-  stopSchedulerRequested = true;
-  if (isSchedulerCycleRunning) {
-    addLog("warning", "[SCHEDULER] Stop requested during scheduled multi-account cycle. Halting current account cleanly and skipping remaining queue.");
-  }
-  if (isPostingRunning || isGeneratingRunning || isSchedulerCycleRunning || botStatus === "Posting" || botStatus === "Generating") {
-    isStopping = true;
-    botStatus = "Stopping";
-  } else {
-    isStopping = false;
-    botStatus = "Idle";
-  }
+  isStopping = true;
+  isSingleStopping = true;
   isPostingRunning = false;
+  isSinglePostingRunning = false;
   isGeneratingRunning = false;
   isFullFlowAborted = true;
   cancelNextAutomationCycle();
+
+  if (isSchedulerCycleRunning) {
+    stopSchedulerRequested = true;
+    addLog("warning", "[SCHEDULER] Stop requested during scheduled multi-account cycle. Halting current account cleanly and skipping remaining queue.");
+  }
+
+  releaseProcessLock("single_posting");
+  releaseProcessLock("continuous_loop");
+  releaseProcessLock("refresh_fresh");
+
+  if (isSchedulerCycleRunning || botStatus === "Posting" || botStatus === "Generating") {
+    botStatus = "Stopping";
+  } else {
+    botStatus = "Idle";
+  }
   addLog("warning", "Automated sequence stop requested. Gracefully finishing in-flight action and halting browser engine...");
   res.json({ success: true, message: "Stop signal sent. Halting engine cleanly..." });
 });
@@ -5201,8 +5333,9 @@ app.post("/api/clear-all", async (req, res) => {
   if (isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot reset storage / clear stats while the Continuous Automation Loop is active." });
   }
-  if (isBusy()) {
-    return res.status(400).json({ error: "Cannot reset storage / clear stats while another process is running." });
+  const lock = acquireProcessLock("clearing_storage", "Resetting storage and clearing stats");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
   try {
     logs = [];
@@ -5230,6 +5363,8 @@ app.post("/api/clear-all", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  } finally {
+    releaseProcessLock("clearing_storage");
   }
 });
 
@@ -5432,14 +5567,16 @@ async function runScheduledCycle(): Promise<void> {
     addLog("warning", "[SCHEDULER] A scheduled multi-account cycle is already running. Skipping overlapping execution.");
     return;
   }
-  if (isBusy() && !isSchedulerCycleRunning) {
-    addLog("warning", "[SCHEDULER] System is busy with single-account action. Postponing scheduled cycle by 2 minutes...");
+  const lock = acquireProcessLock("scheduler_cycle", "Sequential multi-account cycle");
+  if (!lock.success) {
+    addLog("warning", `[SCHEDULER] Cannot start scheduled cycle: ${lock.reason}. Postponing by 2 minutes...`);
     scheduleNextSchedulerCycle(2 * 60 * 1000);
     return;
   }
 
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled) {
+    releaseProcessLock("scheduler_cycle");
     addLog("info", "[SCHEDULER] Scheduler is disabled in settings. Skipping cycle.");
     return;
   }
@@ -5449,6 +5586,7 @@ async function runScheduledCycle(): Promise<void> {
 
   isSchedulerCycleRunning = true;
   stopSchedulerRequested = false;
+  isStopping = false;
   botStatus = "Fetching";
 
   try {
@@ -5669,11 +5807,14 @@ async function runScheduledCycle(): Promise<void> {
     addLog("error", `[SCHEDULER] Fatal error in scheduled cycle: ${(err as Error).message}`);
     botStatus = "Idle";
   } finally {
+    releaseProcessLock("scheduler_cycle");
     isSchedulerCycleRunning = false;
     currentSchedulerAccountId = null;
     schedulerQueue = [];
-    isPostingRunning = false;
-    botStatus = "Idle";
+    isPostingRunning = isSinglePostingRunning;
+    if (!isSinglePostingRunning && botStatus !== "Completed") {
+      botStatus = "Idle";
+    }
 
     // Restore original active profile so user's manual UI view is NEVER altered
     if (initialActiveProfileId) {
@@ -6160,12 +6301,11 @@ async function startServer() {
   // First, hydrate all files from Firestore cloud database
   await hydrateLocalFromCloud();
 
-  // Restart safety: if scheduler is enabled, schedule next cycle after configured interval (do not resume mid-account)
+  // Restart safety: if scheduler is enabled, schedule next multi-account cycle after configured interval (isolated from single posting)
   const initialSettings = getLocalBotSettings();
   if (initialSettings.schedulerEnabled) {
-    addLog("info", `[STARTUP] Sequential multi-account scheduler is ENABLED. Scheduling next cycle after ${continuousLoopIntervalMinutes}m interval.`);
-    isContinuousLoopActive = true;
-    scheduleNextAutomationCycle();
+    addLog("info", `[STARTUP] Sequential multi-account scheduler is ENABLED. Scheduling next multi-account cycle (isolated from single posting).`);
+    scheduleNextSchedulerCycle();
   }
 
   // Defensive: Normalize local auth/state.json if present on startup

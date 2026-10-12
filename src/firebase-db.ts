@@ -53,14 +53,14 @@ function getDb() {
     }
 
     // 2. Check if individual environment variables are provided
-    if (!firebaseConfig && process.env.FIREBASE_API_KEY) {
+    if (!firebaseConfig && (process.env.FIREBASE_API_KEY || process.env.FIREBASE_PROJECT_ID)) {
       firebaseConfig = {
-        apiKey: process.env.FIREBASE_API_KEY,
-        authDomain: process.env.FIREBASE_AUTH_DOMAIN || "cmc-bot-project2.firebaseapp.com",
+        apiKey: process.env.FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
+        authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${process.env.FIREBASE_PROJECT_ID || "cmc-bot-project2"}.firebaseapp.com`,
         projectId: process.env.FIREBASE_PROJECT_ID || "cmc-bot-project2",
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "cmc-bot-project2.firebasestorage.app",
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${process.env.FIREBASE_PROJECT_ID || "cmc-bot-project2"}.firebasestorage.app`,
         messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "1035058754010",
-        appId: process.env.FIREBASE_APP_ID || "1:1035058754010:web:8038d6776f5a5a49dad0e3",
+        appId: process.env.FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
         measurementId: process.env.FIREBASE_MEASUREMENT_ID || "G-J81TX46MQ6",
         databaseURL: process.env.FIREBASE_DATABASE_URL || "https://cmc-bot-project2-default-rtdb.firebaseio.com",
       };

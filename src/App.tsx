@@ -264,6 +264,8 @@ export default function App() {
   const [nextCycleStartTime, setNextCycleStartTime] = useState<number | null>(null);
   const [continuousInterval, setContinuousInterval] = useState<number>(20);
   const isInitialIntervalLoaded = useRef<boolean>(false);
+  const [activeProcess, setActiveProcess] = useState<string>("none");
+  const [activeProcessDescription, setActiveProcessDescription] = useState<string>("");
 
   // Smooth Action & Switching States
   const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
@@ -717,6 +719,7 @@ export default function App() {
     isPending.full ||
     isPending.login ||
     isPending.clear ||
+    (activeProcess !== "none" && activeProcess !== "") ||
     Boolean(schedulerData?.cycleRunning);
 
   // Browser Simulator Visual Typing State
@@ -1079,6 +1082,10 @@ export default function App() {
         if (data.continuousLoopIntervalMinutes !== undefined && !isInitialIntervalLoaded.current) {
           setContinuousInterval(data.continuousLoopIntervalMinutes);
           isInitialIntervalLoaded.current = true;
+        }
+        if (data.activeProcess !== undefined) {
+          setActiveProcess(data.activeProcess);
+          setActiveProcessDescription(data.activeProcessDescription || "");
         }
 
         // Synchronize stopping & starting status
@@ -2349,8 +2356,9 @@ export default function App() {
                 <span className="text-xs font-bold text-slate-300 mb-2">Cycle Execution Controls</span>
                 <div className="flex items-center gap-2">
                   <button
-                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning}
+                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
                     onClick={handleRunSchedulerNow}
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : "Run sequential cycle now"}
                     className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow"
                   >
                     <Play className="h-3.5 w-3.5" />
@@ -2510,6 +2518,21 @@ export default function App() {
                   Anti-Detection Active
                 </span>
               </div>
+
+              {/* ACTIVE PROCESS MUTEX BANNER */}
+              {activeProcess && activeProcess !== "none" && (
+                <div className="mb-3 px-3.5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center justify-between text-xs text-indigo-300 shadow-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400 shrink-0" />
+                    <span className="truncate text-[11px]">
+                      <strong className="text-white font-semibold">Process Active:</strong> {activeProcessDescription || activeProcess} (Other actions safely locked)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono uppercase bg-indigo-500/20 px-2 py-0.5 rounded font-bold border border-indigo-500/30 shrink-0">
+                    Locked
+                  </span>
+                </div>
+              )}
 
               {/* 2x2 MODERN ACTION DECK */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -4105,8 +4128,9 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning}
+                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
                     onClick={handleRunSchedulerNow}
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : "Run sequential cycle now"}
                     className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Play className="h-3.5 w-3.5" />
