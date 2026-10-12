@@ -177,6 +177,61 @@ let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
 let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
 let SETTINGS_FILE = path.join(AUTH_DIR, "settings.json");
 let SCHEDULER_LOG_FILE = path.join(OUTPUT_DIR, "scheduler.log");
+let MARKETING_IMAGES_DIR = path.join(OUTPUT_DIR, "marketing_images");
+
+try {
+  if (!fs.existsSync(MARKETING_IMAGES_DIR)) {
+    fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.error("[SERVER] Error creating MARKETING_IMAGES_DIR:", err);
+}
+
+app.use("/uploads/marketing_images", express.static(MARKETING_IMAGES_DIR));
+
+function getAvailableMarketingImages(): string[] {
+  try {
+    if (!fs.existsSync(MARKETING_IMAGES_DIR)) return [];
+    const validExts = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+    return fs.readdirSync(MARKETING_IMAGES_DIR)
+      .filter(f => validExts.includes(path.extname(f).toLowerCase()))
+      .sort();
+  } catch (_) {
+    return [];
+  }
+}
+
+function getNextSingleMarketingImage(): { filename: string; filePath: string } | null {
+  const images = getAvailableMarketingImages();
+  if (images.length === 0) return null;
+
+  const settings = getLocalBotSettings();
+  if (!settings.imageUploadEnabled) return null;
+
+  let selectedIndex = 0;
+  if (settings.imageSelectionMode === "random") {
+    selectedIndex = Math.floor(Math.random() * images.length);
+  } else {
+    // Cycle mode: pick current index and increment for next post
+    const currentIndex = typeof settings.activeImageIndex === "number" ? settings.activeImageIndex : 0;
+    selectedIndex = (currentIndex >= 0 && currentIndex < images.length) ? currentIndex : 0;
+    const nextIndex = (selectedIndex + 1) % images.length;
+    settings.activeImageIndex = nextIndex;
+    saveLocalBotSettings(settings);
+  }
+
+  const filename = images[selectedIndex];
+  let filePath = path.join(MARKETING_IMAGES_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
+    if (fs.existsSync(pubPath)) {
+      filePath = pubPath;
+    } else {
+      return null;
+    }
+  }
+  return { filename, filePath };
+}
 
 function getLocalBotSettings(): BotSettings {
   try {
@@ -2503,7 +2558,62 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
     }
     await page.waitForTimeout(300);
-    
+
+    // ==========================================
+    // Marketing Image Upload (Strictly 1 Image Per Comment)
+    // ==========================================
+    try {
+      const botSettings = getLocalBotSettings();
+      if (botSettings.imageUploadEnabled) {
+        const nextImage = getNextSingleMarketingImage();
+        if (nextImage && fs.existsSync(nextImage.filePath)) {
+          addLog("info", `Marketing image enabled: Attaching 1 image (${nextImage.filename}) to comment...`);
+          
+          // Selectors based on CoinMarketCap comment editor toolbar DOM:
+          // <span class="toolbar-item img" data-test="editor-img-button">
+          //   <label for="img-icon-..."><svg>...</svg></label>
+          //   <input type="file" class="input-file-node" id="img-icon-..." accept=".jpeg,.jpg,.png,.gif,..." multiple="">
+          // </span>
+          const fileInputSelectors = [
+            '.editor-toolbar input.input-file-node',
+            '[data-test="editor-img-button"] input[type="file"]',
+            '.editor-toolbar .toolbar-item.img input[type="file"]',
+            '.editor-toolbar input[type="file"]',
+            'input.input-file-node[type="file"]',
+            'input[type="file"][accept*="png"]',
+            'input[type="file"]'
+          ];
+          
+          let fileInputHandle = null;
+          for (const sel of fileInputSelectors) {
+            fileInputHandle = await page.$(sel);
+            if (fileInputHandle) {
+              addLog("info", `Located file input selector: ${sel}`);
+              break;
+            }
+          }
+
+          if (fileInputHandle) {
+            // Strictly 1 image passed as a single file path string
+            await fileInputHandle.setInputFiles(nextImage.filePath);
+            addLog("success", `Successfully attached 1 marketing image: ${nextImage.filename}`);
+            
+            // Allow CMC editor to process and render the single image preview thumbnail
+            await page.waitForTimeout(1500);
+            
+            // Verify or wait for thumbnail preview to appear
+            await page.waitForSelector('.editor-image-preview, [class*="preview"], [class*="image-item"], .upload-image-preview', { timeout: 4000 }).catch(() => {});
+          } else {
+            addLog("warning", "File input element not found in comment editor toolbar. Posting text-only.");
+          }
+        } else {
+          addLog("info", "Image upload is enabled, but no marketing image files are available in library.");
+        }
+      }
+    } catch (imgErr) {
+      addLog("warning", `Marketing image attachment encountered error: ${(imgErr as Error).message}. Continuing post resiliently...`);
+    }
+
     // Find and toggle sentiment (Bullish or Bearish)
     const isBullish = sentiment !== "bearish";
     const sentimentSelectors = isBullish ? [
@@ -3555,6 +3665,10 @@ app.get("/api/status", async (req, res) => {
         isFirebaseDisabled: isFirebaseDisabled(),
         isMongoPrimary: isMongoPrimary(),
       },
+      imageUploadEnabled: getLocalBotSettings().imageUploadEnabled || false,
+      imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
+      activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
+      availableImagesCount: getAvailableMarketingImages().length,
     });
   }
 
@@ -3590,8 +3704,7 @@ app.get("/api/status", async (req, res) => {
     generatedMessages: messages.length,
     postedCount: results.filter(r => r.status === "success").length,
     failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
-    results,
-    progressIndex: progress.next_index,
+    progressIndex: Math.max(0, Math.min(progress.next_index || 0, Math.max(coins.length, messages.length))),
     dailyPostCount: progress.daily_post_count || 0,
     dailyPostLimit,
     lastPostDate: progress.last_post_date || getTodayDateString(),
@@ -3623,12 +3736,347 @@ app.get("/api/status", async (req, res) => {
       isFirebaseDisabled: isFirebaseDisabled(),
       isMongoPrimary: isMongoPrimary(),
     },
+    imageUploadEnabled: getLocalBotSettings().imageUploadEnabled || false,
+    imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
+    activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
+    availableImagesCount: getAvailableMarketingImages().length,
   });
 });
 
 // 4.5. Set run mode endpoint (Deprecated - Simulation mode is completely removed)
 app.post("/api/set-run-mode", (req, res) => {
   res.json({ success: true, runMode: "Real Browser", message: "Simulation mode is disabled." });
+});
+
+// Marketing Images endpoints
+app.get("/api/marketing-images/file/:filename", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    let targetPath = path.join(MARKETING_IMAGES_DIR, filename);
+    if (!fs.existsSync(targetPath)) {
+      const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
+      if (fs.existsSync(pubPath)) {
+        targetPath = pubPath;
+      } else {
+        return res.status(404).send("Image not found");
+      }
+    }
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".gif": "image/gif",
+    };
+    if (mimeMap[ext]) {
+      res.setHeader("Content-Type", mimeMap[ext]);
+    }
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return res.sendFile(targetPath);
+  } catch (err) {
+    res.status(500).send((err as Error).message);
+  }
+});
+
+function pruneMarketingImages(keepCount: number): { pruned: string[]; remaining: number } {
+  try {
+    const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
+    const images = getAvailableMarketingImages();
+    if (images.length <= keepCount) {
+      return { pruned: [], remaining: images.length };
+    }
+
+    const withMtime = images.map(filename => {
+      const fullPath = path.join(MARKETING_IMAGES_DIR, filename);
+      let mtime = 0;
+      try {
+        mtime = fs.statSync(fullPath).mtimeMs;
+      } catch (_) {}
+      return { filename, mtime };
+    }).sort((a, b) => b.mtime - a.mtime);
+
+    const toPrune = withMtime.slice(keepCount).map(x => x.filename);
+    for (const filename of toPrune) {
+      const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const pubPath = path.join(pubDir, filename);
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+      if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
+    }
+
+    addLog("info", `[PRUNE] Auto-pruned ${toPrune.length} older marketing images, keeping latest ${keepCount}.`);
+    return { pruned: toPrune, remaining: keepCount };
+  } catch (err) {
+    console.error("[PRUNE] Error pruning images:", err);
+    return { pruned: [], remaining: getAvailableMarketingImages().length };
+  }
+}
+
+app.get("/api/marketing-images", (req, res) => {
+  try {
+    const images = getAvailableMarketingImages();
+    const settings = getLocalBotSettings();
+
+    const formatted = images.map(filename => {
+      const fullPath = path.join(MARKETING_IMAGES_DIR, filename);
+      let sizeBytes = 0;
+      let updatedAt = new Date().toISOString();
+      try {
+        const stat = fs.statSync(fullPath);
+        sizeBytes = stat.size;
+        updatedAt = stat.mtime.toISOString();
+      } catch (_) {}
+
+      return {
+        filename,
+        url: `/api/marketing-images/file/${encodeURIComponent(filename)}`,
+        sizeBytes,
+        updatedAt,
+      };
+    });
+
+    res.json({
+      success: true,
+      images: formatted,
+      imageUploadEnabled: settings.imageUploadEnabled || false,
+      imageSelectionMode: settings.imageSelectionMode || "cycle",
+      activeImageIndex: settings.activeImageIndex || 0,
+      autoPruneEnabled: settings.autoPruneEnabled || false,
+      autoPruneLimit: settings.autoPruneLimit || 30,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/settings/image-upload", (req, res) => {
+  try {
+    const { enabled, mode, autoPruneEnabled, autoPruneLimit } = req.body;
+    const settings = getLocalBotSettings();
+
+    if (typeof enabled === "boolean") {
+      settings.imageUploadEnabled = enabled;
+      addLog("info", `Image upload to comments switched: ${enabled ? "ON (1 image per comment)" : "OFF (Text-only)"}`);
+    }
+
+    if (mode === "cycle" || mode === "random") {
+      settings.imageSelectionMode = mode;
+      addLog("info", `Image selection mode updated: ${mode}`);
+    }
+
+    if (typeof autoPruneEnabled === "boolean") {
+      settings.autoPruneEnabled = autoPruneEnabled;
+    }
+
+    if (typeof autoPruneLimit === "number" && autoPruneLimit > 0) {
+      settings.autoPruneLimit = autoPruneLimit;
+    }
+
+    saveLocalBotSettings(settings);
+
+    res.json({
+      success: true,
+      imageUploadEnabled: settings.imageUploadEnabled || false,
+      imageSelectionMode: settings.imageSelectionMode || "cycle",
+      autoPruneEnabled: settings.autoPruneEnabled || false,
+      autoPruneLimit: settings.autoPruneLimit || 30,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/marketing-images/auto-prune", (req, res) => {
+  try {
+    const keepCount = Math.max(1, Number(req.body.keepCount || 20));
+    const result = pruneMarketingImages(keepCount);
+    res.json({
+      success: true,
+      prunedCount: result.pruned.length,
+      remainingCount: result.remaining,
+      message: `Pruned ${result.pruned.length} older images. Retained latest ${result.remaining} images.`,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.delete("/api/marketing-images", (req, res) => {
+  try {
+    const filename = String(req.query.filename || "").trim();
+    if (!filename || filename.includes("..") || filename.includes("/")) {
+      return res.status(400).json({ success: false, error: "Invalid filename" });
+    }
+    const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+    const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
+
+    if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
+
+    addLog("info", `Deleted marketing image: ${filename}`);
+    res.json({ success: true, message: `Image ${filename} deleted successfully.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+function isValidImageBuffer(buffer: Buffer): { valid: boolean; format?: string; error?: string } {
+  if (!buffer || buffer.length < 16) {
+    return { valid: false, error: "File buffer is too small or empty." };
+  }
+  // Max size: 12MB limit per image
+  if (buffer.length > 12 * 1024 * 1024) {
+    return { valid: false, error: "File exceeds 12MB maximum size limit." };
+  }
+
+  // PNG: 89 50 4E 47
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+    return { valid: true, format: "png" };
+  }
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return { valid: true, format: "jpeg" };
+  }
+
+  // WebP: RIFF .... WEBP
+  if (
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+  ) {
+    return { valid: true, format: "webp" };
+  }
+
+  // GIF: GIF8
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
+    return { valid: true, format: "gif" };
+  }
+
+  return { valid: false, error: "Invalid image format. Allowed formats: PNG, JPEG, WebP, GIF." };
+}
+
+app.post("/api/marketing-images/upload", (req, res) => {
+  try {
+    const { files, replaceExisting } = req.body;
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ success: false, error: "No image files provided." });
+    }
+
+    const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
+    if (!fs.existsSync(MARKETING_IMAGES_DIR)) fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+    if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+
+    // If replaceExisting is true (e.g. daily fresh batch), clear old images
+    if (replaceExisting) {
+      const existing = getAvailableMarketingImages();
+      for (const file of existing) {
+        const outF = path.join(MARKETING_IMAGES_DIR, file);
+        const pubF = path.join(pubDir, file);
+        if (fs.existsSync(outF)) fs.unlinkSync(outF);
+        if (fs.existsSync(pubF)) fs.unlinkSync(pubF);
+      }
+      addLog("info", `[IMAGES] Replaced existing images pool with new batch.`);
+    }
+
+    let uploadedCount = 0;
+    const errors: string[] = [];
+
+    for (const item of files) {
+      if (!item.filename || !item.base64) continue;
+      const cleanName = path.basename(item.filename).replace(/[^a-zA-Z0-9._-]/g, "_");
+      if (!cleanName.match(/\.(png|jpe?g|webp|gif)$/i)) {
+        errors.push(`${cleanName}: Unsupported file extension`);
+        continue;
+      }
+
+      // Extract base64 payload if it has data URL prefix
+      let base64Data = item.base64;
+      if (base64Data.includes(",")) {
+        base64Data = base64Data.split(",")[1];
+      }
+      const buffer = Buffer.from(base64Data, "base64");
+
+      // Validate image buffer magic bytes and size
+      const validation = isValidImageBuffer(buffer);
+      if (!validation.valid) {
+        errors.push(`${cleanName}: ${validation.error}`);
+        continue;
+      }
+
+      const outPath = path.join(MARKETING_IMAGES_DIR, cleanName);
+      const pubPath = path.join(pubDir, cleanName);
+
+      fs.writeFileSync(outPath, buffer);
+      fs.writeFileSync(pubPath, buffer);
+      uploadedCount++;
+      addLog("info", `Uploaded marketing image: ${cleanName} (${Math.round(buffer.length / 1024)} KB, ${validation.format?.toUpperCase()})`);
+    }
+
+    // Auto-prune older images if requested or if auto-pruning is enabled
+    const pruneLimit = typeof req.body.autoPruneLimit === "number" && req.body.autoPruneLimit > 0 
+      ? req.body.autoPruneLimit 
+      : (getLocalBotSettings().autoPruneEnabled ? (getLocalBotSettings().autoPruneLimit || 30) : null);
+    if (pruneLimit && pruneLimit > 0) {
+      pruneMarketingImages(pruneLimit);
+    }
+
+    res.json({
+      success: true,
+      uploadedCount,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Successfully uploaded ${uploadedCount} image(s).` + (errors.length > 0 ? ` (${errors.length} failed)` : ""),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/marketing-images/batch-delete", (req, res) => {
+  try {
+    const { filenames } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ success: false, error: "No filenames provided for batch deletion." });
+    }
+
+    const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
+    let deletedCount = 0;
+
+    for (const raw of filenames) {
+      const filename = String(raw || "").trim();
+      if (!filename || filename.includes("..") || filename.includes("/")) continue;
+
+      const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const pubPath = path.join(pubDir, filename);
+
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+      if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
+      deletedCount++;
+    }
+
+    addLog("info", `Batch deleted ${deletedCount} marketing images.`);
+    res.json({ success: true, deletedCount, message: `Successfully deleted ${deletedCount} image(s).` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/marketing-images/clear-all", (req, res) => {
+  try {
+    const images = getAvailableMarketingImages();
+    const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
+
+    for (const file of images) {
+      const outPath = path.join(MARKETING_IMAGES_DIR, file);
+      const pubPath = path.join(pubDir, file);
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+      if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
+    }
+
+    addLog("info", `Cleared all ${images.length} marketing images.`);
+    res.json({ success: true, message: `Removed all ${images.length} images.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
 });
 
 // 4.55. Set continuous loop active
@@ -4432,6 +4880,10 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
 
   await writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
   updateRealFetchTime();
+  // Clear obsolete comments from previous batch so data is never inconsistent
+  await writeJsonFile(GENERATED_MESSAGES_FILE, []);
+  saveBotProgress({ next_index: 0 });
+  currentPostingIndex = 0;
   return { coins: resolvedCoins, creditCount };
 }
 
@@ -4729,13 +5181,11 @@ app.post("/api/fetch-trending", async (req, res) => {
     return res.status(409).json({ error: lock.reason });
   }
 
-  const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
-  const prevProgress = readBotProgress();
-  if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
+  if (isPostingRunning) {
     releaseProcessLock("fetching_coins");
-    addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
+    addLog("warning", "Operation blocked: A posting run is actively executing in the background. Please stop posting before fetching new coins.");
     return res.status(400).json({
-      error: `A posting run is in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please complete it or click Reset Storage first.`
+      error: "A posting run is actively executing in the background. Please stop posting before fetching new coins."
     });
   }
 
@@ -6437,7 +6887,7 @@ async function startServer() {
     addLog("info", `[SERVER] Static production assets directory resolved to: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res, next) => {
-      if (req.path.startsWith("/api/") || req.path.startsWith("/output/")) {
+      if (req.path.startsWith("/api/") || req.path.startsWith("/output/") || req.path.startsWith("/uploads/")) {
         return next();
       }
       res.sendFile(path.join(distPath, "index.html"));

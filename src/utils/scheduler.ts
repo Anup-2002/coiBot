@@ -36,21 +36,36 @@ export interface SchedulableProfile {
 
 export interface BotSettings {
   schedulerEnabled: boolean;
+  imageUploadEnabled?: boolean;
+  imageSelectionMode?: "cycle" | "random";
+  activeImageIndex?: number;
+  autoPruneEnabled?: boolean;
+  autoPruneLimit?: number;
 }
 
 export const DEFAULT_SETTINGS: BotSettings = {
   schedulerEnabled: false,
+  imageUploadEnabled: false,
+  imageSelectionMode: "cycle",
+  activeImageIndex: 0,
+  autoPruneEnabled: false,
+  autoPruneLimit: 30,
 };
 
 export function parseBotSettings(raw: string | null | undefined): BotSettings {
-  if (!raw) return { schedulerEnabled: false };
+  if (!raw) return { ...DEFAULT_SETTINGS };
   try {
     const data = JSON.parse(raw);
     return {
       schedulerEnabled: typeof data.schedulerEnabled === "boolean" ? data.schedulerEnabled : false,
+      imageUploadEnabled: typeof data.imageUploadEnabled === "boolean" ? data.imageUploadEnabled : false,
+      imageSelectionMode: data.imageSelectionMode === "random" ? "random" : "cycle",
+      activeImageIndex: typeof data.activeImageIndex === "number" && !isNaN(data.activeImageIndex) ? data.activeImageIndex : 0,
+      autoPruneEnabled: typeof data.autoPruneEnabled === "boolean" ? data.autoPruneEnabled : false,
+      autoPruneLimit: typeof data.autoPruneLimit === "number" && data.autoPruneLimit > 0 ? data.autoPruneLimit : 30,
     };
   } catch (_) {
-    return { schedulerEnabled: false };
+    return { ...DEFAULT_SETTINGS };
   }
 }
 

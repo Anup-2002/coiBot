@@ -33,6 +33,17 @@ export interface ApiStatusResponse {
     geminiError?: string | null;
   };
   sessionStatus?: string;
+  imageUploadEnabled?: boolean;
+  imageSelectionMode?: "cycle" | "random";
+  activeImageIndex?: number;
+  availableImagesCount?: number;
+}
+
+export interface MarketingImage {
+  filename: string;
+  url: string;
+  sizeBytes: number;
+  updatedAt: string;
 }
 
 export interface Profile {
@@ -210,6 +221,78 @@ export const api = {
 
   async stopPosting(): Promise<{ success: boolean; message?: string }> {
     const res = await fetch("/api/stop-posting", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async getMarketingImages(): Promise<{ success: boolean; images: MarketingImage[]; imageUploadEnabled: boolean; imageSelectionMode: "cycle" | "random"; activeImageIndex: number }> {
+    const res = await fetch("/api/marketing-images");
+    if (!res.ok) throw new Error(`Images error: ${res.status}`);
+    return res.json();
+  },
+
+  async setImageSettings(params: {
+    enabled?: boolean;
+    mode?: "cycle" | "random";
+    autoPruneEnabled?: boolean;
+    autoPruneLimit?: number;
+  }): Promise<{
+    success: boolean;
+    imageUploadEnabled: boolean;
+    imageSelectionMode: "cycle" | "random";
+    autoPruneEnabled?: boolean;
+    autoPruneLimit?: number;
+    error?: string;
+  }> {
+    const res = await fetch("/api/settings/image-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async deleteMarketingImage(filename: string): Promise<{ success: boolean; error?: string }> {
+    const res = await fetch(`/api/marketing-images?filename=${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+    return res.json();
+  },
+
+  async uploadMarketingImages(
+    files: Array<{ filename: string; base64: string }>,
+    replaceExisting: boolean = false,
+    autoPruneLimit?: number
+  ): Promise<{ success: boolean; uploadedCount?: number; error?: string }> {
+    const res = await fetch("/api/marketing-images/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files, replaceExisting, autoPruneLimit }),
+    });
+    return res.json();
+  },
+
+  async batchDeleteMarketingImages(filenames: string[]): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    const res = await fetch("/api/marketing-images/batch-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filenames }),
+    });
+    return res.json();
+  },
+
+  async autoPruneMarketingImages(keepCount: number): Promise<{ success: boolean; prunedCount?: number; remainingCount?: number; message?: string; error?: string }> {
+    const res = await fetch("/api/marketing-images/auto-prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepCount }),
+    });
+    return res.json();
+  },
+
+  async clearAllMarketingImages(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await fetch("/api/marketing-images/clear-all", {
       method: "POST",
     });
     return res.json();

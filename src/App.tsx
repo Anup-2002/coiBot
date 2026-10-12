@@ -18,6 +18,10 @@ import {
   Layers,
   HelpCircle,
   ChevronRight,
+  ChevronLeft,
+  LayoutGrid,
+  List,
+  Maximize2,
   Globe,
   Upload,
   BookOpen,
@@ -47,9 +51,10 @@ import {
   ChevronsDown,
   GripVertical,
   FileCode,
-  Copy
+  Copy,
+  Image as ImageIcon
 } from "lucide-react";
-import { api, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo } from "./api";
+import { api, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo, MarketingImage } from "./api";
 
 // Types matching backend server structures
 interface Coin {
@@ -122,6 +127,79 @@ const parseResponseJson = async (res: Response, defaultVal: any = {}): Promise<a
     console.warn("[JSON PARSE] Failed to parse JSON:", err);
     return defaultVal;
   }
+};
+
+const SafeImageDisplay: React.FC<{
+  src: string;
+  fallbackSrc?: string;
+  alt: string;
+  className?: string;
+}> = ({ src, fallbackSrc, alt, className }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [fallbackAttempt, setFallbackAttempt] = useState(0);
+  const [currentSrc, setCurrentSrc] = useState(src);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setLoaded(false);
+    setFailed(false);
+    setFallbackAttempt(0);
+  }, [src]);
+
+  const handleImgError = () => {
+    if (fallbackAttempt === 0 && fallbackSrc && currentSrc !== fallbackSrc) {
+      setFallbackAttempt(1);
+      setCurrentSrc(fallbackSrc);
+    } else if (fallbackAttempt === 1) {
+      setFallbackAttempt(2);
+      setCurrentSrc(`/uploads/marketing_images/${encodeURIComponent(alt)}`);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  const retryLoad = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFailed(false);
+    setLoaded(false);
+    setFallbackAttempt(0);
+    const sep = src.includes("?") ? "&" : "?";
+    setCurrentSrc(`${src}${sep}retry=${Date.now()}`);
+  };
+
+  return (
+    <div className="relative w-full h-full flex items-center justify-center bg-slate-900 overflow-hidden">
+      {!loaded && !failed && (
+        <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center gap-1.5 p-2 z-10 pointer-events-none">
+          <div className="w-5 h-5 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+          <span className="text-[9px] font-mono text-slate-400">Loading...</span>
+        </div>
+      )}
+      {!failed ? (
+        <img
+          src={currentSrc}
+          alt={alt}
+          loading="lazy"
+          className={`${className || "w-full h-full object-cover"} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={() => setLoaded(true)}
+          onError={handleImgError}
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center p-2 text-center text-slate-500 w-full h-full bg-slate-950">
+          <ImageIcon className="h-5 w-5 text-slate-600 mb-1" />
+          <span className="text-[9px] font-mono text-slate-400 truncate max-w-full px-1">{alt}</span>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="mt-1 text-[9px] font-mono text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+          >
+            Retry load
+          </button>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // High-performance O(1) comparison helpers to eliminate UI freezing and main-thread lag
@@ -272,6 +350,26 @@ export default function App() {
   const isInitialIntervalLoaded = useRef<boolean>(false);
   const [activeProcess, setActiveProcess] = useState<string>("none");
   const [activeProcessDescription, setActiveProcessDescription] = useState<string>("");
+
+  // Marketing Image Upload Feature State (Strictly 1 Image Per Comment)
+  const [imageUploadEnabled, setImageUploadEnabled] = useState<boolean>(false);
+  const [imageSelectionMode, setImageSelectionMode] = useState<"cycle" | "random">("cycle");
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
+  const [marketingImages, setMarketingImages] = useState<MarketingImage[]>([]);
+  const [isUpdatingImageSettings, setIsUpdatingImageSettings] = useState<boolean>(false);
+  const [isUploadingImages, setIsUploadingImages] = useState<boolean>(false);
+  const [uploadProgressText, setUploadProgressText] = useState<string>("");
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const [imageSearchQuery, setImageSearchQuery] = useState<string>("");
+  const [imageViewMode, setImageViewMode] = useState<"grid" | "list">("grid");
+  const [imagePage, setImagePage] = useState<number>(1);
+  const [imagePageSize, setImagePageSize] = useState<number>(24);
+  const [previewModalImage, setPreviewModalImage] = useState<MarketingImage | null>(null);
+  const [selectedImageFilenames, setSelectedImageFilenames] = useState<string[]>([]);
+  const [replaceExistingOnUpload, setReplaceExistingOnUpload] = useState<boolean>(false);
+  const [autoPruneEnabled, setAutoPruneEnabled] = useState<boolean>(false);
+  const [autoPruneLimit, setAutoPruneLimit] = useState<number>(30);
+  const [isPruningImages, setIsPruningImages] = useState<boolean>(false);
 
   // Smooth Action & Switching States
   const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
@@ -587,6 +685,270 @@ export default function App() {
       showToast("Error stopping scheduler: " + (err as Error).message, "error");
     } finally {
       setIsSchedulerActionPending(false);
+    }
+  };
+
+  const fetchMarketingImages = async () => {
+    try {
+      const data = await api.getMarketingImages();
+      if (data.success) {
+        setMarketingImages(data.images || []);
+        setImageUploadEnabled(Boolean(data.imageUploadEnabled));
+        if (data.imageSelectionMode) setImageSelectionMode(data.imageSelectionMode);
+        if (data.activeImageIndex !== undefined) setActiveImageIndex(data.activeImageIndex);
+        if ((data as any).autoPruneEnabled !== undefined) setAutoPruneEnabled(Boolean((data as any).autoPruneEnabled));
+        if ((data as any).autoPruneLimit !== undefined) setAutoPruneLimit(Number((data as any).autoPruneLimit));
+      }
+    } catch (err) {
+      console.warn("Error fetching marketing images:", err);
+    }
+  };
+
+  const handleToggleImageUpload = async (nextVal?: boolean) => {
+    setIsUpdatingImageSettings(true);
+    const targetState = nextVal !== undefined ? nextVal : !imageUploadEnabled;
+    try {
+      const res = await api.setImageSettings({ enabled: targetState });
+      if (res.success) {
+        setImageUploadEnabled(res.imageUploadEnabled);
+        showToast(
+          res.imageUploadEnabled
+            ? "Marketing image attachments enabled! 1 branded image will be added per comment."
+            : "Image attachments disabled. Bot will post comments as text-only.",
+          "success"
+        );
+      } else {
+        showToast(res.error || "Failed to update image upload setting", "error");
+      }
+    } catch (err) {
+      showToast("Error updating image upload: " + (err as Error).message, "error");
+    } finally {
+      setIsUpdatingImageSettings(false);
+    }
+  };
+
+  const handleSetImageMode = async (mode: "cycle" | "random") => {
+    setIsUpdatingImageSettings(true);
+    try {
+      const res = await api.setImageSettings({ mode });
+      if (res.success) {
+        setImageSelectionMode(res.imageSelectionMode);
+        showToast(`Image rotation mode set to: ${mode === "cycle" ? "Sequential Cycle" : "Random Selection"}`, "info");
+      }
+    } catch (err) {
+      showToast("Error updating image mode: " + (err as Error).message, "error");
+    } finally {
+      setIsUpdatingImageSettings(false);
+    }
+  };
+
+  const handleToggleAutoPrune = async (enabledVal?: boolean, limitVal?: number) => {
+    setIsUpdatingImageSettings(true);
+    const targetEnabled = enabledVal !== undefined ? enabledVal : !autoPruneEnabled;
+    const targetLimit = limitVal !== undefined ? limitVal : autoPruneLimit;
+    try {
+      const res = await api.setImageSettings({
+        autoPruneEnabled: targetEnabled,
+        autoPruneLimit: targetLimit,
+      });
+      if (res.success) {
+        setAutoPruneEnabled(Boolean(res.autoPruneEnabled));
+        if (res.autoPruneLimit) setAutoPruneLimit(res.autoPruneLimit);
+        showToast(
+          targetEnabled
+            ? `Auto-Prune enabled: Server automatically retains latest ${targetLimit} graphics.`
+            : "Auto-Prune disabled. Image history will be kept until manually deleted.",
+          "info"
+        );
+      }
+    } catch (err) {
+      showToast("Error updating auto-prune settings: " + (err as Error).message, "error");
+    } finally {
+      setIsUpdatingImageSettings(false);
+    }
+  };
+
+  const handleManualPruneNow = async (count: number) => {
+    if (!window.confirm(`Prune older images and retain only the ${count} newest graphics in your pool?`)) return;
+    setIsPruningImages(true);
+    try {
+      const res = await api.autoPruneMarketingImages(count);
+      if (res.success) {
+        showToast(res.message || `Pruned ${res.prunedCount} images. Retained ${res.remainingCount} newest.`, "success");
+        setSelectedImageFilenames([]);
+        await fetchMarketingImages();
+      } else {
+        showToast(res.error || "Failed to prune images", "error");
+      }
+    } catch (err) {
+      showToast("Error pruning images: " + (err as Error).message, "error");
+    } finally {
+      setIsPruningImages(false);
+    }
+  };
+
+  const handleDeleteMarketingImage = async (filename: string) => {
+    try {
+      const res = await api.deleteMarketingImage(filename);
+      if (res.success) {
+        showToast(`Deleted ${filename}`, "info");
+        await fetchMarketingImages();
+      } else {
+        showToast(res.error || "Failed to delete image", "error");
+      }
+    } catch (err) {
+      showToast("Error deleting image: " + (err as Error).message, "error");
+    }
+  };
+
+  const optimizeImageFile = async (file: File): Promise<string> => {
+    // If it's a GIF, return raw base64 to preserve animation frames
+    if (file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif")) {
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const maxDim = 1600;
+        let width = img.width;
+        let height = img.height;
+
+        // Rescale proportionally to optimal 1600px max dimension for fast upload & crisp display
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+          return;
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convert to high-quality WebP or JPEG (quality 0.86) to reduce file size from 2.5MB to ~180-250KB
+        // This ensures super fast upload to CoinMarketCap with zero blur on candlestick charts or text
+        let dataUrl = canvas.toDataURL("image/webp", 0.86);
+        if (!dataUrl.startsWith("data:image/webp")) {
+          dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      };
+      img.src = url;
+    });
+  };
+
+  const handleUploadMarketingImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingImages(true);
+    setUploadProgressText(`Preparing ${files.length} image(s)...`);
+    try {
+      const payload: Array<{ filename: string; base64: string }> = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgressText(`Optimizing image ${i + 1} of ${files.length}...`);
+        const base64 = await optimizeImageFile(file);
+        payload.push({ filename: file.name, base64 });
+      }
+
+      setUploadProgressText("Saving to server pool...");
+      const res = await api.uploadMarketingImages(payload, replaceExistingOnUpload, autoPruneEnabled ? autoPruneLimit : undefined);
+      if (res.success) {
+        showToast(
+          `Successfully uploaded ${res.uploadedCount || payload.length} image(s)!` +
+            (replaceExistingOnUpload ? " (Previous batch replaced)" : ""),
+          "success"
+        );
+        setSelectedImageFilenames([]);
+        await fetchMarketingImages();
+      } else {
+        showToast(res.error || "Failed to upload images", "error");
+      }
+    } catch (err) {
+      showToast("Error uploading images: " + (err as Error).message, "error");
+    } finally {
+      setIsUploadingImages(false);
+      setUploadProgressText("");
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleSelectAllImages = () => {
+    if (selectedImageFilenames.length === marketingImages.length) {
+      setSelectedImageFilenames([]);
+    } else {
+      setSelectedImageFilenames(marketingImages.map((m) => m.filename));
+    }
+  };
+
+  const handleBatchDeleteSelectedImages = async () => {
+    if (selectedImageFilenames.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedImageFilenames.length} selected image(s)?`)) return;
+
+    try {
+      const res = await api.batchDeleteMarketingImages(selectedImageFilenames);
+      if (res.success) {
+        showToast(`Successfully deleted ${res.deletedCount || selectedImageFilenames.length} image(s)`, "info");
+        setSelectedImageFilenames([]);
+        await fetchMarketingImages();
+      } else {
+        showToast(res.error || "Failed to delete selected images", "error");
+      }
+    } catch (err) {
+      showToast("Error deleting selected images: " + (err as Error).message, "error");
+    }
+  };
+
+  const handleToggleSelectImage = (filename: string) => {
+    setSelectedImageFilenames((prev) =>
+      prev.includes(filename) ? prev.filter((f) => f !== filename) : [...prev, filename]
+    );
+  };
+
+  const handleClearAllMarketingImages = async () => {
+    if (!window.confirm("Are you sure you want to remove all marketing images from the server?")) return;
+    try {
+      const res = await api.clearAllMarketingImages();
+      if (res.success) {
+        showToast("All marketing images removed", "info");
+        setSelectedImageFilenames([]);
+        await fetchMarketingImages();
+      } else {
+        showToast(res.error || "Failed to clear images", "error");
+      }
+    } catch (err) {
+      showToast("Error clearing images: " + (err as Error).message, "error");
     }
   };
 
@@ -1096,6 +1458,15 @@ export default function App() {
           setActiveProcess(data.activeProcess);
           setActiveProcessDescription(data.activeProcessDescription || "");
         }
+        if (data.imageUploadEnabled !== undefined) {
+          setImageUploadEnabled(Boolean(data.imageUploadEnabled));
+        }
+        if (data.imageSelectionMode) {
+          setImageSelectionMode(data.imageSelectionMode);
+        }
+        if (data.activeImageIndex !== undefined) {
+          setActiveImageIndex(data.activeImageIndex);
+        }
 
         // Synchronize stopping & starting status
         if (data.status === "Stopping" || data.isStopping) {
@@ -1232,8 +1603,41 @@ export default function App() {
           setMessagesList(prev => areMessagesEqual(prev, arr) ? prev : arr);
         })
         .catch(() => {});
+    } else if (activeTab === "images") {
+      fetchMarketingImages();
     }
   }, [activeTab, status]);
+
+  // Load marketing images on initial mount
+  useEffect(() => {
+    fetchMarketingImages();
+  }, []);
+
+  // Keyboard navigation for full lightbox image preview (Esc to close, ArrowLeft / ArrowRight to navigate)
+  useEffect(() => {
+    if (!previewModalImage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreviewModalImage(null);
+      } else if (e.key === "ArrowLeft") {
+        const idx = marketingImages.findIndex((m) => m.filename === previewModalImage.filename);
+        if (idx > 0) {
+          setPreviewModalImage(marketingImages[idx - 1]);
+        } else if (idx === 0 && marketingImages.length > 0) {
+          setPreviewModalImage(marketingImages[marketingImages.length - 1]);
+        }
+      } else if (e.key === "ArrowRight") {
+        const idx = marketingImages.findIndex((m) => m.filename === previewModalImage.filename);
+        if (idx !== -1 && idx < marketingImages.length - 1) {
+          setPreviewModalImage(marketingImages[idx + 1]);
+        } else if (idx === marketingImages.length - 1) {
+          setPreviewModalImage(marketingImages[0]);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewModalImage, marketingImages]);
 
   // Smart auto-scroll that only scrolls to the bottom if the user is already near the bottom and auto-scroll is enabled
   useEffect(() => {
@@ -1592,6 +1996,17 @@ export default function App() {
     const matchesQ = !schedulerLogQuery.trim() || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase());
     return isSched && matchesQ;
   });
+
+  const filteredMarketingImages = marketingImages.filter((img) =>
+    img.filename.toLowerCase().includes(imageSearchQuery.toLowerCase())
+  );
+  const totalImagePages = Math.max(1, Math.ceil(filteredMarketingImages.length / imagePageSize));
+  const currentPageClamped = Math.min(Math.max(1, imagePage), totalImagePages);
+  const paginatedMarketingImages = filteredMarketingImages.slice(
+    (currentPageClamped - 1) * imagePageSize,
+    currentPageClamped * imagePageSize
+  );
+  const totalMarketingBytes = marketingImages.reduce((acc, curr) => acc + (curr.sizeBytes || 0), 0);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-emerald-500 selection:text-slate-950">
@@ -2910,6 +3325,82 @@ export default function App() {
                   <CycleCountdown nextCycleStartTime={nextCycleStartTime} />
                 )}
               </div>
+
+              {/* MARKETING IMAGE ATTACHMENT CARD (1 IMAGE PER COMMENT) */}
+              <div className="bg-slate-950/70 p-3.5 rounded-xl border border-indigo-500/30 flex flex-col gap-3 shadow-inner">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <label className={`relative inline-flex items-center ${isUpdatingImageSettings ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                      <input
+                        type="checkbox"
+                        checked={imageUploadEnabled}
+                        disabled={isUpdatingImageSettings}
+                        onChange={(e) => handleToggleImageUpload(e.target.checked)}
+                        className="sr-only peer"
+                        id="chk-image-upload"
+                      />
+                      <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 peer-checked:after:bg-slate-950 peer-checked:after:border-transparent peer-disabled:opacity-40 shadow-inner"></div>
+                    </label>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                        <span className="text-xs font-bold text-white">
+                          Marketing Image Upload
+                        </span>
+                        <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                          {imageUploadEnabled ? '1 IMAGE / COMMENT' : 'OFF'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 block">Attaches 1 SpikeSignals chart to each post</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setActiveTab("images")}
+                    className="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-indigo-500/10 border border-indigo-500/20 transition cursor-pointer"
+                  >
+                    Gallery ({marketingImages.length})
+                    <ChevronRight className="h-3 w-3" />
+                  </button>
+                </div>
+
+                {imageUploadEnabled && (
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400 text-[10px]">Rotation Mode:</span>
+                      <button
+                        onClick={() => handleSetImageMode("cycle")}
+                        disabled={isUpdatingImageSettings}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition ${
+                          imageSelectionMode === "cycle"
+                            ? "bg-indigo-600 text-white shadow-sm"
+                            : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                        }`}
+                        title="Sequentially cycle through images 1 to N so consecutive posts have different images"
+                      >
+                        Cycle
+                      </button>
+                      <button
+                        onClick={() => handleSetImageMode("random")}
+                        disabled={isUpdatingImageSettings}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition ${
+                          imageSelectionMode === "random"
+                            ? "bg-indigo-600 text-white shadow-sm"
+                            : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                        }`}
+                        title="Randomly pick 1 image per comment"
+                      >
+                        Random
+                      </button>
+                    </div>
+
+                    <div className="text-[10px] font-mono text-indigo-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      Next: #{((activeImageIndex % Math.max(1, marketingImages.length)) + 1)}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -2943,116 +3434,148 @@ export default function App() {
               </div>
 
               {/* CURRENT COIN SPOTLIGHT CARD */}
-              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">Target Asset</span>
-                  <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
-                    {status === "Stopping" || isStoppingPost ? (
-                      <span className="text-amber-400 flex items-center gap-1.5 text-sm font-bold">
-                        <RefreshCw className="h-4 w-4 animate-spin" /> Stopping Engine
-                      </span>
-                    ) : isStartingPost ? (
-                      <span className="text-emerald-400 flex items-center gap-1.5 text-sm font-bold">
-                        <RefreshCw className="h-4 w-4 animate-spin" /> Starting Engine...
-                      </span>
-                    ) : currentCoin !== "N/A" ? (
-                      currentCoin
-                    ) : (
-                      "IDLE"
+              {(() => {
+                const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
+                const clampedProgress = Math.min(progressIndex, activeBatchTotal);
+                const batchPercent = activeBatchTotal > 0 ? Math.min(100, Math.max(0, Math.round((clampedProgress / activeBatchTotal) * 100))) : 0;
+                const remainingBatch = Math.max(0, activeBatchTotal - clampedProgress);
+
+                return (
+                  <>
+                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">Target Asset</span>
+                        <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
+                          {status === "Stopping" || isStoppingPost ? (
+                            <span className="text-amber-400 flex items-center gap-1.5 text-sm font-bold">
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Stopping Engine
+                            </span>
+                          ) : isStartingPost ? (
+                            <span className="text-emerald-400 flex items-center gap-1.5 text-sm font-bold">
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Starting Engine...
+                            </span>
+                          ) : currentCoin !== "N/A" ? (
+                            currentCoin
+                          ) : (
+                            "IDLE"
+                          )}
+                          {status === "Posting" && currentCoin !== "N/A" && (
+                            <span className="text-[10px] font-sans font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                              In Progress
+                            </span>
+                          )}
+                          {(status === "Stopping" || isStoppingPost) && (
+                            <span className="text-[10px] font-sans font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                              Halting Step
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono block">
+                          {status === "Stopping" || isStoppingPost
+                            ? "Gracefully stopping sequence... Waiting for current browser action to complete"
+                            : isStartingPost
+                            ? "Launching browser automation engine..."
+                            : status === "Posting"
+                            ? `Coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} in active batch`
+                            : activeBatchTotal > 0 && progressIndex >= activeBatchTotal
+                            ? `Batch complete (${activeBatchTotal} of ${activeBatchTotal} posted) • System Idle`
+                            : progressIndex > 0 && activeBatchTotal > 0
+                            ? `Queue paused at #${clampedProgress} of ${activeBatchTotal} items • System Idle`
+                            : activeBatchTotal > 0
+                            ? `Ready • ${activeBatchTotal} items queued`
+                            : "Queue empty • Ready to fetch coins"}
+                        </span>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-3xl font-black font-mono text-emerald-400 tracking-tight">
+                          {batchPercent}%
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Completed</span>
+                      </div>
+                    </div>
+
+                    {/* 5-METRIC KPI GRID */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Total Coins</span>
+                        <div className="text-base font-black text-slate-200 font-mono mt-0.5">{totalCoins}</div>
+                      </div>
+
+                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Comments AI</span>
+                        <div className="text-base font-black text-purple-400 font-mono mt-0.5">{generatedCount}</div>
+                      </div>
+
+                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Submitted</span>
+                        <div className="text-base font-black text-emerald-400 font-mono mt-0.5">{postedCount}</div>
+                      </div>
+
+                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Remaining</span>
+                        <div className="text-base font-black text-amber-400 font-mono mt-0.5">{remainingBatch}</div>
+                      </div>
+
+                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
+                          <span className="text-[9px] font-mono text-slate-500 font-bold">Cap {dailyPostLimit}</span>
+                        </div>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className={`text-base font-black font-mono ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
+                            {dailyPostCount}
+                          </span>
+                          <span className="text-xs text-slate-500 font-mono">/ {dailyPostLimit}</span>
+                          {dailyPostCount >= dailyPostLimit && (
+                            <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
+                              Cap Reached
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {totalCoins > 0 && generatedCount > 0 && totalCoins !== generatedCount && (
+                      <div className="p-2.5 bg-indigo-950/40 border border-indigo-800/40 rounded-xl flex items-center justify-between text-[11px] font-mono text-indigo-300">
+                        <span>Notice: Queue has {generatedCount} comments vs {totalCoins} current coins in list.</span>
+                        <button
+                          onClick={() => setShowConfirmGenerateModal(true)}
+                          disabled={isPending.generate || isBusy}
+                          className="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 text-[10px] font-bold transition cursor-pointer"
+                        >
+                          Sync Comments
+                        </button>
+                      </div>
                     )}
-                    {status === "Posting" && currentCoin !== "N/A" && (
-                      <span className="text-[10px] font-sans font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                        In Progress
-                      </span>
-                    )}
-                    {(status === "Stopping" || isStoppingPost) && (
-                      <span className="text-[10px] font-sans font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                        Halting Step
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono block">
-                    {status === "Stopping" || isStoppingPost
-                      ? "Gracefully stopping sequence... Waiting for current browser action to complete"
-                      : isStartingPost
-                      ? "Launching browser automation engine..."
-                      : `Coin #${totalCoins > 0 ? progressIndex + 1 : 0} of ${totalCoins || 0} in active batch`}
-                  </span>
-                </div>
 
-                <div className="text-right">
-                  <div className="text-3xl font-black font-mono text-emerald-400 tracking-tight">
-                    {totalCoins > 0 ? Math.round((progressIndex / totalCoins) * 100) : 0}%
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Completed</span>
-                </div>
-              </div>
-
-              {/* 5-METRIC KPI GRID */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Total Coins</span>
-                  <div className="text-base font-black text-slate-200 font-mono mt-0.5">{totalCoins}</div>
-                </div>
-
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Comments AI</span>
-                  <div className="text-base font-black text-purple-400 font-mono mt-0.5">{generatedCount}</div>
-                </div>
-
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Submitted</span>
-                  <div className="text-base font-black text-emerald-400 font-mono mt-0.5">{postedCount}</div>
-                </div>
-
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Remaining</span>
-                  <div className="text-base font-black text-amber-400 font-mono mt-0.5">{Math.max(0, totalCoins - progressIndex)}</div>
-                </div>
-
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
-                    <span className="text-[9px] font-mono text-slate-500 font-bold">Cap {dailyPostLimit}</span>
-                  </div>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className={`text-base font-black font-mono ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
-                      {dailyPostCount}
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">/ {dailyPostLimit}</span>
                     {dailyPostCount >= dailyPostLimit && (
-                      <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
-                        Cap Reached
-                      </span>
+                      <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-semibold">
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0 animate-pulse text-rose-400" />
+                        <span>Account reached daily posting limit ({dailyPostCount}/{dailyPostLimit} posts today). Automated posting is halted until tomorrow.</span>
+                      </div>
                     )}
-                  </div>
-                </div>
-              </div>
 
-              {dailyPostCount >= dailyPostLimit && (
-                <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-semibold">
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0 animate-pulse text-rose-400" />
-                  <span>Account reached daily posting limit ({dailyPostCount}/{dailyPostLimit} posts today). Automated posting is halted until tomorrow.</span>
-                </div>
-              )}
-            </div>
+                    {/* BATCH PROGRESS BAR */}
+                    <div className="pt-3 mt-3 border-t border-slate-800/80 space-y-2 relative z-10">
+                      <div className="flex justify-between items-center text-xs font-mono">
+                        <span className="text-slate-400 text-[11px]">Batch Progress Track</span>
+                        <span className="text-emerald-400 font-bold text-[11px] font-mono">
+                          {clampedProgress} / {activeBatchTotal} {generatedCount > 0 && generatedCount !== totalCoins ? "comments" : "coins"}
+                        </span>
+                      </div>
 
-            {/* BATCH PROGRESS BAR */}
-            <div className="pt-3 mt-3 border-t border-slate-800/80 space-y-2 relative z-10">
-              <div className="flex justify-between items-center text-xs font-mono">
-                <span className="text-slate-400 text-[11px]">Batch Progress Track</span>
-                <span className="text-emerald-400 font-bold text-[11px] font-mono">
-                  {progressIndex} / {totalCoins} coins
-                </span>
-              </div>
-
-              {/* Glowing High-Tech Neon Progress Bar */}
-              <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5 shadow-inner">
-                <div
-                  className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 h-full rounded-full transition-all duration-700 ease-out shadow-sm shadow-emerald-500/30"
-                  style={{ width: `${totalCoins > 0 ? (progressIndex / totalCoins) * 100 : 0}%` }}
-                ></div>
-              </div>
+                      {/* Glowing High-Tech Neon Progress Bar */}
+                      <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5 shadow-inner">
+                        <div
+                          className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 h-full rounded-full transition-all duration-700 ease-out shadow-sm shadow-emerald-500/30"
+                          style={{ width: `${batchPercent}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-0.5">
                 <span>Success Rate: <strong className="text-slate-300 font-semibold">{postedCount + failedCount > 0 ? Math.round((postedCount / (postedCount + failedCount)) * 100) : 100}%</strong></span>
@@ -3223,6 +3746,18 @@ export default function App() {
                 4. CSV Exports & Reports
               </button>
               <button
+                onClick={() => setActiveTab("images")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                <span>5. Images Library ({marketingImages.length})</span>
+                <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+                  {imageUploadEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+              <button
                 onClick={() => navigateTo("scheduler")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
                   currentView === "scheduler"
@@ -3234,7 +3769,7 @@ export default function App() {
                 title="Open dedicated Sequential Multi-Account Scheduler (/scheduler)"
               >
                 <Clock className={`h-3.5 w-3.5 ${schedulerData?.cycleRunning ? "text-indigo-400 animate-spin" : (schedulerData?.enabled ? "text-indigo-400" : "text-indigo-500/70")}`} />
-                <span>5. Accounts Schedule</span>
+                <span>6. Accounts Schedule</span>
                 <span className={`px-1.5 py-0.5 text-[9px] rounded font-mono font-bold ${
                   schedulerData?.cycleRunning
                     ? "bg-indigo-500 text-slate-950 animate-pulse"
@@ -4016,6 +4551,751 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: MARKETING IMAGES LIBRARY (STRICTLY 1 IMAGE PER COMMENT) */}
+          {activeTab === "images" && (
+            <div className="space-y-6">
+              {/* TOP HERO CONTROLS */}
+              <div className="bg-slate-950 p-5 rounded-2xl border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30 shadow-sm">
+                    <ImageIcon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-white text-base">Marketing & Signals Image Library</h3>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                        {imageUploadEnabled ? 'ON (1 IMAGE PER COMMENT)' : 'OFF (TEXT-ONLY)'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Attaches exactly 1 promotional/macro chart graphic to every comment submitted across Manual, Continuous Loop, and Scheduler.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Hidden file input */}
+                  <input
+                    type="file"
+                    ref={imageFileInputRef}
+                    onChange={handleUploadMarketingImages}
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                  />
+
+                  {/* Upload button */}
+                  <button
+                    onClick={() => imageFileInputRef.current?.click()}
+                    disabled={isUploadingImages}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {isUploadingImages ? (uploadProgressText || "Optimizing & Uploading...") : "Upload Images"}
+                  </button>
+
+                  {/* Replace existing toggle (convenient for daily image packs) */}
+                  <label className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-900/80 px-2.5 py-2 rounded-xl border border-slate-800 cursor-pointer hover:text-slate-200 transition" title="When checked, uploading replaces old graphics with the new batch">
+                    <input
+                      type="checkbox"
+                      checked={replaceExistingOnUpload}
+                      onChange={(e) => setReplaceExistingOnUpload(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span>Replace Old Batch</span>
+                  </label>
+
+                  {/* Select All / Deselect All */}
+                  {marketingImages.length > 0 && (
+                    <button
+                      onClick={handleSelectAllImages}
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 text-xs font-semibold transition cursor-pointer"
+                    >
+                      {selectedImageFilenames.length === marketingImages.length
+                        ? "Deselect All"
+                        : `Select All (${marketingImages.length})`}
+                    </button>
+                  )}
+
+                  {/* Batch Delete Selected button */}
+                  {selectedImageFilenames.length > 0 && (
+                    <button
+                      onClick={handleBatchDeleteSelectedImages}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/20"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete Selected ({selectedImageFilenames.length})
+                    </button>
+                  )}
+
+                  {/* Master Toggle */}
+                  <button
+                    onClick={() => handleToggleImageUpload()}
+                    disabled={isUpdatingImageSettings}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                      imageUploadEnabled
+                        ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30"
+                        : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    }`}
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                    {imageUploadEnabled ? "Image Uploading: ACTIVE" : "Image Uploading: PAUSED"}
+                  </button>
+
+                  {marketingImages.length > 0 && (
+                    <button
+                      onClick={handleClearAllMarketingImages}
+                      className="px-3 py-2 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-xl border border-slate-800 hover:border-red-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      title="Remove all images"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear All
+                    </button>
+                  )}
+
+                  <button
+                    onClick={fetchMarketingImages}
+                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition cursor-pointer"
+                    title="Reload images"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* ROTATION & RETENTION SETTINGS */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Rotation Policy</span>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={() => handleSetImageMode("cycle")}
+                      disabled={isUpdatingImageSettings}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        imageSelectionMode === "cycle"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Sequential Cycle
+                    </button>
+                    <button
+                      onClick={() => handleSetImageMode("random")}
+                      disabled={isUpdatingImageSettings}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        imageSelectionMode === "random"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Random Shuffle
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    {imageSelectionMode === "cycle"
+                      ? "Rotates through images 1 ➔ 2 ➔ 3 so consecutive comments never duplicate graphics."
+                      : "Picks a random graphic from library for each coin submission."}
+                  </p>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Single Image Constraint</span>
+                  <div className="text-sm font-bold text-emerald-400 font-mono pt-1">Strictly 1 Image / Post</div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Enforces CoinMarketCap's community standard: exactly 1 graphic attached per comment.
+                  </p>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Daily Auto-Prune Policy</span>
+                    <label className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoPruneEnabled}
+                        onChange={(e) => handleToggleAutoPrune(e.target.checked)}
+                        className="w-3 h-3 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 cursor-pointer"
+                      />
+                      <span>{autoPruneEnabled ? "Auto-Delete ON" : "Retain All"}</span>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <select
+                      value={autoPruneLimit}
+                      onChange={(e) => handleToggleAutoPrune(autoPruneEnabled, Number(e.target.value))}
+                      className="flex-1 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-xs font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value={10}>Keep latest 10 images</option>
+                      <option value={20}>Keep latest 20 images</option>
+                      <option value={30}>Keep latest 30 images</option>
+                      <option value={50}>Keep latest 50 images</option>
+                      <option value={100}>Keep latest 100 images</option>
+                    </select>
+                    {marketingImages.length > autoPruneLimit && (
+                      <button
+                        onClick={() => handleManualPruneNow(autoPruneLimit)}
+                        disabled={isPruningImages}
+                        className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 rounded-lg text-[11px] font-bold transition cursor-pointer shrink-0"
+                        title="Prune excess older images right now"
+                      >
+                        Prune Now
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    {autoPruneEnabled
+                      ? `When daily images arrive, graphics older than the ${autoPruneLimit} newest are automatically deleted.`
+                      : "Maintains all graphics until manually batch-deleted or replaced."}
+                  </p>
+                </div>
+              </div>
+
+              {/* ARCHITECTURE & FUTURE SOURCE NOTE */}
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider">
+                    Source Agnostic
+                  </span>
+                  <span className="text-slate-400">
+                    Images can be provided via dashboard upload, local drop, daily S3 bucket sync, or external API feed anytime without breaking posting logic.
+                  </span>
+                </div>
+                <button
+                  onClick={() => imageFileInputRef.current?.click()}
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload more images
+                </button>
+              </div>
+
+              {/* SCALABLE MEDIA GALLERY TOOLBAR */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      SpikeSignals Image Library
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-mono">
+                        {marketingImages.length} images ({((totalMarketingBytes / 1024) > 1024 ? (totalMarketingBytes / (1024 * 1024)).toFixed(1) + " MB" : (totalMarketingBytes / 1024).toFixed(0) + " KB")})
+                      </span>
+                    </h4>
+                  </div>
+
+                  {/* SEARCH & VIEW SWITCHER */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                      <input
+                        type="text"
+                        value={imageSearchQuery}
+                        onChange={(e) => {
+                          setImageSearchQuery(e.target.value);
+                          setImagePage(1);
+                        }}
+                        placeholder="Filter by filename..."
+                        className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44 sm:w-56"
+                      />
+                      {imageSearchQuery && (
+                        <button
+                          onClick={() => {
+                            setImageSearchQuery("");
+                            setImagePage(1);
+                          }}
+                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* View Switcher: Grid vs List */}
+                    <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                      <button
+                        onClick={() => setImageViewMode("grid")}
+                        className={`p-1.5 rounded-md text-xs transition cursor-pointer ${
+                          imageViewMode === "grid"
+                            ? "bg-indigo-600 text-white shadow"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                        title="Compact Grid View (High Density)"
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setImageViewMode("list")}
+                        className={`p-1.5 rounded-md text-xs transition cursor-pointer ${
+                          imageViewMode === "list"
+                            ? "bg-indigo-600 text-white shadow"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                        title="List Table View (Compact Rows)"
+                      >
+                        <List className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Page Size Select */}
+                    <select
+                      value={imagePageSize}
+                      onChange={(e) => {
+                        setImagePageSize(Number(e.target.value));
+                        setImagePage(1);
+                      }}
+                      className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      title="Items per page"
+                    >
+                      <option value={12}>12 / page</option>
+                      <option value={24}>24 / page</option>
+                      <option value={48}>48 / page</option>
+                      <option value={96}>96 / page</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Sub-bar: showing pagination info */}
+                {filteredMarketingImages.length > 0 && (
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-900 pt-2.5">
+                    <span>
+                      Showing {Math.min((currentPageClamped - 1) * imagePageSize + 1, filteredMarketingImages.length)} -{" "}
+                      {Math.min(currentPageClamped * imagePageSize, filteredMarketingImages.length)} of{" "}
+                      {filteredMarketingImages.length} {imageSearchQuery ? "matching images" : "images"}
+                    </span>
+
+                    {totalImagePages > 1 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setImagePage((p) => Math.max(1, p - 1))}
+                          disabled={currentPageClamped <= 1}
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-[10px] flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="h-3 w-3" />
+                          Prev
+                        </button>
+                        <span className="font-mono text-slate-300 px-1.5">
+                          {currentPageClamped} / {totalImagePages}
+                        </span>
+                        <button
+                          onClick={() => setImagePage((p) => Math.min(totalImagePages, p + 1))}
+                          disabled={currentPageClamped >= totalImagePages}
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-[10px] flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Next
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* IMAGE GALLERY VIEW CONTAINER */}
+              <div>
+                {filteredMarketingImages.length === 0 ? (
+                  marketingImages.length === 0 ? (
+                    <div
+                      onClick={() => imageFileInputRef.current?.click()}
+                      className="bg-slate-950/60 p-12 text-center rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 transition cursor-pointer space-y-3"
+                    >
+                      <Upload className="h-10 w-10 text-indigo-400 mx-auto" />
+                      <p className="text-sm text-slate-300 font-semibold">No images currently in library</p>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto">
+                        Click here to upload your 5 SpikeSignals infographics (PNG/JPG). In the future, daily images from an S3 bucket or API can be dropped here as well.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950 p-8 text-center rounded-2xl border border-slate-800 text-slate-400 text-xs">
+                      No graphics found matching "{imageSearchQuery}". Try a different filter term.
+                    </div>
+                  )
+                ) : imageViewMode === "grid" ? (
+                  /* COMPACT HIGH-DENSITY GRID (Optimized for 50-200+ images) */
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+                    {paginatedMarketingImages.map((img) => {
+                      const overallIndex = marketingImages.findIndex((m) => m.filename === img.filename);
+                      const isNext =
+                        imageSelectionMode === "cycle" &&
+                        marketingImages.length > 0 &&
+                        activeImageIndex % marketingImages.length === overallIndex;
+
+                      return (
+                        <div
+                          key={img.filename}
+                          className={`bg-slate-950 rounded-xl border overflow-hidden flex flex-col justify-between transition-all duration-150 group relative hover:border-indigo-500/70 hover:shadow-lg ${
+                            isNext
+                              ? "border-indigo-500 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500"
+                              : "border-slate-800"
+                          }`}
+                        >
+                          {/* Compact Thumbnail Frame */}
+                          <div
+                            onClick={() => setPreviewModalImage(img)}
+                            className="aspect-square bg-slate-900 relative overflow-hidden cursor-pointer"
+                          >
+                            <SafeImageDisplay
+                              src={resolveUrl(img.url)}
+                              fallbackSrc={resolveUrl(`/output/marketing_images/${encodeURIComponent(img.filename)}`)}
+                              alt={img.filename}
+                              className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                            />
+
+                            {/* Checkbox & Status badges */}
+                            <div className="absolute top-1.5 left-1.5 flex items-center gap-1.5 z-10" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selectedImageFilenames.includes(img.filename)}
+                                onChange={() => handleToggleSelectImage(img.filename)}
+                                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900/90 text-indigo-600 focus:ring-0 cursor-pointer shadow"
+                              />
+                              {isNext && (
+                                <span className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                  NEXT
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="absolute top-1.5 right-1.5 bg-slate-950/80 backdrop-blur-sm text-slate-300 text-[9px] font-mono px-1.5 py-0.5 rounded border border-slate-800">
+                              #{overallIndex + 1}
+                            </div>
+
+                            {/* Hover Quick Actions Overlay */}
+                            <div className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewModalImage(img);
+                                }}
+                                className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow cursor-pointer"
+                                title="Expand Preview"
+                              >
+                                <Maximize2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteMarketingImage(img.filename);
+                                }}
+                                className="p-2 bg-slate-800 hover:bg-red-500 text-slate-300 hover:text-white rounded-lg shadow cursor-pointer"
+                                title="Delete image"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Compact File Info */}
+                          <div className="p-2 border-t border-slate-900 bg-slate-950/90">
+                            <h5
+                              className="font-medium text-white text-[11px] truncate cursor-pointer hover:text-indigo-300"
+                              title={img.filename}
+                              onClick={() => setPreviewModalImage(img)}
+                            >
+                              {img.filename}
+                            </h5>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mt-0.5">
+                              <span>{(img.sizeBytes / 1024).toFixed(0)} KB</span>
+                              <span className="text-[9px] text-slate-600">
+                                {img.updatedAt ? new Date(img.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* COMPACT LIST TABLE VIEW (Ultra-compact for 100+ images) */
+                  <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-900/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                          <tr>
+                            <th className="py-2.5 px-3 w-16 text-center">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  paginatedMarketingImages.length > 0 &&
+                                  paginatedMarketingImages.every((img) => selectedImageFilenames.includes(img.filename))
+                                }
+                                onChange={() => {
+                                  const pageFilenames = paginatedMarketingImages.map((img) => img.filename);
+                                  const allSelected = pageFilenames.every((f) => selectedImageFilenames.includes(f));
+                                  if (allSelected) {
+                                    setSelectedImageFilenames((prev) => prev.filter((f) => !pageFilenames.includes(f)));
+                                  } else {
+                                    setSelectedImageFilenames((prev) => Array.from(new Set([...prev, ...pageFilenames])));
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 cursor-pointer"
+                                title="Select / Deselect all on this page"
+                              />
+                            </th>
+                            <th className="py-2.5 px-3 w-16">Preview</th>
+                            <th className="py-2.5 px-3">Filename</th>
+                            <th className="py-2.5 px-3 w-24">Size</th>
+                            <th className="py-2.5 px-3 w-28">Date Added</th>
+                            <th className="py-2.5 px-3 w-32">Queue Status</th>
+                            <th className="py-2.5 px-3 w-20 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-900 text-slate-300 font-mono">
+                          {paginatedMarketingImages.map((img) => {
+                            const overallIndex = marketingImages.findIndex((m) => m.filename === img.filename);
+                            const isNext =
+                              imageSelectionMode === "cycle" &&
+                              marketingImages.length > 0 &&
+                              activeImageIndex % marketingImages.length === overallIndex;
+
+                            return (
+                              <tr
+                                key={img.filename}
+                                className="hover:bg-slate-900/50 transition cursor-pointer"
+                                onClick={() => setPreviewModalImage(img)}
+                              >
+                                <td className="py-2 px-3 text-center text-slate-500 font-mono text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedImageFilenames.includes(img.filename)}
+                                      onChange={() => handleToggleSelectImage(img.filename)}
+                                      className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 cursor-pointer"
+                                    />
+                                    <span>#{overallIndex + 1}</span>
+                                  </div>
+                                </td>
+                                <td className="py-1.5 px-3">
+                                  <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden shrink-0">
+                                    <SafeImageDisplay
+                                      src={resolveUrl(img.url)}
+                                      fallbackSrc={resolveUrl(`/output/marketing_images/${encodeURIComponent(img.filename)}`)}
+                                      alt={img.filename}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3">
+                                  <span className="font-semibold text-white hover:text-indigo-300 transition text-xs block truncate max-w-xs sm:max-w-md">
+                                    {img.filename}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-slate-400 text-[11px]">
+                                  {(img.sizeBytes / 1024).toFixed(1)} KB
+                                </td>
+                                <td className="py-2 px-3 text-slate-500 text-[11px]">
+                                  {img.updatedAt ? new Date(img.updatedAt).toLocaleDateString() : "—"}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {isNext ? (
+                                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold inline-flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
+                                      NEXT IN LINE
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-600">In pool</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => setPreviewModalImage(img)}
+                                      className="p-1 hover:text-indigo-400 text-slate-400 transition cursor-pointer"
+                                      title="Preview"
+                                    >
+                                      <Maximize2 className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteMarketingImage(img.filename)}
+                                      className="p-1 hover:text-red-400 text-slate-500 transition cursor-pointer"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* BOTTOM PAGINATION BAR */}
+                {totalImagePages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-900 text-xs text-slate-400">
+                    <div>
+                      Page <span className="text-white font-bold">{currentPageClamped}</span> of{" "}
+                      <span className="text-white font-bold">{totalImagePages}</span> ({filteredMarketingImages.length} items total)
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setImagePage(1)}
+                        disabled={currentPageClamped <= 1}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        « First
+                      </button>
+                      <button
+                        onClick={() => setImagePage((p) => Math.max(1, p - 1))}
+                        disabled={currentPageClamped <= 1}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        <ChevronLeft className="h-3 w-3" />
+                        Prev
+                      </button>
+
+                      {/* Numeric page pills */}
+                      {Array.from({ length: Math.min(5, totalImagePages) }, (_, i) => {
+                        let pageNum = i + 1;
+                        if (totalImagePages > 5) {
+                          if (currentPageClamped > 3 && currentPageClamped < totalImagePages - 1) {
+                            pageNum = currentPageClamped - 2 + i;
+                          } else if (currentPageClamped >= totalImagePages - 1) {
+                            pageNum = totalImagePages - 4 + i;
+                          }
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setImagePage(pageNum)}
+                            className={`w-7 h-7 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                              currentPageClamped === pageNum
+                                ? "bg-indigo-600 text-white shadow"
+                                : "bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+
+                      <button
+                        onClick={() => setImagePage((p) => Math.min(totalImagePages, p + 1))}
+                        disabled={currentPageClamped >= totalImagePages}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        Next
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => setImagePage(totalImagePages)}
+                        disabled={currentPageClamped >= totalImagePages}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        Last »
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* FULL LIGHTBOX PREVIEW MODAL */}
+              {previewModalImage && (
+                <div
+                  className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150"
+                  onClick={() => setPreviewModalImage(null)}
+                >
+                  <div
+                    className="bg-slate-950 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Modal Top Bar */}
+                    <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <ImageIcon className="h-4 w-4 text-indigo-400 shrink-0" />
+                        <h4 className="text-xs font-bold text-white truncate font-mono">
+                          {previewModalImage.filename}
+                        </h4>
+                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                          ({(previewModalImage.sizeBytes / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setPreviewModalImage(null)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                        title="Close preview"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Image Viewport with Next/Prev Arrows */}
+                    <div className="flex-1 bg-black/50 p-4 flex items-center justify-center overflow-auto max-h-[70vh] relative group">
+                      {marketingImages.length > 1 && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const idx = marketingImages.findIndex((m) => m.filename === previewModalImage.filename);
+                              const prevIdx = (idx - 1 + marketingImages.length) % marketingImages.length;
+                              setPreviewModalImage(marketingImages[prevIdx]);
+                            }}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-slate-700/80 shadow-xl transition cursor-pointer z-20 opacity-70 group-hover:opacity-100"
+                            title="Previous Image (← Left Arrow)"
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const idx = marketingImages.findIndex((m) => m.filename === previewModalImage.filename);
+                              const nextIdx = (idx + 1) % marketingImages.length;
+                              setPreviewModalImage(marketingImages[nextIdx]);
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-slate-700/80 shadow-xl transition cursor-pointer z-20 opacity-70 group-hover:opacity-100"
+                            title="Next Image (→ Right Arrow)"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </>
+                      )}
+                      <SafeImageDisplay
+                        src={resolveUrl(previewModalImage.url)}
+                        fallbackSrc={resolveUrl(`/output/marketing_images/${encodeURIComponent(previewModalImage.filename)}`)}
+                        alt={previewModalImage.filename}
+                        className="max-h-[66vh] max-w-full object-contain rounded-lg shadow-lg border border-slate-900"
+                      />
+                    </div>
+
+                    {/* Modal Bottom Actions Bar */}
+                    <div className="p-3.5 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold">
+                          #{marketingImages.findIndex((m) => m.filename === previewModalImage.filename) + 1} of {marketingImages.length}
+                        </span>
+                        <span className="hidden sm:inline text-slate-500">
+                          (Use ← / → keys to flip, Esc to close)
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            handleDeleteMarketingImage(previewModalImage.filename);
+                            setPreviewModalImage(null);
+                          }}
+                          className="px-3.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white border border-red-500/30 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete Image
+                        </button>
+                        <button
+                          onClick={() => setPreviewModalImage(null)}
+                          className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           </div>
