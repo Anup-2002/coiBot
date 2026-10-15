@@ -560,14 +560,8 @@ export default function App() {
       await fetchProfiles();
       await fetchSessionDetails();
       await fetchLogs();
-      
-      const coinsRes = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`));
-      const coinsData = coinsRes.ok ? await coinsRes.json() : [];
-      setCoinsList(Array.isArray(coinsData) ? coinsData : []);
-
-      const msgsRes = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`));
-      const msgsData = msgsRes.ok ? await msgsRes.json() : [];
-      setMessagesList(Array.isArray(msgsData) ? msgsData : []);
+      await fetchCoins();
+      await fetchMessages();
 
       showToast("Data storage refreshed successfully!", "success");
     } catch (err) {
@@ -1064,9 +1058,7 @@ export default function App() {
 
   const isPostingActive =
     status === "Posting" ||
-    status === "Stopping" ||
     isStartingPost ||
-    isStoppingPost ||
     isPending.post ||
     isContinuousLoopActive;
 
@@ -1074,12 +1066,10 @@ export default function App() {
     status === "Fetching" ||
     status === "Generating" ||
     status === "Posting" ||
-    status === "Stopping" ||
     status === "Authenticating" ||
     status === "Verifying Code" ||
     status === "Checking Login" ||
     isStartingPost ||
-    isStoppingPost ||
     isContinuousLoopActive ||
     isPending.fetch ||
     isPending.generate ||
@@ -1177,9 +1167,11 @@ export default function App() {
   }, []);
 
   // Fast fetch coins with O(1) equality check
-  const fetchCoins = async () => {
+  const fetchCoins = async (overrideProfileId?: string) => {
     try {
-      const res = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`), { cache: "no-store" });
+      const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
+      const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
+      const res = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}${query}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setCoinsList(prev => areCoinsEqual(prev, arr) ? prev : arr);
@@ -1187,9 +1179,11 @@ export default function App() {
   };
 
   // Fast fetch messages with O(1) equality check
-  const fetchMessages = async () => {
+  const fetchMessages = async (overrideProfileId?: string) => {
     try {
-      const res = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`), { cache: "no-store" });
+      const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
+      const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
+      const res = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}${query}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setMessagesList(prev => areMessagesEqual(prev, arr) ? prev : arr);
@@ -1351,8 +1345,8 @@ export default function App() {
           fetchProfiles(),
           fetchSessionDetails(),
           fetchStats(),
-          fetchCoins(),
-          fetchMessages(),
+          fetchCoins(id),
+          fetchMessages(id),
           fetchLogs(id)
         ]);
         showToast("Account switched successfully!", "success");
@@ -1469,15 +1463,11 @@ export default function App() {
         }
 
         // Synchronize stopping & starting status
-        if (data.status === "Stopping" || data.isStopping) {
+        if ((data.status === "Stopping" || data.isStopping) && data.status !== "Idle" && data.status !== "Completed") {
           setIsStoppingPost(true);
         } else {
           setIsStoppingPost(false);
-          if (data.status === "Posting") {
-            setIsStartingPost(false);
-          } else if (data.status === "Idle" || data.status === "Completed") {
-            setIsStartingPost(false);
-          }
+          setIsStartingPost(false);
         }
 
         if (data.sessionStatus === "Session active") {
@@ -1734,8 +1724,9 @@ export default function App() {
       if (endpoint.includes("stop-posting")) {
         setIsContinuousLoopActive(false);
         setNextCycleStartTime(null);
-        setIsStoppingPost(true);
-        setStatus("Stopping");
+        setIsStoppingPost(false);
+        setStatus("Idle");
+        fetchStats();
       }
       if (endpoint.includes("post-chat")) {
         setIsStartingPost(false);
@@ -2640,7 +2631,7 @@ export default function App() {
                     )}
                     <button
                       onClick={() => runCommand("/api/clear-all", "clear")}
-                      disabled={isPending.clear || isBusy || isContinuousLoopActive}
+                      disabled={isPending.clear}
                       className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center gap-1.5 font-medium text-xs cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${isPending.clear ? "animate-spin text-emerald-400" : ""}`} />
@@ -2916,10 +2907,10 @@ export default function App() {
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
 
         {/* ROW 1: ACTIONS & ACTIVE PROGRESS */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="dashboard-grid-row">
           
           {/* CONTROL PANEL CARD (7 cols) */}
-          <section id="controls-panel" className="lg:col-span-7 bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:border-slate-700/80 relative overflow-hidden group">
+          <section id="controls-panel" className="lg:col-span-7 bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:border-slate-700/80 relative overflow-hidden group h-full">
             {/* Ambient subtle decorative glow */}
             <div className="absolute top-0 right-0 w-72 h-72 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -2977,13 +2968,13 @@ export default function App() {
                 </div>
               )}
 
-              {/* 2x2 MODERN ACTION DECK */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* 2x2 MODERN ACTION DECK - STABILIZED GRID */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
                 {/* 1. Check Session */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
                   disabled={isPending.login || isBusy || isContinuousLoopActive}
-                  className="p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-login"
                 >
                   <div className="flex items-center gap-2.5">
@@ -3012,7 +3003,7 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.fetch || isPending.clear || isBusy || isContinuousLoopActive}
-                  className="p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-fetch"
                 >
                   <div className="flex items-center gap-2.5">
@@ -3064,7 +3055,7 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.generate || isBusy || isContinuousLoopActive}
-                  className="p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-generate"
                 >
                   <div className="flex items-center gap-2.5">
@@ -3106,8 +3097,8 @@ export default function App() {
                 {(status === "Posting" || status === "Stopping" || isContinuousLoopActive || isStoppingPost) ? (
                   <button
                     onClick={() => runCommand("/api/stop-posting", "post")}
-                    disabled={isPending.post || isStoppingPost || status === "Stopping"}
-                    className="p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    disabled={isPending.post}
+                    className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-pause"
                   >
                     <div className="flex items-center gap-2.5">
@@ -3124,10 +3115,10 @@ export default function App() {
                       </span>
                       <div>
                         <h3 className="text-xs font-bold text-white">
-                          {(isStoppingPost || status === "Stopping") ? "Stopping Engine..." : "Stop Posting"}
+                          {(isStoppingPost || status === "Stopping") ? "Stop Posting (Stopping...)" : "Stop Posting"}
                         </h3>
                         <p className="text-[10px] text-rose-300/80">
-                          {(isStoppingPost || status === "Stopping") ? "Halting safely..." : "Halt sequence"}
+                          {(isStoppingPost || status === "Stopping") ? "Halting safely... Click to force stop" : "Halt sequence"}
                         </p>
                       </div>
                     </div>
@@ -3140,75 +3131,73 @@ export default function App() {
                     )}
                   </button>
                 ) : (
-                  <div className="space-y-2">
-                    {/* Stale Market Data Warning Banner (> 2 Days Old) */}
-                    {isDataOlderThan2Days() && (
-                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 text-xs text-amber-300">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-                          <div className="truncate">
-                            <span className="font-bold text-[11px] block">Market Data Over 2 Days Old</span>
-                            <span className="text-[10px] text-amber-400/80 block truncate">
-                              Prices & sentiments may be outdated. Recommend fresh fetch.
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleRefreshFreshData(false)}
-                          disabled={isRefreshingFreshData || isBusy}
-                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] transition shrink-0 cursor-pointer disabled:opacity-50"
-                        >
-                          {isRefreshingFreshData ? "Refreshing..." : "Refresh Now"}
-                        </button>
+                  <button
+                    onClick={async () => {
+                      if (coinsList.length === 0) {
+                        showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
+                        return;
+                      }
+                      if (messagesList.length === 0) {
+                        showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
+                        return;
+                      }
+                      // Check if data is older than 2 days
+                      if (isDataOlderThan2Days()) {
+                        setShowStaleWarningModal(true);
+                        return;
+                      }
+                      setIsStartingPost(true);
+                      await runCommand("/api/post-chat", "post");
+                    }}
+                    disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
+                    className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    id="btn-start"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform">
+                        {isStartingPost ? (
+                          <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                        ) : (
+                          <Play className="h-4 w-4 fill-emerald-400" />
+                        )}
+                      </span>
+                      <div>
+                        <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                          {isStartingPost ? "Starting..." : "Start Posting"}
+                        </h3>
+                        <p className="text-[10px] text-slate-400">Launch real browser</p>
                       </div>
+                    </div>
+                    {isStartingPost || isPending.post ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
                     )}
-
-                    <button
-                      onClick={async () => {
-                        if (coinsList.length === 0) {
-                          showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
-                          return;
-                        }
-                        if (messagesList.length === 0) {
-                          showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
-                          return;
-                        }
-                        // Check if data is older than 2 days
-                        if (isDataOlderThan2Days()) {
-                          setShowStaleWarningModal(true);
-                          return;
-                        }
-                        setIsStartingPost(true);
-                        await runCommand("/api/post-chat", "post");
-                      }}
-                      disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
-                      className="w-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
-                      id="btn-start"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform">
-                          {isStartingPost ? (
-                            <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
-                          ) : (
-                            <Play className="h-4 w-4 fill-emerald-400" />
-                          )}
-                        </span>
-                        <div>
-                          <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
-                            {isStartingPost ? "Starting..." : "Start Posting"}
-                          </h3>
-                          <p className="text-[10px] text-slate-400">Launch real browser</p>
-                        </div>
-                      </div>
-                      {isStartingPost || isPending.post ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
-                      )}
-                    </button>
-                  </div>
+                  </button>
                 )}
               </div>
+
+              {/* Dedicated Stale Market Data Warning Banner Row (Eliminates Action Deck Bounciness) */}
+              {isDataOlderThan2Days() && status !== "Posting" && status !== "Stopping" && !isContinuousLoopActive && (
+                <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-300 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    <div className="truncate">
+                      <span className="font-bold text-xs block text-amber-200">Market Data Over 2 Days Old</span>
+                      <span className="text-[11px] text-amber-400/80 block truncate">
+                        Cryptocurrency prices shift rapidly. Recommend refreshing trending coins and comments before posting.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRefreshFreshData(false)}
+                    disabled={isRefreshingFreshData || isBusy}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition shrink-0 cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    {isRefreshingFreshData ? "Refreshing..." : "Refresh Now"}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* FULL AUTOMATION SEQUENCE & CONTINUOUS LOOP */}
@@ -3255,7 +3244,7 @@ export default function App() {
 
                   <button
                     onClick={() => runCommand("/api/clear-all", "clear")}
-                    disabled={isPending.clear || isBusy || isContinuousLoopActive}
+                    disabled={isPending.clear}
                     className="text-red-400/80 hover:text-red-300 text-[10px] font-semibold flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500/20 disabled:opacity-40 cursor-pointer"
                     id="btn-clear-stats"
                     title="Reset storage and clear local data"
@@ -3405,7 +3394,7 @@ export default function App() {
           </section>
 
           {/* ACTIVE PROGRESS / EXECUTION MONITOR (5 cols) */}
-          <section className="lg:col-span-5 bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:border-slate-700/80 relative overflow-hidden group">
+          <section className="lg:col-span-5 bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:border-slate-700/80 relative overflow-hidden group h-full">
             {/* Ambient subtle decorative glow */}
             <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -3442,7 +3431,7 @@ export default function App() {
 
                 return (
                   <>
-                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
+                    <div className="spotlight-asset-card min-h-[82px] p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
                       <div className="space-y-1">
                         <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">Target Asset</span>
                         <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
@@ -3487,46 +3476,46 @@ export default function App() {
                         </span>
                       </div>
 
-                      <div className="text-right">
-                        <div className="text-3xl font-black font-mono text-emerald-400 tracking-tight">
+                      <div className="text-right shrink-0 ml-3">
+                        <div className="text-3xl font-black font-mono tabular-nums text-emerald-400 tracking-tight">
                           {batchPercent}%
                         </div>
                         <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Completed</span>
                       </div>
                     </div>
 
-                    {/* 5-METRIC KPI GRID */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                    {/* 5-METRIC KPI GRID - STABILIZED HEIGHTS */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 items-stretch">
+                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                         <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Total Coins</span>
-                        <div className="text-base font-black text-slate-200 font-mono mt-0.5">{totalCoins}</div>
+                        <div className="text-base font-black text-slate-200 font-mono tabular-nums mt-0.5">{totalCoins}</div>
                       </div>
 
-                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                         <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Comments AI</span>
-                        <div className="text-base font-black text-purple-400 font-mono mt-0.5">{generatedCount}</div>
+                        <div className="text-base font-black text-purple-400 font-mono tabular-nums mt-0.5">{generatedCount}</div>
                       </div>
 
-                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                         <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Submitted</span>
-                        <div className="text-base font-black text-emerald-400 font-mono mt-0.5">{postedCount}</div>
+                        <div className="text-base font-black text-emerald-400 font-mono tabular-nums mt-0.5">{postedCount}</div>
                       </div>
 
-                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                         <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Remaining</span>
-                        <div className="text-base font-black text-amber-400 font-mono mt-0.5">{remainingBatch}</div>
+                        <div className="text-base font-black text-amber-400 font-mono tabular-nums mt-0.5">{remainingBatch}</div>
                       </div>
 
-                      <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1">
+                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1 flex flex-col justify-between">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
                           <span className="text-[9px] font-mono text-slate-500 font-bold">Cap {dailyPostLimit}</span>
                         </div>
                         <div className="flex items-baseline gap-1 mt-0.5">
-                          <span className={`text-base font-black font-mono ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
+                          <span className={`text-base font-black font-mono tabular-nums ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
                             {dailyPostCount}
                           </span>
-                          <span className="text-xs text-slate-500 font-mono">/ {dailyPostLimit}</span>
+                          <span className="text-xs text-slate-500 font-mono tabular-nums">/ {dailyPostLimit}</span>
                           {dailyPostCount >= dailyPostLimit && (
                             <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
                               Cap Reached
@@ -3617,7 +3606,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => runCommand("/api/clear-all", "clear")}
-                  disabled={isPending.clear || isBusy || isContinuousLoopActive}
+                  disabled={isPending.clear}
                   className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500"
                   title="Clear console"
                 >

@@ -119,48 +119,54 @@ app.use(express.json({ limit: "50mb" }));
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  const activeId = getActiveProfileId();
+  const queryProfileId = (req.query.profileId as string)?.trim();
+  const activeId = queryProfileId || getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
   updateActiveProfilePaths();
+  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "last_trending.json") : LAST_TRENDING_FILE;
 
-  if (fs.existsSync(LAST_TRENDING_FILE)) {
-    return res.sendFile(LAST_TRENDING_FILE);
+  if (fs.existsSync(targetFile)) {
+    return res.sendFile(targetFile);
   }
   res.json([]);
 });
 
 app.get("/output/generated_messages.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  const activeId = getActiveProfileId();
+  const queryProfileId = (req.query.profileId as string)?.trim();
+  const activeId = queryProfileId || getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
   updateActiveProfilePaths();
+  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "generated_messages.json") : GENERATED_MESSAGES_FILE;
 
-  if (fs.existsSync(GENERATED_MESSAGES_FILE)) {
-    return res.sendFile(GENERATED_MESSAGES_FILE);
+  if (fs.existsSync(targetFile)) {
+    return res.sendFile(targetFile);
   }
   res.json([]);
 });
 
 app.get("/output/results.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  const activeId = getActiveProfileId();
+  const queryProfileId = (req.query.profileId as string)?.trim();
+  const activeId = queryProfileId || getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
 
   updateActiveProfilePaths();
+  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "results.json") : RESULTS_FILE;
 
-  if (fs.existsSync(RESULTS_FILE)) {
-    return res.sendFile(RESULTS_FILE);
+  if (fs.existsSync(targetFile)) {
+    return res.sendFile(targetFile);
   }
   res.json([]);
 });
@@ -816,8 +822,8 @@ function acquireProcessLock(type: SystemProcessType, description: string): { suc
   const now = Date.now();
   if (activeSystemProcess !== "none" && activeSystemProcess !== type) {
     // Deadlock prevention & self-healing: detect orphaned locks or expired locks
-    if (activeSystemProcess === "single_posting" && !isPostingRunning && !isSinglePostingRunning) {
-      console.warn(`[PROCESS LOCK] Auto-clearing orphaned single_posting lock.`);
+    if ((activeSystemProcess === "single_posting" || activeSystemProcess === "continuous_loop") && !isPostingRunning && !isSinglePostingRunning && !isGeneratingRunning && !isSchedulerCycleRunning) {
+      console.warn(`[PROCESS LOCK] Auto-clearing orphaned ${activeSystemProcess} lock.`);
       activeSystemProcess = "none";
       activeProcessDetails = "";
       activeProcessStartTime = 0;
@@ -1009,6 +1015,8 @@ let isSchedulerCycleRunning = false;
 let currentSchedulerAccountId: string | null = null;
 let schedulerQueue: string[] = [];
 let stopSchedulerRequested = false;
+let activePostingBrowser: any = null;
+let activePostingPage: any = null;
 
 function isBusy(): boolean {
   return (
@@ -2428,6 +2436,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           "--disable-blink-features=AutomationControlled",
         ]
       });
+      activePostingBrowser = browser;
     } else {
       addLog("info", "Re-using existing active Playwright browser instance for posting task.");
     }
@@ -2452,10 +2461,15 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     });
 
     page = await context.newPage();
+    activePostingPage = page;
     
     // Set explicit navigation and operation timeouts to 90 seconds (Guideline 9)
     page.setDefaultNavigationTimeout(90000);
     page.setDefaultTimeout(90000);
+
+    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+      return { status: "failed", message: "Posting sequence stopped by user." };
+    }
 
     await setupPageResourceBlocking(page);
     addLog("info", `Navigating to target coin URL: ${url}`);
@@ -2519,6 +2533,10 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
         return { status: "success", message: "Comment already published on community feed" };
       }
     } catch (_) {}
+
+    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+      return { status: "failed", message: "Posting sequence stopped by user." };
+    }
 
     // Focus, write message naturally
     addLog("info", `Editor field focused. Typing comment: "${finalComment}"`);
@@ -2676,6 +2694,10 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       return { status: "expired", message: "Post button text is Log In" };
     }
     
+    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+      return { status: "failed", message: "Posting sequence stopped by user." };
+    }
+
     addLog("info", "Clicking post submission button...");
     await clickResiliently(page, postBtn, "post submission button");
     
@@ -2726,6 +2748,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     addLog("error", `Playwright posting execution failed: ${(error as Error).message}`);
     return { status: "failed", message: (error as Error).message };
   } finally {
+    activePostingPage = null;
     if (page) {
       await page.close().catch(() => {});
     }
@@ -2733,6 +2756,9 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       await context.close().catch(() => {});
     }
     if (browser && ownsBrowser) {
+      if (activePostingBrowser === browser) {
+        activePostingBrowser = null;
+      }
       await browser.close().catch(() => {});
     }
   }
@@ -3623,8 +3649,15 @@ app.get("/api/status", async (req, res) => {
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
 
   if (!activeId || !sessionExists) {
+    if (!isPostingRunning && !isSinglePostingRunning && !isSchedulerCycleRunning && !isGeneratingRunning) {
+      isStopping = false;
+      isSingleStopping = false;
+      if (botStatus === "Stopping" || botStatus === "Posting") {
+        botStatus = "Idle";
+      }
+    }
     return res.json({
-      status: (botStatus === "Authenticating" || botStatus === "Verifying Code") ? botStatus : (isStopping ? "Stopping" : "Idle"),
+      status: (botStatus === "Authenticating" || botStatus === "Verifying Code") ? botStatus : (isStopping ? "Stopping" : botStatus),
       isStopping,
       loginState: loginState,
       runMode,
@@ -3694,6 +3727,14 @@ app.get("/api/status", async (req, res) => {
         ? "Trending coins list is over 2 days old (>48h)"
         : "Generated comments are over 2 days old (>48h)"
   ) : null;
+
+  if (!isPostingRunning && !isSinglePostingRunning && !isSchedulerCycleRunning && !isGeneratingRunning) {
+    isStopping = false;
+    isSingleStopping = false;
+    if (botStatus === "Stopping" || botStatus === "Posting") {
+      botStatus = "Idle";
+    }
+  }
 
   res.json({
     status: isStopping ? "Stopping" : botStatus,
@@ -5217,6 +5258,16 @@ app.post("/api/generate-messages", async (req, res) => {
     return res.status(409).json({ error: lock.reason });
   }
 
+  updateActiveProfilePaths();
+
+  if (isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning) {
+    releaseProcessLock("generating_comments");
+    addLog("warning", "Operation blocked: A posting run is actively executing in the background. Please stop posting before generating comments.");
+    return res.status(400).json({
+      error: "A posting run is actively executing in the background. Please stop posting before generating comments."
+    });
+  }
+
   // DATA CONSISTENCY CHECK: Ensure we actually have trending coins
   const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
@@ -5227,12 +5278,8 @@ app.post("/api/generate-messages", async (req, res) => {
 
   const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   const prevProgress = readBotProgress();
-  if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
-    releaseProcessLock("generating_comments");
-    addLog("warning", `Operation blocked: A posting run is currently in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please wait until all coins are posted or manually click Reset Storage.`);
-    return res.status(400).json({
-      error: `A posting run is in progress (${prevProgress.next_index}/${prevMessages.length} posted). Please complete it or click Reset Storage first.`
-    });
+  if (prevMessages.length > 0 && prevProgress.next_index > 0 && prevProgress.next_index < prevMessages.length) {
+    addLog("info", `Regenerating community comments for trending coins (previous progress was ${prevProgress.next_index}/${prevMessages.length} posted; resetting progress index to 0).`);
   }
 
   addLog("info", "Starting community comments generation...");
@@ -5519,11 +5566,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         ]
       });
       if (sharedBrowser) {
+        activePostingBrowser = sharedBrowser;
         logWithPrefix("info", "Shared Playwright browser instance pre-launched successfully.");
       }
     } catch (browserErr) {
       logWithPrefix("warning", `Pre-launching shared browser failed: ${(browserErr as Error).message}. Will launch context on-demand for individual posts.`);
       sharedBrowser = null;
+      activePostingBrowser = null;
     }
 
     while (isPostingRunning && !isHaltRequested() && currentPostingIndex < messages.length) {
@@ -5712,10 +5761,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       await sharedBrowser.close().catch(() => {});
       sharedBrowser = null;
     }
+    activePostingBrowser = null;
+    activePostingPage = null;
     if (!isSchedulerCall) {
       isSinglePostingRunning = false;
       isSingleStopping = false;
       releaseProcessLock("single_posting");
+      releaseProcessLock("continuous_loop");
     }
     isPostingRunning = isSchedulerCycleRunning;
     isStopping = false;
@@ -5730,13 +5782,23 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 }
 
 // 9. Stop posting loop
-app.post("/api/stop-posting", (req, res) => {
-  isStopping = true;
-  isSingleStopping = true;
+app.post("/api/stop-posting", async (req, res) => {
+  const wasRunning =
+    isPostingRunning ||
+    isSinglePostingRunning ||
+    isSchedulerCycleRunning ||
+    isGeneratingRunning ||
+    botStatus === "Posting" ||
+    botStatus === "Generating" ||
+    botStatus === "Stopping";
+
+  isStopping = false;
+  isSingleStopping = false;
   isPostingRunning = false;
   isSinglePostingRunning = false;
   isGeneratingRunning = false;
   isFullFlowAborted = true;
+  isContinuousLoopActive = false;
   cancelNextAutomationCycle();
 
   if (isSchedulerCycleRunning) {
@@ -5744,23 +5806,38 @@ app.post("/api/stop-posting", (req, res) => {
     addLog("warning", "[SCHEDULER] Stop requested during scheduled multi-account cycle. Halting current account cleanly and skipping remaining queue.");
   }
 
-  releaseProcessLock("single_posting");
-  releaseProcessLock("continuous_loop");
-  releaseProcessLock("refresh_fresh");
-
-  if (isSchedulerCycleRunning || botStatus === "Posting" || botStatus === "Generating") {
-    botStatus = "Stopping";
-  } else {
-    botStatus = "Idle";
+  // Abort any active Playwright browser/page immediately to prevent lingering
+  if (activePostingPage) {
+    try {
+      await activePostingPage.close().catch(() => {});
+    } catch (_) {}
+    activePostingPage = null;
   }
-  addLog("warning", "Automated sequence stop requested. Gracefully finishing in-flight action and halting browser engine...");
-  res.json({ success: true, message: "Stop signal sent. Halting engine cleanly..." });
+  if (activePostingBrowser) {
+    try {
+      addLog("info", "Closing active browser instance immediately to halt posting action...");
+      await activePostingBrowser.close().catch(() => {});
+    } catch (_) {}
+    activePostingBrowser = null;
+  }
+
+  releaseProcessLock("all" as any);
+  botStatus = "Idle";
+  currentCoinName = "N/A";
+
+  if (wasRunning) {
+    addLog("info", "Automated posting engine halted cleanly. All background tasks and locks released.");
+  } else {
+    addLog("info", "Posting engine is already idle. State settled.");
+  }
+
+  res.json({ success: true, message: "Posting sequence stopped cleanly. Engine settled." });
 });
 
 // 10. Full flow execution
 app.post("/api/full-flow", async (req, res) => {
-  if (isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
+  if (isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning || isGeneratingRunning) {
+    return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish or stop it first." });
   }
   if (isBusy() || isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning) {
     return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish or stop it first." });
@@ -5869,14 +5946,23 @@ app.post("/api/full-flow", async (req, res) => {
 
 // 11. Clear Logs & Stats
 app.post("/api/clear-all", async (req, res) => {
-  if (isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot reset storage / clear stats while the Continuous Automation Loop is active." });
-  }
+  // Always allow user to reset storage as the ultimate recovery action
+  cancelNextAutomationCycle();
+  isContinuousLoopActive = false;
+  isPostingRunning = false;
+  isSinglePostingRunning = false;
+  isGeneratingRunning = false;
+  isStopping = false;
+  isSingleStopping = false;
+  botStatus = "Idle";
+  releaseProcessLock("all" as any);
+
   const lock = acquireProcessLock("clearing_storage", "Resetting storage and clearing stats");
   if (!lock.success) {
     return res.status(409).json({ error: lock.reason });
   }
   try {
+    updateActiveProfilePaths();
     logs = [];
     writeJsonFile(LAST_TRENDING_FILE, []);
     writeJsonFile(GENERATED_MESSAGES_FILE, []);
@@ -5886,6 +5972,8 @@ app.post("/api/clear-all", async (req, res) => {
     currentPostingIndex = 0;
     currentCoinName = "N/A";
     botStatus = "Idle";
+    isStopping = false;
+    isSingleStopping = false;
 
     // Dynamic Cloud Firestore synchronization for active profile
     const activeId = getActiveProfileId();
@@ -5928,6 +6016,7 @@ function escapeCsvField(val: any): string {
 }
 
 app.get("/api/download/trending_coins.csv", (req, res) => {
+  updateActiveProfilePaths();
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
@@ -5941,6 +6030,7 @@ app.get("/api/download/trending_coins.csv", (req, res) => {
 });
 
 app.get("/api/download/generated_comments.csv", (req, res) => {
+  updateActiveProfilePaths();
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
@@ -5954,6 +6044,7 @@ app.get("/api/download/generated_comments.csv", (req, res) => {
 });
 
 app.get("/api/download/post_submissions.csv", (req, res) => {
+  updateActiveProfilePaths();
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   const results = (!activeId || !sessionExists) ? [] : getIsolatedResults(activeId);
@@ -5967,6 +6058,7 @@ app.get("/api/download/post_submissions.csv", (req, res) => {
 });
 
 app.get("/api/download/overall_report.csv", (req, res) => {
+  updateActiveProfilePaths();
   const activeId = getActiveProfileId();
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
   const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);

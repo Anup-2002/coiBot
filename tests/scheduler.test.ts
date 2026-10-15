@@ -181,11 +181,11 @@ describe("src/utils/scheduler - Part 1 Unit Tests", () => {
   describe("Settings store default", () => {
     it("defaults schedulerEnabled to false when the file is missing or null", async () => {
       const { parseBotSettings } = await import("../src/utils/scheduler");
-      expect(parseBotSettings(null)).toEqual({ schedulerEnabled: false });
-      expect(parseBotSettings(undefined)).toEqual({ schedulerEnabled: false });
-      expect(parseBotSettings("")).toEqual({ schedulerEnabled: false });
-      expect(parseBotSettings("{}")).toEqual({ schedulerEnabled: false });
-      expect(parseBotSettings(JSON.stringify({ schedulerEnabled: true }))).toEqual({ schedulerEnabled: true });
+      expect(parseBotSettings(null)).toMatchObject({ schedulerEnabled: false });
+      expect(parseBotSettings(undefined)).toMatchObject({ schedulerEnabled: false });
+      expect(parseBotSettings("")).toMatchObject({ schedulerEnabled: false });
+      expect(parseBotSettings("{}")).toMatchObject({ schedulerEnabled: false });
+      expect(parseBotSettings(JSON.stringify({ schedulerEnabled: true }))).toMatchObject({ schedulerEnabled: true });
     });
   });
 

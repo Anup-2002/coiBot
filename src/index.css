@@ -1,1 +1,94 @@
 @import "tailwindcss";
+
+:root {
+  /* Unified Spacing System Variables */
+  --space-3xs: 0.125rem; /* 2px */
+  --space-2xs: 0.25rem;  /* 4px */
+  --space-xs: 0.5rem;    /* 8px */
+  --space-sm: 0.75rem;   /* 12px */
+  --space-md: 1rem;      /* 16px */
+  --space-lg: 1.25rem;   /* 20px */
+  --space-xl: 1.5rem;    /* 24px */
+  --space-2xl: 2rem;     /* 32px */
+  --space-3xl: 2.5rem;   /* 40px */
+
+  /* Layout Math & Container Constraints */
+  --container-max-width: 1600px;
+  --header-height: 4rem;
+  --panel-padding: 1.25rem;
+  --panel-radius: 1rem;        /* 16px */
+  --card-radius: 0.75rem;      /* 12px */
+  --control-radius: 0.5rem;    /* 8px */
+
+  /* Anti-Bounciness Height Baselines */
+  --action-btn-min-h: 4.5rem;    /* 72px */
+  --kpi-card-min-h: 4.5rem;      /* 72px */
+  --spotlight-card-min-h: 5rem;   /* 80px */
+  --terminal-h: 22.5rem;         /* 360px */
+
+  /* Timing & Transitions */
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+}
+
+/* Custom Scrollbar Utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Stabilized Layout Helpers */
+.dashboard-grid-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-xl);
+  align-items: stretch;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-grid-row {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+}
+
+/* Action Button Grid Cell with Fixed Min-Height to eliminate bounciness */
+.action-grid-btn {
+  min-height: var(--action-btn-min-h);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem;
+  border-radius: var(--card-radius);
+  text-align: left;
+  transition: all var(--duration-normal) var(--ease-smooth);
+}
+
+/* KPI Box with Fixed Baseline Height */
+.kpi-stat-box {
+  min-height: var(--kpi-card-min-h);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--card-radius);
+  transition: border-color var(--duration-fast) var(--ease-smooth);
+}
+
+/* Target Asset Spotlight Card Stabilized Min-Height */
+.spotlight-asset-card {
+  min-height: var(--spotlight-card-min-h);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
