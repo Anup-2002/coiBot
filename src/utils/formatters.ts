@@ -1,24 +1,31 @@
 // Helper utilities and formatters for comments, CSV, and sessions
 
 export function formatCommentWithCashtag(comment: string, symbol: string): string {
-  if (!symbol) return comment;
-  const sym = symbol.trim().toUpperCase();
+  if (!symbol || !comment) return comment || "";
+  let cleaned = comment.trim();
+  const sym = symbol.trim().replace(/^\$/, "").toUpperCase();
   const cashtag = `$${sym}`;
-  
+
+  // Clean out any doubled leading cashtags e.g. "$BTC $BTC", "$BTC - $BTC"
+  const doubleTagRegex = new RegExp(`^(\\s*\\$${sym}\\s*[-:,]?\\s*){2,}`, "i");
+  if (doubleTagRegex.test(cleaned)) {
+    cleaned = cleaned.replace(doubleTagRegex, `${cashtag} - `).trim();
+  }
+
   // If the cashtag is already present as a distinct tag, keep as is
-  if (comment.toUpperCase().includes(cashtag)) {
-    return comment;
+  if (cleaned.toUpperCase().includes(cashtag)) {
+    return cleaned;
   }
   
   // If the symbol appears as a standalone word without $, replace the first occurrence
   const escapedSym = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const wordRegex = new RegExp(`\\b${escapedSym}\\b`, "i");
-  if (wordRegex.test(comment)) {
-    return comment.replace(wordRegex, cashtag);
+  if (wordRegex.test(cleaned)) {
+    return cleaned.replace(wordRegex, cashtag);
   }
   
   // Otherwise, prepend the cashtag to ensure CoinMarketCap tags the token
-  return `${cashtag} - ${comment}`;
+  return `${cashtag} - ${cleaned}`;
 }
 
 export function escapeCsvField(val: any): string {

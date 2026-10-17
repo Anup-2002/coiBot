@@ -16,7 +16,7 @@ function resolveAccountDailyLimit(profileLimit?: number, envLimit?: string): num
   if (!isNaN(envVal) && envVal > 0) {
     return envVal;
   }
-  return 500; // Increased default to 500
+  return 300; // Increased default to 300
 }
 
 function processProgressDaily(
@@ -34,8 +34,8 @@ function processProgressDaily(
 }
 
 describe("Per-Account Daily Post Limit Logic", () => {
-  it("defaults to 500 posts/day when no env or profile override exists", () => {
-    expect(resolveAccountDailyLimit(undefined, undefined)).toBe(500);
+  it("defaults to 300 posts/day when no env or profile override exists", () => {
+    expect(resolveAccountDailyLimit(undefined, undefined)).toBe(300);
   });
 
   it("respects per-account profile limit override", () => {
@@ -52,9 +52,9 @@ describe("Per-Account Daily Post Limit Logic", () => {
       next_index: 5,
       daily_post_count: 12,
       last_post_date: today,
-      daily_post_limit: 500,
+      daily_post_limit: 300,
     };
-    const updated = processProgressDaily(initial, today, 500);
+    const updated = processProgressDaily(initial, today, 300);
     expect(updated.daily_post_count).toBe(12);
     expect(updated.last_post_date).toBe(today);
   });
@@ -64,19 +64,19 @@ describe("Per-Account Daily Post Limit Logic", () => {
     const today = "2026-10-07";
     const initial: BotProgressData = {
       next_index: 30,
-      daily_post_count: 500,
+      daily_post_count: 300,
       last_post_date: yesterday,
-      daily_post_limit: 500,
+      daily_post_limit: 300,
     };
-    const updated = processProgressDaily(initial, today, 500);
+    const updated = processProgressDaily(initial, today, 300);
     expect(updated.daily_post_count).toBe(0);
     expect(updated.last_post_date).toBe(today);
   });
 
   it("correctly identifies when daily limit is reached", () => {
-    const limit = 500;
-    expect(499 >= limit).toBe(false);
-    expect(500 >= limit).toBe(true);
-    expect(501 >= limit).toBe(true);
+    const limit = 300;
+    expect(299 >= limit).toBe(false);
+    expect(300 >= limit).toBe(true);
+    expect(301 >= limit).toBe(true);
   });
 });

@@ -258,6 +258,92 @@ function saveLocalBotSettings(settings: BotSettings): void {
   saveSettingsCloud(settings).catch(() => {});
 }
 
+function escapeTelegramHtml(str: string): string {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+const TELEGRAM_ALERT_COOLDOWN_MS = 20 * 60 * 1000; // 20-minute throttle per category
+const lastTelegramAlertTimes = new Map<string, number>();
+const globalTelegramTimestamps: number[] = [];
+const MAX_TELEGRAM_ALERTS_PER_HOUR = 6;
+
+async function sendTelegramAlert(
+  title: string,
+  message: string,
+  type: "error" | "warning" | "success" | "info" = "info",
+  categoryKey?: string,
+  force: boolean = false
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const settings = getLocalBotSettings();
+    if (!settings.telegramAlertsEnabled) {
+      return { success: false, error: "Telegram alerts are disabled in settings." };
+    }
+    const token = (settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU").trim();
+    const chatId = (settings.telegramChatId || "1817931967").trim();
+    if (!token || !chatId) {
+      return { success: false, error: "Missing Telegram Bot Token or Chat ID." };
+    }
+
+    const now = Date.now();
+
+    // Unless forced (e.g. manual user test), enforce strict anti-spam limits
+    if (!force) {
+      // 1. Category cooldown check
+      if (categoryKey) {
+        const lastSent = lastTelegramAlertTimes.get(categoryKey);
+        if (lastSent && now - lastSent < TELEGRAM_ALERT_COOLDOWN_MS) {
+          const remainingMins = Math.ceil((TELEGRAM_ALERT_COOLDOWN_MS - (now - lastSent)) / 60000);
+          console.log(`[TELEGRAM] Throttled alert for '${categoryKey}'. Cooldown active for ${remainingMins}m to prevent Telegram spam.`);
+          return { success: true };
+        }
+      }
+
+      // 2. Global hourly limit check
+      while (globalTelegramTimestamps.length > 0 && globalTelegramTimestamps[0] < now - 3600000) {
+        globalTelegramTimestamps.shift();
+      }
+      if (globalTelegramTimestamps.length >= MAX_TELEGRAM_ALERTS_PER_HOUR) {
+        console.warn(`[TELEGRAM] Throttled alert: Reached maximum emergency limit of ${MAX_TELEGRAM_ALERTS_PER_HOUR} alerts/hour.`);
+        return { success: true };
+      }
+    }
+
+    const icon = type === "error" ? "🚨" : type === "warning" ? "⚠️" : type === "success" ? "✅" : "ℹ️";
+    const text = `${icon} <b>${escapeTelegramHtml(title)}</b>\n\n${escapeTelegramHtml(message)}\n\n🕒 <i>${new Date().toLocaleString()}</i>`;
+
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+    const data: any = await res.json();
+    if (!data.ok) {
+      console.error("[TELEGRAM] Error sending alert:", data.description);
+      return { success: false, error: data.description };
+    }
+
+    if (categoryKey) {
+      lastTelegramAlertTimes.set(categoryKey, now);
+    }
+    globalTelegramTimestamps.push(now);
+
+    return { success: true };
+  } catch (err) {
+    console.error("[TELEGRAM] Network failure sending alert:", (err as Error).message);
+    return false as any;
+  }
+}
+
 function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
@@ -393,7 +479,7 @@ function ensureProfileDirectory(profileId: string): void {
     fs.writeFileSync(progressFile, JSON.stringify({
       next_index: 0,
       daily_post_count: 0,
-      daily_post_limit: 500,
+      daily_post_limit: 300,
       last_post_date: getTodayDateString()
     }, null, 2), "utf-8");
   }
@@ -508,7 +594,7 @@ function getAccountDailyPostLimit(profileId?: string | null): number {
   if (!isNaN(envVal) && envVal > 0) {
     return envVal;
   }
-  return 500; // Configurable daily posting limit default: 500 posts/day
+  return 300; // Configurable daily posting limit default: 300 posts/day
 }
 
 function readBotProgress(specificProfileId?: string): BotProgressData {
@@ -595,6 +681,14 @@ function addLog(level: "info" | "success" | "warning" | "error", message: string
   ) {
     try {
       const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
+      if (fs.existsSync(SCHEDULER_LOG_FILE)) {
+        const stats = fs.statSync(SCHEDULER_LOG_FILE);
+        if (stats.size > 5 * 1024 * 1024) {
+          const content = fs.readFileSync(SCHEDULER_LOG_FILE, "utf-8");
+          const trimmed = content.split("\n").slice(-1000).join("\n");
+          fs.writeFileSync(SCHEDULER_LOG_FILE, trimmed + "\n", "utf-8");
+        }
+      }
       fs.appendFileSync(SCHEDULER_LOG_FILE, line, "utf-8");
     } catch (_) {}
   }
@@ -818,17 +912,28 @@ let activeSystemProcess: SystemProcessType = "none";
 let activeProcessDetails: string = "";
 let activeProcessStartTime: number = 0;
 
+function touchProcessLock(): void {
+  activeProcessStartTime = Date.now();
+}
+
 function acquireProcessLock(type: SystemProcessType, description: string): { success: boolean; reason?: string } {
   const now = Date.now();
   if (activeSystemProcess !== "none" && activeSystemProcess !== type) {
     // Deadlock prevention & self-healing: detect orphaned locks or expired locks
-    if ((activeSystemProcess === "single_posting" || activeSystemProcess === "continuous_loop") && !isPostingRunning && !isSinglePostingRunning && !isGeneratingRunning && !isSchedulerCycleRunning) {
-      console.warn(`[PROCESS LOCK] Auto-clearing orphaned ${activeSystemProcess} lock.`);
+    const isOrphaned =
+      (activeSystemProcess === "single_posting" && !isSinglePostingRunning && !isPostingRunning) ||
+      (activeSystemProcess === "continuous_loop" && !isPostingRunning && !isGeneratingRunning && !isContinuousLoopActive) ||
+      (activeSystemProcess === "scheduler_cycle" && !isSchedulerCycleRunning) ||
+      (activeSystemProcess === "generating_comments" && !isGeneratingRunning) ||
+      ((activeSystemProcess === "fetching_coins" || activeSystemProcess === "checking_login" || activeSystemProcess === "clearing_storage" || activeSystemProcess === "retry_single") && now - activeProcessStartTime > 3 * 60 * 1000);
+
+    if (isOrphaned) {
+      console.warn(`[PROCESS LOCK] Auto-clearing orphaned or halted ${activeSystemProcess} lock.`);
       activeSystemProcess = "none";
       activeProcessDetails = "";
       activeProcessStartTime = 0;
-    } else if (activeProcessStartTime > 0 && now - activeProcessStartTime > 15 * 60 * 1000) {
-      console.warn(`[PROCESS LOCK] Auto-clearing stale lock (${activeSystemProcess}) held for >15 minutes.`);
+    } else if (activeProcessStartTime > 0 && now - activeProcessStartTime > 60 * 60 * 1000) {
+      console.warn(`[PROCESS LOCK] Watchdog auto-clearing stale lock (${activeSystemProcess}) held for >60 minutes.`);
       activeSystemProcess = "none";
       activeProcessDetails = "";
       activeProcessStartTime = 0;
@@ -2538,24 +2643,63 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       return { status: "failed", message: "Posting sequence stopped by user." };
     }
 
-    // Focus, write message naturally
-    addLog("info", `Editor field focused. Typing comment: "${finalComment}"`);
+    // 1. Focus editor and clear previous text/drafts
+    addLog("info", "Focusing editor and clearing previous text...");
     await clickResiliently(page, editor, "comment editor input box");
     await page.waitForTimeout(300);
-    
-    // Clear existing text just in case, then type
-    addLog("info", "Clearing previous text and typing the comment resiliently...");
     try {
       await editor.focus();
-      await editor.fill(""); // Try clearing
+      await page.keyboard.press("ControlOrMeta+A").catch(() => {});
+      await page.keyboard.press("Backspace").catch(() => {});
+      await editor.evaluate((el: any) => {
+        const elem = el as HTMLElement;
+        if (elem.tagName === "TEXTAREA" || elem.tagName === "INPUT") {
+          (elem as any).value = "";
+        } else {
+          elem.innerText = "";
+          elem.innerHTML = "";
+        }
+        elem.dispatchEvent(new Event('input', { bubbles: true }));
+      }).catch(() => {});
     } catch {}
-    
+    await page.waitForTimeout(300);
+
+    // 2. Inspect what is in the editor now (CoinMarketCap Draft.js often keeps its un-deletable coin tag chip, e.g. "$SIREN" or "$TIA")
+    let existingTag = "";
+    let currentEditorText = "";
     try {
-      await editor.type(finalComment, { delay: 15 });
+      currentEditorText = (await editor.innerText().catch(() => "")) || "";
+      const tagMatch = currentEditorText.match(/\$[A-Za-z0-9_.-]+/);
+      if (tagMatch) {
+        existingTag = tagMatch[0].toUpperCase();
+      }
+    } catch (_) {}
+
+    // 3. Prepare exact text to type:
+    let textToType = finalComment.trim();
+    if (existingTag) {
+      // The editor still retains the CMC pre-filled coin tag!
+      // Strip any duplicate leading tag from our comment to avoid "$TIA$TIA" or "$AGT$AGT"
+      const escapedTag = existingTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const leadingTagRegex = new RegExp(`^\\s*${escapedTag}\\s*[-:,]?\\s*`, "i");
+      if (leadingTagRegex.test(textToType)) {
+        textToType = textToType.replace(leadingTagRegex, "").trim();
+      }
+      // Guarantee a space separating the pre-filled tag from the comment so words never glue ("$SIREN Crazy" instead of "$SIRENCrazy")
+      if (!currentEditorText.endsWith(" ")) {
+        textToType = ` ${textToType}`;
+      }
+    }
+
+    addLog("info", `Typing comment into editor: "${textToType}"`);
+    try {
+      await editor.type(textToType, { delay: 15 });
       // CoinMarketCap displays a coin tag autocomplete popup when "$" is typed.
-      // Pressing Escape or space dismisses the autocomplete popup while retaining the $TAG.
+      // Pressing Escape dismisses the autocomplete popup while retaining the tag.
       await page.waitForTimeout(300);
       await page.keyboard.press("Escape").catch(() => {});
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(200);
     } catch (e) {
       addLog("warning", `Direct typing failed: ${(e as Error).message}. Using page.evaluate fallback...`);
       try {
@@ -2569,7 +2713,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           }
           element.dispatchEvent(new Event('input', { bubbles: true }));
           element.dispatchEvent(new Event('change', { bubbles: true }));
-        }, finalComment);
+        }, textToType);
       } catch (errEval) {
         addLog("error", `Fallback typing failed: ${(errEval as Error).message}`);
         throw errEval;
@@ -3160,7 +3304,7 @@ async function syncLocalFromCloudIfStale(force = false) {
           const localMatch = localProfiles.find(lp => lp.id === cp.id);
           return {
             ...cp,
-            dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 500),
+            dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 300),
             isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
           };
         });
@@ -3397,7 +3541,7 @@ app.post("/api/save-profile", async (req, res) => {
     const rawLimit = Number(req.body.dailyPostLimit);
     const dailyLimit = !isNaN(rawLimit) && rawLimit > 0
       ? rawLimit
-      : (existingIndex >= 0 && profiles[existingIndex].dailyPostLimit ? profiles[existingIndex].dailyPostLimit : 500);
+      : (existingIndex >= 0 && profiles[existingIndex].dailyPostLimit ? profiles[existingIndex].dailyPostLimit : 300);
 
     const profileData = {
       id: profileId,
@@ -3447,7 +3591,7 @@ app.post("/api/update-profile-limit", async (req, res) => {
     if (!id) {
       return res.status(400).json({ error: "Missing profile id." });
     }
-    const limitNum = Math.max(1, Math.min(10000, Number(dailyPostLimit) || 500));
+    const limitNum = Math.max(1, Math.min(10000, Number(dailyPostLimit) || 300));
     let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
     const idx = profiles.findIndex(p => p.id === id);
     if (idx === -1) {
@@ -3509,7 +3653,7 @@ async function activateProfileInternal(id: string): Promise<{
     fs.writeFileSync(targetProgress, JSON.stringify({
       next_index: 0,
       daily_post_count: 0,
-      daily_post_limit: activeProfile.dailyPostLimit || 500,
+      daily_post_limit: activeProfile.dailyPostLimit || 300,
       last_post_date: getTodayDateString()
     }, null, 2), "utf-8");
   }
@@ -3541,7 +3685,7 @@ async function activateProfileInternal(id: string): Promise<{
       id: activeProfile.id,
       name: activeProfile.name,
       isActive: true,
-      dailyPostLimit: activeProfile.dailyPostLimit || 500
+      dailyPostLimit: activeProfile.dailyPostLimit || 300
     }
   };
 }
@@ -3745,6 +3889,7 @@ app.get("/api/status", async (req, res) => {
     generatedMessages: messages.length,
     postedCount: results.filter(r => r.status === "success").length,
     failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
+    results,
     progressIndex: Math.max(0, Math.min(progress.next_index || 0, Math.max(coins.length, messages.length))),
     dailyPostCount: progress.daily_post_count || 0,
     dailyPostLimit,
@@ -4066,6 +4211,218 @@ app.post("/api/marketing-images/upload", (req, res) => {
       uploadedCount,
       errors: errors.length > 0 ? errors : undefined,
       message: `Successfully uploaded ${uploadedCount} image(s).` + (errors.length > 0 ? ` (${errors.length} failed)` : ""),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+async function importImagesFromExternalSources(inputUrlOrText: string, replaceExisting: boolean = false): Promise<{
+  importedCount: number;
+  errors: string[];
+  message: string;
+}> {
+  const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
+  if (!fs.existsSync(MARKETING_IMAGES_DIR)) fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+  if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+
+  if (replaceExisting) {
+    const existing = getAvailableMarketingImages();
+    for (const file of existing) {
+      const outF = path.join(MARKETING_IMAGES_DIR, file);
+      const pubF = path.join(pubDir, file);
+      if (fs.existsSync(outF)) fs.unlinkSync(outF);
+      if (fs.existsSync(pubF)) fs.unlinkSync(pubF);
+    }
+    addLog("info", `[IMAGES] Replaced existing images pool with new batch.`);
+  }
+
+  const errors: string[] = [];
+  let importedCount = 0;
+
+  const rawItems = inputUrlOrText
+    .split(/[\r\n,]+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  for (const rawItem of rawItems) {
+    // 1. Google Drive Folder
+    const gdriveFolderMatch = rawItem.match(/folders\/([a-zA-Z0-9_-]+)/);
+    if (gdriveFolderMatch) {
+      const folderId = gdriveFolderMatch[1];
+      addLog("info", `[DRIVE IMPORT] Scanning Google Drive folder (${folderId}) with headless engine...`);
+      try {
+        const browser = await launchBrowserResilient({
+          headless: true,
+          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+        });
+        const context = await browser.newContext({
+          userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        });
+        const page = await context.newPage();
+        await page.goto(`https://drive.google.com/drive/folders/${folderId}`, { waitUntil: "domcontentloaded", timeout: 35000 }).catch(() => {});
+        await page.waitForTimeout(4000);
+
+        const fileIds: string[] = await page.evaluate(() => {
+          const ids: string[] = [];
+          document.querySelectorAll('a[href*="/file/d/"], [data-id]').forEach(el => {
+            const href = el.getAttribute('href') || '';
+            const match = href.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+            if (match) ids.push(match[1]);
+            const dataId = el.getAttribute('data-id');
+            if (dataId && dataId.length > 20 && !ids.includes(dataId)) ids.push(dataId);
+          });
+          return Array.from(new Set(ids));
+        });
+
+        await browser.close().catch(() => {});
+        addLog("info", `[DRIVE IMPORT] Found ${fileIds.length} candidate file entries in Google Drive folder.`);
+
+        for (let i = 0; i < fileIds.length; i++) {
+          const fid = fileIds[i];
+          const downloadUrls = [
+            `https://drive.google.com/uc?export=download&id=${fid}`,
+            `https://lh3.googleusercontent.com/d/${fid}`
+          ];
+          let downloaded = false;
+          for (const dUrl of downloadUrls) {
+            try {
+              const res = await fetch(dUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } });
+              if (res.ok) {
+                const arrayBuf = await res.arrayBuffer();
+                const buffer = Buffer.from(arrayBuf);
+                const validation = isValidImageBuffer(buffer);
+                if (validation.valid) {
+                  const ext = validation.format || "png";
+                  const filename = `gdrive_${fid.slice(0, 8)}_${Date.now()}_${i + 1}.${ext}`;
+                  fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, filename), buffer);
+                  fs.writeFileSync(path.join(pubDir, filename), buffer);
+                  importedCount++;
+                  downloaded = true;
+                  addLog("success", `[DRIVE IMPORT] Imported image ${i + 1}/${fileIds.length} (${filename}, ${Math.round(buffer.length / 1024)} KB)`);
+                  break;
+                }
+              }
+            } catch (_) {}
+          }
+          if (!downloaded) {
+            errors.push(`Google Drive file ${fid}: Not a public image or access restricted.`);
+          }
+        }
+      } catch (driveErr) {
+        errors.push(`Failed to scan Google Drive folder: ${(driveErr as Error).message}`);
+        addLog("error", `[DRIVE IMPORT] Error scanning folder: ${(driveErr as Error).message}`);
+      }
+      continue;
+    }
+
+    // 2. Google Drive Single File
+    const gdriveFileMatch = rawItem.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || rawItem.match(/id=([a-zA-Z0-9_-]+)/);
+    if (gdriveFileMatch && rawItem.includes("drive.google.com")) {
+      const fid = gdriveFileMatch[1];
+      const downloadUrls = [
+        `https://drive.google.com/uc?export=download&id=${fid}`,
+        `https://lh3.googleusercontent.com/d/${fid}`
+      ];
+      let downloaded = false;
+      for (const dUrl of downloadUrls) {
+        try {
+          const res = await fetch(dUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          if (res.ok) {
+            const arrayBuf = await res.arrayBuffer();
+            const buffer = Buffer.from(arrayBuf);
+            const validation = isValidImageBuffer(buffer);
+            if (validation.valid) {
+              const ext = validation.format || "png";
+              const filename = `gdrive_${fid.slice(0, 8)}_${Date.now()}.${ext}`;
+              fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, filename), buffer);
+              fs.writeFileSync(path.join(pubDir, filename), buffer);
+              importedCount++;
+              downloaded = true;
+              addLog("success", `[DRIVE IMPORT] Imported Google Drive image: ${filename}`);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+      if (!downloaded) {
+        errors.push(`Google Drive file ${fid}: Could not download as valid image.`);
+      }
+      continue;
+    }
+
+    // 3. Direct URL / S3 Bucket URL / CDN Link
+    if (rawItem.startsWith("http://") || rawItem.startsWith("https://")) {
+      try {
+        addLog("info", `[URL IMPORT] Fetching image from: ${rawItem.slice(0, 60)}...`);
+        const res = await fetch(rawItem, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          redirect: 'follow'
+        });
+        if (!res.ok) {
+          errors.push(`URL returned status ${res.status}: ${rawItem}`);
+          continue;
+        }
+        const arrayBuf = await res.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
+        const validation = isValidImageBuffer(buffer);
+        if (!validation.valid) {
+          errors.push(`Invalid image buffer from URL: ${validation.error} (${rawItem})`);
+          continue;
+        }
+
+        const ext = validation.format || "png";
+        let urlFilename = "image";
+        try {
+          const u = new URL(rawItem);
+          const base = path.basename(u.pathname);
+          if (base && base.includes(".")) urlFilename = base.replace(/[^a-zA-Z0-9._-]/g, "_");
+          else urlFilename = `ext_${Date.now()}.${ext}`;
+        } catch (_) {
+          urlFilename = `ext_${Date.now()}.${ext}`;
+        }
+        if (!urlFilename.endsWith(`.${ext}`)) urlFilename += `.${ext}`;
+
+        fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, urlFilename), buffer);
+        fs.writeFileSync(path.join(pubDir, urlFilename), buffer);
+        importedCount++;
+        addLog("success", `[URL IMPORT] Imported image: ${urlFilename} (${Math.round(buffer.length / 1024)} KB, ${ext.toUpperCase()})`);
+      } catch (uErr) {
+        errors.push(`Error downloading ${rawItem}: ${(uErr as Error).message}`);
+        addLog("error", `[URL IMPORT] Failed to download from ${rawItem}: ${(uErr as Error).message}`);
+      }
+      continue;
+    }
+
+    errors.push(`Unrecognized link or format: ${rawItem}`);
+  }
+
+  // Auto-prune older images if requested or if auto-pruning is enabled
+  const pruneLimit = getLocalBotSettings().autoPruneEnabled ? (getLocalBotSettings().autoPruneLimit || 30) : null;
+  if (pruneLimit && pruneLimit > 0) {
+    pruneMarketingImages(pruneLimit);
+  }
+
+  return {
+    importedCount,
+    errors,
+    message: `Imported ${importedCount} image(s) successfully.` + (errors.length > 0 ? ` (${errors.length} failed/skipped)` : "")
+  };
+}
+
+app.post("/api/marketing-images/import-external", async (req, res) => {
+  try {
+    const { links, replaceExisting } = req.body;
+    if (!links || typeof links !== "string" || !links.trim()) {
+      return res.status(400).json({ success: false, error: "Please provide a Google Drive link, S3 URL, or image links." });
+    }
+
+    const result = await importImagesFromExternalSources(links, Boolean(replaceExisting));
+    res.json({
+      success: true,
+      importedCount: result.importedCount,
+      errors: result.errors.length > 0 ? result.errors : undefined,
+      message: result.message,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -4612,6 +4969,8 @@ app.post("/api/retry-single", async (req, res) => {
     }
 
     await writeJsonFile(RESULTS_FILE, results);
+    const retryPid = getActiveProfileId();
+    if (retryPid) savePostResultsCloud(results, retryPid).catch(() => {});
     
     if (outcome === "success") {
       addLog("success", `Successfully manually retried posting for ${symbol}!`);
@@ -4919,34 +5278,45 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
     throw new Error("Could not fetch trending coins from any source (scrape, CMC API, CoinGecko). Keeping previous coin list.");
   }
 
-  await writeJsonFile(LAST_TRENDING_FILE, resolvedCoins);
+  const settings = getLocalBotSettings();
+  const targetCount = typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 30;
+  const targetedCoins = targetCount > 0 ? resolvedCoins.slice(0, targetCount) : resolvedCoins;
+
+  await writeJsonFile(LAST_TRENDING_FILE, targetedCoins);
   updateRealFetchTime();
   // Clear obsolete comments from previous batch so data is never inconsistent
   await writeJsonFile(GENERATED_MESSAGES_FILE, []);
   saveBotProgress({ next_index: 0 });
   currentPostingIndex = 0;
-  return { coins: resolvedCoins, creditCount };
+  return { coins: targetedCoins, creditCount };
 }
 
 export function formatCommentWithCashtag(comment: string, symbol: string): string {
-  if (!symbol) return comment;
-  const sym = symbol.trim().toUpperCase();
+  if (!symbol || !comment) return comment || "";
+  let cleaned = comment.trim();
+  const sym = symbol.trim().replace(/^\$/, "").toUpperCase();
   const cashtag = `$${sym}`;
-  
-  // If the cashtag is already present as a distinct tag, keep as is
-  if (comment.toUpperCase().includes(cashtag)) {
-    return comment;
+
+  // Clean out any doubled leading cashtags e.g. "$BTC $BTC", "$BTC - $BTC", "$BTC with $BTC"
+  const doubleTagRegex = new RegExp(`^(\\s*\\$${sym}\\s*[-:,]?\\s*){2,}`, "i");
+  if (doubleTagRegex.test(cleaned)) {
+    cleaned = cleaned.replace(doubleTagRegex, `${cashtag} `).trim();
+  }
+
+  // If the cashtag is already present as a distinct tag, keep as is (no extra prefix)
+  if (cleaned.toUpperCase().includes(cashtag)) {
+    return cleaned;
   }
   
   // If the symbol appears as a standalone word without $, replace the first occurrence
   const escapedSym = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const wordRegex = new RegExp(`\\b${escapedSym}\\b`, "i");
-  if (wordRegex.test(comment)) {
-    return comment.replace(wordRegex, cashtag);
+  if (wordRegex.test(cleaned)) {
+    return cleaned.replace(wordRegex, cashtag);
   }
   
-  // Otherwise, prepend the cashtag to ensure CoinMarketCap tags the token
-  return `${cashtag} - ${comment}`;
+  // Otherwise, prepend the cashtag naturally with a space
+  return `${cashtag} ${cleaned}`;
 }
 
 async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage[]> {
@@ -4979,19 +5349,24 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
           break;
         }
         const chunk = coins.slice(i, i + batchSize);
-        addLog("info", `Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gpt-4o-mini...`);
+        const schedPrefix = isSchedulerCycleRunning ? "[SCHEDULER] " : "";
+        addLog("info", `${schedPrefix}Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gpt-4o-mini...`);
 
         const prompt = `
-          Generate ONE unique, creative, organic CoinMarketCap community comment for EACH of the following coins based on their recent market data, AND classify the sentiment as either "bullish" or "bearish".
+          Generate ONE unique, authentic, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          Requirements:
-          - 1 to 2 short sentences.
-          - Write in a natural, human-like voice of an active crypto community trader (sometimes casual, sometimes analytical).
-          - MANDATORY: ALWAYS include the coin's cashtag tag ($SYMBOL, e.g. $BTC, $ETH, $PONS) inside the comment so CoinMarketCap automatically tags and indexes the comment.
-          - Incorporate the provided market price, rank or change percentage naturally.
-          - Do NOT use emojis. Do NOT use hashtags (#).
-          - No generic templates or identical sentence structures. Keep comments varied!
-          - Never offer professional financial advice. Do not say "this is not financial advice".
+          CRITICAL Anti-Spam & Human Voice Rules:
+          - Write like a real crypto trader discussing the coin in a lively Telegram/Discord group or Twitter/X feed.
+          - 1 to 2 natural sentences. Varied lengths (some short 6-10 words, some 15-20 words).
+          - NEVER use rigid price-reporting templates like "[Coin] is up X% to $Y". Do NOT just repeat numbers. Discuss market sentiment, volume, momentum, breakout, consolidation, support, or ask the community a question.
+          - Rotate across these 4 distinct archetypes:
+            1. Community Discussion / Questions (e.g. "Volume picking up nicely on $BTC. Anyone taking profits here or holding for new highs?")
+            2. Technical & Chart Sentiment (e.g. "$ETH holding this support zone remarkably well on the 4H chart. Looks ready for the next leg.")
+            3. Casual Market Observation (e.g. "Impressive rebound on $SOL today. Definitely keeping this on my close watchlist.")
+            4. Project & Ecosystem Momentum (e.g. "$LINK accumulation looking very steady this week despite broader market volatility.")
+          - Include the coin's cashtag ($SYMBOL, e.g. $BTC, $ETH) naturally ONCE inside the sentence. Never write double cashtags like "$BTC $BTC".
+          - No emojis. No hashtags (#). No disclaimers ("not financial advice").
+          - No two comments should share the same opening words or sentence structure!
 
           Provide the output as a valid JSON object matching this schema:
           {
@@ -5068,16 +5443,20 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         addLog("info", `Generating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingForGemini.length / batchSize)} with gemini-2.5-flash (${chunk.length} coins)...`);
 
         const prompt = `
-          Generate ONE unique, creative, organic CoinMarketCap community comment for EACH of the following coins based on their recent market data, AND classify the sentiment as either "bullish" or "bearish".
+          Generate ONE unique, authentic, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          Requirements:
-          - 1 to 2 short sentences.
-          - Write in a natural, human-like voice of an active crypto community trader (sometimes casual, sometimes analytical).
-          - MANDATORY: ALWAYS include the coin's cashtag tag ($SYMBOL, e.g. $BTC, $ETH, $PONS) inside the comment so CoinMarketCap automatically tags and indexes the comment.
-          - Incorporate the provided market price, rank or change percentage naturally.
-          - Do NOT use emojis. Do NOT use hashtags (#).
-          - No generic templates or identical sentence structures. Keep comments varied!
-          - Never offer professional financial advice. Do not say "this is not financial advice".
+          CRITICAL Anti-Spam & Human Voice Rules:
+          - Write like a real crypto trader discussing the coin in a lively Telegram/Discord group or Twitter/X feed.
+          - 1 to 2 natural sentences. Varied lengths (some short 6-10 words, some 15-20 words).
+          - NEVER use rigid price-reporting templates like "[Coin] is up X% to $Y". Do NOT just repeat numbers. Discuss market sentiment, volume, momentum, breakout, consolidation, support, or ask the community a question.
+          - Rotate across these 4 distinct archetypes:
+            1. Community Discussion / Questions (e.g. "Volume picking up nicely on $BTC. Anyone taking profits here or holding for new highs?")
+            2. Technical & Chart Sentiment (e.g. "$ETH holding this support zone remarkably well on the 4H chart. Looks ready for the next leg.")
+            3. Casual Market Observation (e.g. "Impressive rebound on $SOL today. Definitely keeping this on my close watchlist.")
+            4. Project & Ecosystem Momentum (e.g. "$LINK accumulation looking very steady this week despite broader market volatility.")
+          - Include the coin's cashtag ($SYMBOL, e.g. $BTC, $ETH) naturally ONCE inside the sentence. Never write double cashtags like "$BTC $BTC".
+          - No emojis. No hashtags (#). No disclaimers ("not financial advice").
+          - No two comments should share the same opening words or sentence structure!
 
           Provide the output as a valid JSON object matching this schema:
           {
@@ -5169,16 +5548,16 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     
     const templates = {
       bullish: [
-        (c: Coin) => `$${c.symbol} is looking extremely strong right now. Holding support beautifully and volume is accelerating. Next target looks very interesting!`,
-        (c: Coin) => `A strong 24h gain of ${c.change_24h}% for $${c.symbol}. The consolidation phase seems finished, expecting higher levels very soon.`,
-        (c: Coin) => `Volume on $${c.symbol} is absolutely popping. If we break this local resistance, we could easily see another leg up.`,
-        (c: Coin) => `Loving the price action on $${c.symbol} lately. Steady accumulation going on in this range.`,
+        (c: Coin) => `$${c.symbol} is looking quite resilient here. Volume picking up and holding key support nicely on the 4H chart.`,
+        (c: Coin) => `Solid accumulation phase for $${c.symbol}. Anyone taking profits here or holding for higher targets?`,
+        (c: Coin) => `Volume on $${c.symbol} is gaining good momentum. If we clear local resistance, next leg up could follow quickly.`,
+        (c: Coin) => `Really like the chart structure on $${c.symbol} today. Keeping this on close watchlist for continuation.`,
       ],
       bearish: [
-        (c: Coin) => `$${c.symbol} has some short-term pressure. Volume is declining, let's see if the key support holds.`,
-        (c: Coin) => `Slight pullback for $${c.symbol} at ${c.price}. Good opportunity to DCA before the next bounce.`,
-        (c: Coin) => `A ${c.change_24h}% pullback on $${c.symbol}. Watching the 4h charts closely for a reversal sign.`,
-        (c: Coin) => `Momentum is flat for $${c.symbol} today. Waiting for a breakout trigger before entering more positions.`,
+        (c: Coin) => `$${c.symbol} experiencing some healthy consolidation today. Watching closely to see if buyers step in at support.`,
+        (c: Coin) => `Short-term cooling off period for $${c.symbol}. Could present an interesting dip-buying opportunity if support holds.`,
+        (c: Coin) => `A bit of market pressure on $${c.symbol} right now. Waiting for clear reversal confirmation before making moves.`,
+        (c: Coin) => `Momentum pausing for $${c.symbol} today. Let's see how the daily candle closes before the next directional move.`,
       ]
     };
 
@@ -5576,6 +5955,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     }
 
     while (isPostingRunning && !isHaltRequested() && currentPostingIndex < messages.length) {
+      touchProcessLock();
       const item = messages[currentPostingIndex];
       
       const MAX_DAILY_POSTS = getAccountDailyPostLimit();
@@ -5651,6 +6031,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         });
         writeJsonFile(RESULTS_FILE, results);
+        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -5668,6 +6049,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         });
         writeJsonFile(RESULTS_FILE, results);
+        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -5688,6 +6070,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         });
         writeJsonFile(RESULTS_FILE, results);
+        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -5695,6 +6078,14 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         if (outcome === "expired" || outcome === "captcha") {
           stopReason = outcome === "expired" ? "skipped_expired" : "stopped_captcha";
           logWithPrefix("error", `CRITICAL: Automated posting halted immediately because account session is ${outcome.toUpperCase()} (${messageText}). Stopping run to protect account.`);
+          if (!isSchedulerCall) {
+            sendTelegramAlert(
+              "CRITICAL: Posting Halted - Session Out",
+              `⚠️ Active account session encountered ${outcome.toUpperCase()} (${messageText}). Automated posting has stopped.\n\n👉 ACTION REQUIRED: Please log in again in the Profiles tab to restore posting.`,
+              "error",
+              "single_session_out"
+            ).catch(() => {});
+          }
           isPostingRunning = false;
           if (!isSchedulerCall) isSinglePostingRunning = false;
           botStatus = "Idle";
@@ -5708,6 +6099,14 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         if (consecutiveFailures >= 3) {
           stopReason = "failed";
           logWithPrefix("error", "CRITICAL: Automated posting paused due to 3 consecutive failures. Please verify your CoinMarketCap login session and cookies.");
+          if (!isSchedulerCall) {
+            sendTelegramAlert(
+              "CRITICAL: Continuous Posting Paused (3 Failures)",
+              "Automated posting paused after 3 consecutive failures. Likely invalid cookies or CoinMarketCap temporary block.\n\n👉 ACTION REQUIRED: Verify session and cookies in the Profiles tab.",
+              "warning",
+              "single_consecutive_failures"
+            ).catch(() => {});
+          }
           isPostingRunning = false;
           if (!isSchedulerCall) isSinglePostingRunning = false;
           botStatus = "Idle";
@@ -5725,9 +6124,14 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         break;
       }
 
-      // Interval spacing between posts to target 2-3 coins per minute (approx 18-22 seconds delay)
-      const spacing = 18000 + Math.random() * 4000;
-      logWithPrefix("info", `Cooling down for ${(spacing / 1000).toFixed(1)} seconds to maintain a posting rate of 2-3 coins per minute...`);
+      // Interval spacing between posts:
+      // Production: 35-45 seconds (safe human pacing, protects account from WAF rate limits & spam bans)
+      // Development: 4-7 seconds (fast for developer testing & verification)
+      const isProd = process.env.NODE_ENV === "production";
+      const spacing = isProd ? (35000 + Math.random() * 10000) : (4000 + Math.random() * 3000);
+      logWithPrefix("info", isProd 
+        ? `Cooling down for ${(spacing / 1000).toFixed(1)}s (Safe Production Cadence: 35-45s, 0% CPU kernel sleep)...` 
+        : `Cooling down for ${(spacing / 1000).toFixed(1)}s (Development Mode Testing)...`);
       await interruptibleSleep(spacing);
     }
 
@@ -5992,6 +6396,143 @@ app.post("/api/clear-all", async (req, res) => {
     res.status(500).json({ error: (error as Error).message });
   } finally {
     releaseProcessLock("clearing_storage");
+  }
+});
+
+// 11b. Safe Reset Today's Queue & Submissions (Preserves logins, cookies, and profiles)
+app.post("/api/queue/reset-daily", async (req, res) => {
+  try {
+    const activeId = getActiveProfileId();
+    writeJsonFile(RESULTS_FILE, []);
+    saveBotProgress({ next_index: 0, daily_post_count: 0 });
+    currentPostingIndex = 0;
+    currentCoinName = "N/A";
+    if (activeId) {
+      await savePostResultsCloud([], activeId).catch(() => {});
+      await saveBotProgressCloud(readBotProgress(), activeId).catch(() => {});
+    }
+    addLog("success", "[QUEUE] Reset today's posting results and queue index back to 0. Logins and profiles preserved.");
+    res.json({ success: true, message: "Today's queue and posting results reset successfully." });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// 11c. Fleet Health Check: Probe & Verify All Account Sessions at Once
+app.post("/api/profiles/verify-all", async (req, res) => {
+  try {
+    const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const profiles = normalizeProfilesWithSchedule(rawProfiles);
+    const results: any[] = [];
+    let healthyCount = 0;
+    let expiredCount = 0;
+
+    for (const p of profiles) {
+      let status: "valid" | "expired" | "missing_cookies" = "missing_cookies";
+      let message = "No cookie state JSON found.";
+
+      if (p.stateJson && p.stateJson.trim()) {
+        try {
+          const parsed = JSON.parse(p.stateJson);
+          const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
+          if (!Array.isArray(cookies) || cookies.length === 0) {
+            status = "missing_cookies";
+            message = "State JSON contains no cookies array.";
+          } else {
+            const authCookie = cookies.find((c: any) =>
+              (c.name === "Authorization" && typeof c.value === "string" && c.value.length > 20) ||
+              (c.name === "u-prod" && typeof c.value === "string" && c.value.length > 20) ||
+              (c.name === "cmc_user_session" && typeof c.value === "string" && c.value.length > 10)
+            );
+            if (!authCookie) {
+              status = "missing_cookies";
+              message = "Missing CoinMarketCap authentication tokens (Authorization, u-prod, or cmc_user_session).";
+            } else if (authCookie.expires && authCookie.expires > 0 && authCookie.expires < Date.now() / 1000) {
+              status = "expired";
+              message = `Authentication cookie expired on ${new Date(authCookie.expires * 1000).toLocaleDateString()}.`;
+            } else {
+              const cookieHeader = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
+              try {
+                const probeRes = await fetch("https://api.coinmarketcap.com/data-api/v3/user/profile", {
+                  headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Cookie": cookieHeader,
+                    "Accept": "application/json",
+                  },
+                  signal: AbortSignal.timeout(4000),
+                });
+                if (probeRes.status === 200) {
+                  status = "valid";
+                  message = "Live session active & authenticated.";
+                } else if (probeRes.status === 401 || probeRes.status === 403) {
+                  status = "expired";
+                  message = "CoinMarketCap API rejected session (HTTP 401/403). Cookie expired or invalidated.";
+                } else {
+                  status = "valid";
+                  message = "Cookie tokens present with valid future timestamps.";
+                }
+              } catch (_) {
+                status = "valid";
+                message = "Cookie tokens present and structurally valid.";
+              }
+            }
+          }
+        } catch (jsonErr) {
+          status = "missing_cookies";
+          message = "Corrupted or non-JSON state data.";
+        }
+      }
+
+      if (status === "valid") healthyCount++;
+      else expiredCount++;
+
+      updateProfileLastRun(p.id, {
+        at: new Date().toISOString(),
+        status: status === "valid" ? "completed" : "skipped_expired",
+        posted: p.lastRun?.posted || 0,
+        failed: p.lastRun?.failed || 0,
+      });
+
+      results.push({
+        id: p.id,
+        name: p.name,
+        status,
+        message,
+        order: p.schedule?.order || 1,
+        frequency: p.schedule?.frequency || "every_cycle",
+      });
+    }
+
+    addLog(
+      healthyCount > 0 ? "info" : "warning",
+      `[FLEET CHECK] Account verification complete: ${healthyCount}/${profiles.length} healthy, ${expiredCount} need attention.`
+    );
+
+    res.json({
+      success: true,
+      totalAccounts: profiles.length,
+      healthyCount,
+      expiredCount,
+      accounts: results,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// 11d. Target Coins Selector Setting
+app.post("/api/settings/target-coins", (req, res) => {
+  try {
+    const { targetCoinsCount } = req.body;
+    const count = typeof targetCoinsCount === "number" ? targetCoinsCount : 30;
+    const settings = getLocalBotSettings();
+    settings.targetCoinsCount = count;
+    saveLocalBotSettings(settings);
+    addLog("info", `[SETTINGS] Target coins per cycle updated to ${count === 0 ? "All Available" : `Top ${count}`}.`);
+    res.json({ success: true, targetCoinsCount: count });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
   }
 });
 
@@ -6300,9 +6841,22 @@ async function runScheduledCycle(): Promise<void> {
       return;
     }
 
+    // Standby reserve pool for automatic single-hop failover
+    const standbyPool = profiles.filter(
+      p => !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
+    );
+    if (standbyPool.length > 0) {
+      addLog("info", `[SCHEDULER] Standby reserve pool ready: ${standbyPool.map(s => s.name).join(", ")} held in reserve.`);
+    }
+
+    const totalDue = dueAccounts.length;
+    const perAccountTarget = Math.ceil(messages.length / Math.max(1, totalDue));
+    let totalCyclePosted = 0;
+    let totalCycleFailed = 0;
+
     // 4. Run each due account sequentially, awaiting each one fully before the next
     for (let idx = 0; idx < dueAccounts.length; idx++) {
-      const account = dueAccounts[idx];
+      let account = dueAccounts[idx];
       currentSchedulerAccountId = account.id;
 
       // a. Check if stop was requested
@@ -6311,85 +6865,122 @@ async function runScheduledCycle(): Promise<void> {
         break;
       }
 
+      const startIdx = idx * perAccountTarget;
+      const endIdx = Math.min(messages.length, startIdx + perAccountTarget);
+      const accountMessages = messages.slice(startIdx, endIdx);
+      const accountCoins = coins.slice(startIdx, endIdx);
+
+      if (accountMessages.length === 0) {
+        addLog("info", `[${account.name}] No assigned coins in queue for this cycle. Skipping.`);
+        continue;
+      }
+
       addLog("info", `--------------------------------------------------`);
       addLog("info", `[${account.name}] Beginning turn (Account ${idx + 1}/${dueAccounts.length})...`);
 
-      // b. No valid cookies check
+      // b. Verify primary account session cookies
+      let preCheckOk = false;
+      let skipStatus: LastRunStatus = "failed";
+
       if (!account.stateJson || !sessionHasValidCookies(account.stateJson)) {
         addLog("warning", `[${account.name}] Missing or invalid session cookies. Status: skipped_missing_session.`);
+        skipStatus = "skipped_missing_session";
+      } else {
+        try {
+          await activateProfileInternal(account.id);
+          addLog("info", `[${account.name}] Verifying live session status...`);
+          const loginCheck = await checkLoginReal();
+          if (loginCheck.status === "captcha") {
+            addLog("error", `[${account.name}] Captcha detected during pre-check. Status: stopped_captcha.`);
+            skipStatus = "stopped_captcha";
+          } else if (loginCheck.status === "expired" || loginCheck.status === "failed") {
+            addLog("warning", `[${account.name}] Session check expired (${loginCheck.message}). Status: skipped_expired.`);
+            skipStatus = "skipped_expired";
+          } else {
+            const maxDaily = getAccountDailyPostLimit();
+            const progressData = readBotProgress();
+            const dailyCount = progressData.daily_post_count || 0;
+            if (dailyCount >= maxDaily) {
+              addLog("warning", `[${account.name}] Account reached daily limit of ${maxDaily} posts for ${getTodayDateString()}. Status: stopped_daily_limit.`);
+              skipStatus = "stopped_daily_limit";
+            } else {
+              preCheckOk = true;
+            }
+          }
+        } catch (actErr) {
+          addLog("error", `[${account.name}] Failed to activate profile: ${(actErr as Error).message}`);
+          skipStatus = "failed";
+        }
+      }
+
+      // If primary account pre-check failed, record status and attempt single-hop standby failover
+      if (!preCheckOk) {
         updateProfileLastRun(account.id, {
           at: new Date().toISOString(),
-          status: "skipped_missing_session",
+          status: skipStatus,
           posted: 0,
           failed: 0,
         });
-        continue;
-      }
 
-      // c. Activate profile
-      try {
-        await activateProfileInternal(account.id);
-      } catch (actErr) {
-        addLog("error", `[${account.name}] Failed to activate profile: ${(actErr as Error).message}`);
-        updateProfileLastRun(account.id, {
-          at: new Date().toISOString(),
-          status: "failed",
-          posted: 0,
-          failed: 0,
-        });
-        continue;
-      }
+        if (standbyPool.length > 0 && !stopSchedulerRequested && !isStopping) {
+          const standby = standbyPool.shift()!;
+          addLog("info", `[SCHEDULER] Auto-Failover: Primary account [${account.name}] was skipped (${skipStatus}). Deploying standby account [${standby.name}] for this partition of ${accountMessages.length} coins...`);
+          account = standby;
+          currentSchedulerAccountId = account.id;
 
-      // d. Quick check with checkLoginReal()
-      try {
-        addLog("info", `[${account.name}] Verifying live session status...`);
-        const loginCheck = await checkLoginReal();
-        if (loginCheck.status === "captcha") {
-          addLog("error", `[${account.name}] Captcha detected during pre-check. Status: stopped_captcha.`);
-          updateProfileLastRun(account.id, {
-            at: new Date().toISOString(),
-            status: "stopped_captcha",
-            posted: 0,
-            failed: 0,
-          });
-          continue;
-        } else if (loginCheck.status === "expired" || loginCheck.status === "failed") {
-          addLog("warning", `[${account.name}] Session check expired (${loginCheck.message}). Status: skipped_expired.`);
-          updateProfileLastRun(account.id, {
-            at: new Date().toISOString(),
-            status: "skipped_expired",
-            posted: 0,
-            failed: 0,
-          });
+          try {
+            await activateProfileInternal(account.id);
+            addLog("info", `[${account.name}] Verifying standby account session...`);
+            const sCheck = await checkLoginReal();
+            if (sCheck.status === "captcha" || sCheck.status === "expired" || sCheck.status === "failed") {
+              addLog("warning", `[${account.name}] Standby account session check failed (${sCheck.message || sCheck.status}). Single-hop limit reached; proceeding to next slot.`);
+              updateProfileLastRun(account.id, {
+                at: new Date().toISOString(),
+                status: sCheck.status === "captcha" ? "stopped_captcha" : "skipped_expired",
+                posted: 0,
+                failed: 0,
+              });
+              continue;
+            }
+            const sLimit = getAccountDailyPostLimit();
+            const sProg = readBotProgress();
+            if ((sProg.daily_post_count || 0) >= sLimit) {
+              addLog("warning", `[${account.name}] Standby account reached daily limit. Single-hop limit reached; proceeding to next slot.`);
+              updateProfileLastRun(account.id, {
+                at: new Date().toISOString(),
+                status: "stopped_daily_limit",
+                posted: 0,
+                failed: 0,
+              });
+              continue;
+            }
+          } catch (stErr) {
+            addLog("error", `[${account.name}] Standby activation error: ${(stErr as Error).message}. Single-hop limit reached; proceeding.`);
+            updateProfileLastRun(account.id, {
+              at: new Date().toISOString(),
+              status: "failed",
+              posted: 0,
+              failed: 0,
+            });
+            continue;
+          }
+        } else {
           continue;
         }
-      } catch (checkErr) {
-        addLog("warning", `[${account.name}] Session pre-check warning: ${(checkErr as Error).message}. Attempting post run.`);
       }
 
-      // e. Daily limit check
+      // Setup isolated profile directory and progress data for this turn
       const maxDaily = getAccountDailyPostLimit();
       const progressData = readBotProgress();
       const todayStr = getTodayDateString();
       const dailyCount = progressData.daily_post_count || 0;
-      if (dailyCount >= maxDaily) {
-        addLog("warning", `[${account.name}] Account reached daily limit of ${maxDaily} posts for ${todayStr}. Status: stopped_daily_limit.`);
-        updateProfileLastRun(account.id, {
-          at: new Date().toISOString(),
-          status: "stopped_daily_limit",
-          posted: 0,
-          failed: 0,
-        });
-        continue;
-      }
 
-      // f. Write cycle's coins and comments into this account's files, reset results and progress (keep daily count)
       const accountDir = path.join(OUTPUT_DIR, account.id);
       if (!fs.existsSync(accountDir)) {
         fs.mkdirSync(accountDir, { recursive: true });
       }
-      writeJsonFile(path.join(accountDir, "last_trending.json"), coins);
-      writeJsonFile(path.join(accountDir, "generated_messages.json"), messages);
+      writeJsonFile(path.join(accountDir, "last_trending.json"), accountCoins);
+      writeJsonFile(path.join(accountDir, "generated_messages.json"), accountMessages);
       writeJsonFile(path.join(accountDir, "results.json"), []);
       writeJsonFile(path.join(accountDir, "post_progress.json"), {
         next_index: 0,
@@ -6400,15 +6991,15 @@ async function runScheduledCycle(): Promise<void> {
 
       // Synchronize in-memory paths & pointers
       updateActiveProfilePaths();
-      writeJsonFile(LAST_TRENDING_FILE, coins);
-      writeJsonFile(GENERATED_MESSAGES_FILE, messages);
+      writeJsonFile(LAST_TRENDING_FILE, accountCoins);
+      writeJsonFile(GENERATED_MESSAGES_FILE, accountMessages);
       writeJsonFile(RESULTS_FILE, []);
       currentPostingIndex = 0;
 
-      // g. Run posting loop for this account awaiting it fully
+      // Run posting loop for this account awaiting it fully
       isPostingRunning = true;
       botStatus = "Posting";
-      addLog("info", `[${account.name}] Launching automated posting loop for ${messages.length} coins...`);
+      addLog("info", `[${account.name}] Launching automated posting loop for ${accountMessages.length} assigned coins in this cycle...`);
 
       const summary = await runPostingLoop({
         scheduleNextCycle: false,
@@ -6416,7 +7007,10 @@ async function runScheduledCycle(): Promise<void> {
         accountLogPrefix: `[${account.name}] `,
       });
 
-      // h. Save lastRun { at, status from stopReason, posted, failed } to profile, write profiles.json + cloud
+      totalCyclePosted += summary.posted;
+      totalCycleFailed += summary.failed;
+
+      // Save lastRun status to profile
       const finalStatus = (stopSchedulerRequested || isStopping) ? "stopped_by_user" : summary.stopReason;
       updateProfileLastRun(account.id, {
         at: new Date().toISOString(),
@@ -6432,8 +7026,17 @@ async function runScheduledCycle(): Promise<void> {
         } catch (_) {}
       }
 
-      // i. Log a one-line summary prefixed with the account name
       addLog("success", `[${account.name}] Run finished: ${summary.posted} posted, ${summary.failed} failed. Status: ${finalStatus}.`);
+    }
+
+    if (totalCyclePosted === 0 && dueAccounts.length > 0 && !stopSchedulerRequested && !isStopping) {
+      addLog("warning", "[SCHEDULER] Cycle circuit breaker: All accounts in this cycle failed pre-flight checks. Pausing until next scheduled cycle.");
+      sendTelegramAlert(
+        "CRITICAL: ALL ACCOUNTS SESSION OUT - MANUAL ATTENTION REQUIRED",
+        `⚠️ The 24-part background posting cycle is completely stalled!\n\n• All ${dueAccounts.length} scheduled accounts failed authentication (sessions expired or captcha blocked).\n• 0 coins could be posted.\n• Standby backup accounts are also exhausted.\n\n👉 ACTION REQUIRED: Please log in to your CoinMarketCap accounts and re-import valid cookies in the Profiles tab to restore automation.`,
+        "error",
+        "emergency_all_accounts_out"
+      ).catch(() => {});
     }
 
     addLog("info", "==================================================");
@@ -6442,6 +7045,12 @@ async function runScheduledCycle(): Promise<void> {
   } catch (err) {
     addLog("error", `[SCHEDULER] Fatal error in scheduled cycle: ${(err as Error).message}`);
     botStatus = "Idle";
+    sendTelegramAlert(
+      "EMERGENCY: Background Cycle Disrupted",
+      `The 24-part background posting cycle crashed unexpectedly.\n\nError: ${(err as Error).message}\n\n👉 ACTION REQUIRED: Manual check needed in Admin Diagnostics.`,
+      "error",
+      "emergency_cycle_crashed"
+    ).catch(() => {});
   } finally {
     releaseProcessLock("scheduler_cycle");
     isSchedulerCycleRunning = false;
@@ -6493,6 +7102,7 @@ app.get("/api/scheduler", (req, res) => {
     nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
     queue: schedulerQueue,
     accounts,
+    targetCoinsCount: typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 30,
   });
 });
 
@@ -6762,6 +7372,94 @@ app.post("/api/scheduler/stop", (req, res) => {
   res.json({ success: true, message: "Stopping scheduled cycle..." });
 });
 
+// ============================================================================
+// TELEGRAM ALERT NOTIFICATIONS ENDPOINTS
+// ============================================================================
+
+app.get("/api/telegram/settings", (req, res) => {
+  const settings = getLocalBotSettings();
+  res.json({
+    enabled: settings.telegramAlertsEnabled !== false,
+    botToken: settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
+    chatId: settings.telegramChatId || "",
+  });
+});
+
+app.post("/api/telegram/settings", (req, res) => {
+  try {
+    const { enabled, botToken, chatId } = req.body;
+    const settings = getLocalBotSettings();
+    if (typeof enabled === "boolean") settings.telegramAlertsEnabled = enabled;
+    if (typeof botToken === "string") settings.telegramBotToken = botToken.trim();
+    if (typeof chatId === "string") settings.telegramChatId = chatId.trim();
+    saveLocalBotSettings(settings);
+    addLog("success", `Updated Telegram notification settings (Enabled: ${settings.telegramAlertsEnabled}).`);
+    res.json({ success: true, settings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.get("/api/telegram/detect-chat-id", async (req, res) => {
+  try {
+    const settings = getLocalBotSettings();
+    const token = ((req.query.token as string) || settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU").trim();
+    const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    const data: any = await resp.json();
+    if (!data.ok) {
+      return res.status(400).json({ success: false, error: data.description || "Failed to query Telegram API" });
+    }
+    const updates = data.result || [];
+    let detectedChatId: string | null = null;
+    let senderName = "";
+    for (let i = updates.length - 1; i >= 0; i--) {
+      const u = updates[i];
+      const chat = u.message?.chat || u.edited_message?.chat || u.channel_post?.chat || u.callback_query?.message?.chat;
+      if (chat && chat.id) {
+        detectedChatId = String(chat.id);
+        senderName = chat.first_name || chat.username || "User";
+        break;
+      }
+    }
+    if (detectedChatId) {
+      settings.telegramChatId = detectedChatId;
+      saveLocalBotSettings(settings);
+      addLog("success", `[TELEGRAM] Auto-detected Telegram Chat ID: ${detectedChatId} (${senderName}). Saved to settings.`);
+      return res.json({ success: true, chatId: detectedChatId, senderName });
+    }
+    return res.json({
+      success: false,
+      message: "No incoming messages found yet. Please open t.me/anup_cms_alert_bot on Telegram, press Start, and click Detect again!"
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/telegram/test", async (req, res) => {
+  try {
+    const { token, chatId } = req.body;
+    const settings = getLocalBotSettings();
+    if (token) settings.telegramBotToken = String(token).trim();
+    if (chatId) settings.telegramChatId = String(chatId).trim();
+    saveLocalBotSettings(settings);
+
+    const alertRes = await sendTelegramAlert(
+      "CoinMarketCap Emergency Alert System Connected!",
+      "🚨 <b>Emergency-Only Alert Mode Active</b>\n\nYour alert bot @anup_cms_alert_bot is linked and calibrated.\n\n⚠️ <b>You will ONLY receive notifications when manual action is required:</b>\n• 🛑 <b>All Accounts Session Out:</b> When all accounts in the 24-part background cycle fail authentication, halting automation\n• 💥 <b>Background Cycle Stalled:</b> Background runner encountered a critical crash\n• ⛔ <b>Posting Loop Aborted:</b> Active session expired or persistent captcha block\n• 🛠️ <b>Build & Deployment Failures:</b> EC2 server compilation errors\n\n🔇 <i>Routine cycle completions, single standby account failovers, and healthy runs run silently with zero spam. Maximum 6 emergency alerts/hr with 20-min deduplication.</i>",
+      "success",
+      "manual_test",
+      true
+    );
+    if (!alertRes.success) {
+      return res.status(400).json({ success: false, error: alertRes.error });
+    }
+    res.json({ success: true, message: "Test alert successfully sent to Telegram!" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
 
 // ============================================================================
 // VITE OR STATIC FILES SERVING MIDDLEWARE
@@ -6933,6 +7631,20 @@ async function hydrateLocalFromCloud() {
   }
 }
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[SERVER] Unhandled Rejection (logged silently, no Telegram noise):", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[SERVER] Uncaught Fatal Exception:", err);
+  sendTelegramAlert(
+    "CRITICAL: Server Process Crash",
+    `Fatal error occurred on server host:\n${err.message}\n\n👉 ACTION REQUIRED: Manual check/restart may be required.`,
+    "error",
+    "server_process_crash"
+  ).catch(() => {});
+});
+
 async function startServer() {
   // First, hydrate all files from Firestore cloud database
   await hydrateLocalFromCloud();
@@ -6986,9 +7698,30 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
+
+  const gracefulShutdown = async (signal: string) => {
+    console.log(`[SERVER] Received ${signal}. Starting graceful shutdown...`);
+    try {
+      if (activeLoginSession && activeLoginSession.browser) {
+        await activeLoginSession.browser.close().catch(() => {});
+      }
+      releaseProcessLock("all" as any);
+    } catch (_) {}
+    server.close(() => {
+      console.log("[SERVER] HTTP server closed gracefully.");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.warn("[SERVER] Force exiting process after 5s timeout.");
+      process.exit(0);
+    }, 5000).unref();
+  };
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 startServer();

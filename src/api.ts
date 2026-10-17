@@ -273,6 +273,24 @@ export const api = {
     return res.json();
   },
 
+  async importExternalImages(params: {
+    links: string;
+    replaceExisting?: boolean;
+  }): Promise<{
+    success: boolean;
+    importedCount?: number;
+    errors?: string[];
+    message?: string;
+    error?: string;
+  }> {
+    const res = await fetch("/api/marketing-images/import-external", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
   async batchDeleteMarketingImages(filenames: string[]): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
     const res = await fetch("/api/marketing-images/batch-delete", {
       method: "POST",
@@ -294,6 +312,44 @@ export const api = {
   async clearAllMarketingImages(): Promise<{ success: boolean; message?: string; error?: string }> {
     const res = await fetch("/api/marketing-images/clear-all", {
       method: "POST",
+    });
+    return res.json();
+  },
+
+  async resetDailyQueue(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await fetch("/api/queue/reset-daily", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async verifyAllFleetSessions(): Promise<{
+    success: boolean;
+    totalAccounts: number;
+    healthyCount: number;
+    expiredCount: number;
+    accounts: Array<{
+      id: string;
+      name: string;
+      status: "valid" | "expired" | "missing_cookies";
+      message: string;
+      order: number;
+      frequency: string;
+    }>;
+    checkedAt: string;
+    error?: string;
+  }> {
+    const res = await fetch("/api/profiles/verify-all", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async updateTargetCoins(targetCoinsCount: number): Promise<{ success: boolean; targetCoinsCount: number; error?: string }> {
+    const res = await fetch("/api/settings/target-coins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetCoinsCount }),
     });
     return res.json();
   },
@@ -337,5 +393,6 @@ export interface SchedulerStatusResponse {
   currentAccountId: string | null;
   queue: string[];
   accounts: SchedulerAccountItem[];
+  targetCoinsCount?: number;
 }
 

@@ -370,6 +370,11 @@ export default function App() {
   const [autoPruneEnabled, setAutoPruneEnabled] = useState<boolean>(false);
   const [autoPruneLimit, setAutoPruneLimit] = useState<number>(30);
   const [isPruningImages, setIsPruningImages] = useState<boolean>(false);
+  const [isExternalImportModalOpen, setIsExternalImportModalOpen] = useState<boolean>(false);
+  const [externalImportLinks, setExternalImportLinks] = useState<string>("");
+  const [externalImportReplace, setExternalImportReplace] = useState<boolean>(false);
+  const [isImportingExternal, setIsImportingExternal] = useState<boolean>(false);
+  const [externalImportStatus, setExternalImportStatus] = useState<string | null>(null);
 
   // Smooth Action & Switching States
   const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
@@ -418,7 +423,28 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles">("all");
+  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram">("all");
+
+  const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
+  const [telegramToken, setTelegramToken] = useState<string>("8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU");
+  const [telegramChatId, setTelegramChatId] = useState<string>("1817931967");
+  const [isDetectingTelegram, setIsDetectingTelegram] = useState<boolean>(false);
+  const [isTestingTelegram, setIsTestingTelegram] = useState<boolean>(false);
+
+  useEffect(() => {
+    const fetchTelegramSettings = async () => {
+      try {
+        const res = await fetch("/api/telegram/settings");
+        if (res.ok) {
+          const data = await res.json();
+          setTelegramEnabled(data.enabled !== false);
+          if (data.botToken) setTelegramToken(data.botToken);
+          if (data.chatId) setTelegramChatId(data.chatId);
+        }
+      } catch (_) {}
+    };
+    fetchTelegramSettings();
+  }, []);
 
   useEffect(() => {
     const handleNav = () => {
@@ -440,7 +466,7 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram") => {
     setCurrentView(view);
     if (section) setAdminSection(section);
     let path = "/";
@@ -460,14 +486,31 @@ export default function App() {
     return true;
   });
 
+  const [showQuickGuide, setShowQuickGuide] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const dismissed = localStorage.getItem("cmc_dismiss_quick_guide");
+      return dismissed !== "true";
+    }
+    return true;
+  });
+
+  const dismissQuickGuide = (neverShowAgain = false) => {
+    setShowQuickGuide(false);
+    if (neverShowAgain && typeof window !== "undefined") {
+      localStorage.setItem("cmc_dismiss_quick_guide", "true");
+    }
+  };
+
+  const [guideSlide, setGuideSlide] = useState<number>(0);
+
   const [toast, setToast] = useState<{
     message: string;
-    type: "success" | "error" | "info" | "process";
+    type: "success" | "error" | "info" | "process" | "warning";
     isProcess?: boolean;
   } | null>(null);
   const toastTimerRef = useRef<any>(null);
 
-  const showToast = (message: string, type: "success" | "error" | "info" | "process" = "info", durationMs: number = 4000) => {
+  const showToast = (message: string, type: "success" | "error" | "info" | "process" | "warning" = "info", durationMs: number = 4000) => {
     // If notifications are turned off, suppress unless it's a critical error
     if (!notificationsEnabled && type !== "error") {
       return;
@@ -506,6 +549,127 @@ export default function App() {
       }
       return nextVal;
     });
+  };
+
+  const handleToggleTelegram = async (enabled: boolean) => {
+    try {
+      setTelegramEnabled(enabled);
+      const res = await fetch("/api/telegram/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, botToken: telegramToken, chatId: telegramChatId })
+      });
+      if (res.ok) {
+        showToast(enabled ? "Emergency Telegram alerts enabled." : "Emergency Telegram alerts paused.", "success");
+      }
+    } catch (_) {
+      showToast("Failed to update Telegram settings.", "error");
+    }
+  };
+
+  const handleTestEmergencyAlert = async () => {
+    setIsTestingTelegram(true);
+    try {
+      const res = await fetch("/api/telegram/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: telegramToken, chatId: telegramChatId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("Emergency test alert delivered to @anup_cms_alert_bot!", "success");
+      } else {
+        showToast(`Telegram error: ${data.error || "Failed to send"}`, "error");
+      }
+    } catch (_) {
+      showToast("Network failure sending test alert.", "error");
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
+
+  const handleDetectTelegramChatId = async () => {
+    setIsDetectingTelegram(true);
+    try {
+      const res = await fetch(`/api/telegram/detect-chat-id?token=${encodeURIComponent(telegramToken)}`);
+      const data = await res.json();
+      if (data.success && data.chatId) {
+        setTelegramChatId(data.chatId);
+        showToast(`Chat ID detected: ${data.chatId} (${data.senderName || "User"})`, "success");
+      } else {
+        showToast(data.message || data.error || "No messages found. Press /start on bot first.", "warning");
+      }
+    } catch (_) {
+      showToast("Failed to detect chat ID.", "error");
+    } finally {
+      setIsDetectingTelegram(false);
+    }
+  };
+
+  const [targetCoinsCount, setTargetCoinsCount] = useState<number>(30);
+  const [isVerifyingFleet, setIsVerifyingFleet] = useState<boolean>(false);
+  const [fleetHealthSummary, setFleetHealthSummary] = useState<{ healthy: number; expired: number; checkedAt?: string } | null>(null);
+  const [isResettingDailyQueue, setIsResettingDailyQueue] = useState<boolean>(false);
+  const [showResetQueueConfirm, setShowResetQueueConfirm] = useState<boolean>(false);
+
+  const handleUpdateTargetCoins = async (count: number) => {
+    try {
+      setTargetCoinsCount(count);
+      const res = await api.updateTargetCoins(count);
+      if (res.success) {
+        showToast(`Target coin limit set to ${count === 0 ? "All Available Coins" : `Top ${count} Coins`}.`, "success");
+      }
+    } catch (_) {
+      showToast("Failed to update coin target limit.", "error");
+    }
+  };
+
+  const handleResetDailyQueue = async () => {
+    setIsResettingDailyQueue(true);
+    try {
+      const res = await api.resetDailyQueue();
+      if (res.success) {
+        setResults([]);
+        setProgressIndex(0);
+        setDailyPostCount(0);
+        setShowResetQueueConfirm(false);
+        showToast("Today's queue and results reset. Accounts and cookies preserved.", "success");
+        await fetchStats();
+        await fetchResults();
+      } else {
+        showToast(res.error || "Failed to reset queue", "error");
+      }
+    } catch (_) {
+      showToast("Error resetting daily queue.", "error");
+    } finally {
+      setIsResettingDailyQueue(false);
+    }
+  };
+
+  const handleVerifyAllFleetSessions = async () => {
+    setIsVerifyingFleet(true);
+    try {
+      const res = await api.verifyAllFleetSessions();
+      if (res.success) {
+        setFleetHealthSummary({
+          healthy: res.healthyCount,
+          expired: res.expiredCount,
+          checkedAt: res.checkedAt,
+        });
+        await fetchProfiles();
+        await fetchSchedulerStatus();
+        showToast(
+          `Fleet check: ${res.healthyCount}/${res.totalAccounts} accounts healthy and authenticated.`,
+          res.expiredCount > 0 ? "warning" : "success"
+        );
+      } else {
+        showToast(res.error || "Fleet verification failed.", "error");
+      }
+    } catch (_) {
+      showToast("Network error checking account fleet sessions.", "error");
+    } finally {
+      setIsVerifyingFleet(false);
+    }
   };
 
   // Interactive Login State
@@ -562,6 +726,7 @@ export default function App() {
       await fetchLogs();
       await fetchCoins();
       await fetchMessages();
+      await fetchResults();
 
       showToast("Data storage refreshed successfully!", "success");
     } catch (err) {
@@ -586,6 +751,9 @@ export default function App() {
       if (data.intervalMinutes) {
         setSchedulerIntervalInput(data.intervalMinutes);
       }
+      if (typeof data.targetCoinsCount === "number") {
+        setTargetCoinsCount(data.targetCoinsCount);
+      }
     } catch (err) {
       console.error("Error fetching scheduler:", err);
     }
@@ -600,6 +768,7 @@ export default function App() {
         if (isMounted) {
           setSchedulerData(data);
           if (data.intervalMinutes) setSchedulerIntervalInput(data.intervalMinutes);
+          if (typeof data.targetCoinsCount === "number") setTargetCoinsCount(data.targetCoinsCount);
         }
       } catch (_) {}
     };
@@ -792,6 +961,39 @@ export default function App() {
       }
     } catch (err) {
       showToast("Error deleting image: " + (err as Error).message, "error");
+    }
+  };
+
+  const handleImportExternalImages = async () => {
+    if (!externalImportLinks.trim()) {
+      showToast("Please enter at least one Google Drive link, S3 URL, or image link.", "warning");
+      return;
+    }
+    setIsImportingExternal(true);
+    setExternalImportStatus("Connecting to external source & downloading images...");
+    try {
+      const res = await api.importExternalImages({
+        links: externalImportLinks.trim(),
+        replaceExisting: externalImportReplace,
+      });
+      if (res.success) {
+        showToast(res.message || `Imported ${res.importedCount} image(s) successfully!`, "success", 4000);
+        setExternalImportStatus(`Success! Imported ${res.importedCount} image(s).` + (res.errors ? ` (${res.errors.length} skipped)` : ""));
+        await fetchMarketingImages();
+        setTimeout(() => {
+          setIsExternalImportModalOpen(false);
+          setExternalImportStatus(null);
+          setExternalImportLinks("");
+        }, 1200);
+      } else {
+        showToast(res.error || "Failed to import external images", "error");
+        setExternalImportStatus(`Error: ${res.error || "Failed to import"}`);
+      }
+    } catch (err) {
+      showToast("Import error: " + (err as Error).message, "error");
+      setExternalImportStatus(`Error: ${(err as Error).message}`);
+    } finally {
+      setIsImportingExternal(false);
     }
   };
 
@@ -1104,6 +1306,7 @@ export default function App() {
     // Initial fetch of lists
     fetchCoins();
     fetchMessages();
+    fetchResults();
 
     // Setup periodic polling for status & logs with tiered intervals to optimize CPU & network bandwidth
     let pollTick = 0;
@@ -1123,6 +1326,7 @@ export default function App() {
       if (pollTick % 2 === 0) {
         fetchCoins();
         fetchMessages();
+        fetchResults();
       }
     }, 3000);
 
@@ -1187,6 +1391,19 @@ export default function App() {
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setMessagesList(prev => areMessagesEqual(prev, arr) ? prev : arr);
+    } catch (_) {}
+  };
+
+  // Fast fetch post submissions results with O(1) equality check
+  const fetchResults = async (overrideProfileId?: string) => {
+    try {
+      const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
+      const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
+      const res = await fetch(resolveUrl(`/output/results.json?t=${Date.now()}${query}`), { cache: "no-store" });
+      const data = res.ok ? await res.json() : [];
+      const arr: PostResult[] = Array.isArray(data) ? data : [];
+      const filtered = pid ? arr.filter((r: any) => !r.profileId || r.profileId === pid) : arr;
+      setResults(prev => areResultsEqual(prev, filtered) ? prev : filtered);
     } catch (_) {}
   };
 
@@ -1347,6 +1564,7 @@ export default function App() {
           fetchStats(),
           fetchCoins(id),
           fetchMessages(id),
+          fetchResults(id),
           fetchLogs(id)
         ]);
         showToast("Account switched successfully!", "success");
@@ -1408,11 +1626,13 @@ export default function App() {
         setGeneratedCount(data.generatedMessages || 0);
         setPostedCount(data.postedCount || 0);
         setFailedCount(data.failedCount || 0);
-        const rawResList: PostResult[] = Array.isArray(data.results) ? data.results : [];
-        const resList = curPid
-          ? rawResList.filter(r => r.profileId === curPid)
-          : rawResList;
-        setResults(prev => areResultsEqual(prev, resList) ? prev : resList);
+        if (Array.isArray(data.results)) {
+          const rawResList: PostResult[] = data.results;
+          const resList = curPid
+            ? rawResList.filter(r => !r.profileId || r.profileId === curPid)
+            : rawResList;
+          setResults(prev => areResultsEqual(prev, resList) ? prev : resList);
+        }
         if (data.isDataStale !== undefined) {
           setIsDataStale(!!data.isDataStale);
         }
@@ -1751,10 +1971,11 @@ export default function App() {
         setProgressIndex(0);
         setCurrentCoin("N/A");
       }
-      if (endpoint.includes("fetch-trending") || endpoint.includes("generate-messages") || endpoint.includes("full-flow") || endpoint.includes("clear-all")) {
+      if (endpoint.includes("fetch-trending") || endpoint.includes("generate-messages") || endpoint.includes("full-flow") || endpoint.includes("clear-all") || endpoint.includes("post-chat")) {
         setTimeout(() => {
           fetchCoins();
           fetchMessages();
+          fetchResults();
         }, 800);
       }
       fetchStats();
@@ -1786,7 +2007,7 @@ export default function App() {
       const res = await fetch(resolveUrl("/api/fetch-and-generate-fresh"), { method: "POST" });
       if (res.ok) {
         const data = await parseResponseJson(res, {});
-        await Promise.all([fetchCoins(), fetchMessages(), fetchStats(), fetchLogs()]);
+        await Promise.all([fetchCoins(), fetchMessages(), fetchResults(), fetchStats(), fetchLogs()]);
         setIsDataStale(false);
         showToast(`Refreshed ${data.coinsCount || ""} coins & ${data.messagesCount || ""} comments successfully!`, "success", 4000);
         if (autoStartPosting) {
@@ -1983,7 +2204,12 @@ export default function App() {
   });
 
   const schedulerLogs = logsList.filter(l => {
-    const isSched = l.message.includes("[SCHEDULER]") || l.message.includes("[SYNC]") || l.message.includes("Run finished") || l.message.includes("Sequential");
+    const isSched = l.message.includes("[SCHEDULER]") || 
+                    l.message.includes("[SYNC]") || 
+                    l.message.includes("Run finished") || 
+                    l.message.includes("Sequential") ||
+                    (l.message.startsWith("[") && l.message.includes("]")) ||
+                    (schedulerData?.cycleStatus === "running" && !l.message.includes("[SIMULATOR]"));
     const matchesQ = !schedulerLogQuery.trim() || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase());
     return isSched && matchesQ;
   });
@@ -2215,9 +2441,373 @@ export default function App() {
               )}
               <span className="hidden sm:inline">{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
             </button>
+
+            {/* QUICK START GUIDE TOGGLE BUTTON */}
+            <button
+              onClick={() => setShowQuickGuide(!showQuickGuide)}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer ${
+                showQuickGuide
+                  ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Toggle Quick Start Guide"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Guide</span>
+              <span className="text-[10px] opacity-75 font-mono">{showQuickGuide ? "▲" : "▼"}</span>
+            </button>
           </div>
         </div>
       </header>
+
+      {/* INTERACTIVE QUICK START OPERATING GUIDE (SLIDESHOW) */}
+      {showQuickGuide && (() => {
+        const slides = [
+          {
+            stepNum: 1,
+            tag: "STEP 1 • ACCOUNTS & ROTATION",
+            title: "Connect & Organize Accounts (3 Active + 2 Backup)",
+            icon: Users,
+            iconColor: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+            statusBadge: profilesList.length === 0
+              ? { text: "No Accounts Logged In", color: "bg-rose-500/20 text-rose-300 border-rose-500/30" }
+              : { text: `${profilesList.length} Accounts Configured`, color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
+            headline: profilesList.length === 0
+              ? "First Step: Login or import your CoinMarketCap session to begin automated posting."
+              : "Rotate 3 Primary accounts for daily posts and keep 2 Standby accounts in reserve.",
+            bullets: [
+              profilesList.length === 0
+                ? "No active login detected: Click 'Login / Add Account' below to connect your first profile."
+                : "3 Active Primary Accounts: Check 'Use this account for now' in the Scheduler tab.",
+              "2 Standby / Backup Accounts: Leave unchecked—cookies stay preserved for auto-failover.",
+              "Auto-Failover Protection: If an active account expires or hits captcha, a backup takes its place.",
+              "Strict Session Isolation: Each account has its own isolated cookie & progress sandbox."
+            ],
+            primaryAction: profilesList.length === 0 ? {
+              label: "🔑 Login & Add Account Now",
+              onClick: () => {
+                setLoginTab("login");
+                setShowSessionModal(true);
+              }
+            } : {
+              label: "👥 View & Order Accounts in Scheduler",
+              onClick: () => {
+                navigateTo("scheduler");
+              }
+            },
+            secondaryAction: profilesList.length > 0 ? {
+              label: "Manage Cookie Profiles",
+              onClick: () => {
+                setLoginTab("profiles");
+                setShowSessionModal(true);
+              }
+            } : undefined
+          },
+          {
+            stepNum: 2,
+            tag: "STEP 2 • MARKETING CREATIVES",
+            title: "Upload Marketing Images (Strictly 1 per Comment)",
+            icon: ImageIcon,
+            iconColor: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+            statusBadge: {
+              text: `${marketingImages.length} Images in Library • Auto-Attach: ${imageUploadEnabled ? "ON" : "OFF"}`,
+              color: imageUploadEnabled ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30" : "bg-slate-800 text-slate-400 border-slate-700"
+            },
+            headline: "Attract high engagement with promotional graphics attached to comments.",
+            bullets: [
+              "Every comment posted by the bot can automatically attach strictly 1 image from your library.",
+              "Image Rotation: Choose 'Cycle' mode to cycle images in sequence, or 'Random' for variety.",
+              "Universal Support: Marketing images work identically across manual tabs, continuous loop, and the scheduler.",
+              "Uploads support PNG, JPG, JPEG, WEBP, and GIF files with instant preview thumbnails."
+            ],
+            primaryAction: {
+              label: "🖼️ Go to Images Library & Upload",
+              onClick: () => {
+                setActiveTab("images");
+                if (currentView !== "dashboard") navigateTo("dashboard");
+                setTimeout(() => {
+                  const el = document.getElementById("storage-explorer");
+                  if (el) el.scrollIntoView({ behavior: "smooth" });
+                }, 100);
+              }
+            }
+          },
+          {
+            stepNum: 3,
+            tag: "STEP 3 • CADENCE & SAFETY",
+            title: "4 Cycles / 24h & 300 Daily Post Cap",
+            icon: Clock,
+            iconColor: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+            statusBadge: {
+              text: "Target: 200 Posts/Day • Cap: 300 Posts/Day/Account",
+              color: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+            },
+            headline: "Hit 200 posts per day safely without spam bans or server load.",
+            bullets: [
+              "4 Daily Cycles: Post ~50 coins per cycle during global peak trading sessions (200 posts/day total).",
+              "Even Account Splitting: 50 coins are divided across 3 accounts (~17 coins each).",
+              "Safe Human Delay: 35–45 seconds spacing between posts with 0% CPU kernel sleep.",
+              "300 Daily Cap: Hard limit per account prevents excessive posting or runaway spam loops."
+            ],
+            primaryAction: {
+              label: "⏱️ Open Scheduler to Set Cadence",
+              onClick: () => {
+                navigateTo("scheduler");
+              }
+            }
+          },
+          {
+            stepNum: 4,
+            tag: "STEP 4 • AUTONOMOUS ENGINE",
+            title: "Turn ON Background Scheduler & Relax",
+            icon: Zap,
+            iconColor: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+            statusBadge: schedulerData?.enabled ? (
+              schedulerData?.cycleRunning
+                ? { text: "CYCLE IN PROGRESS", color: "bg-indigo-500 text-slate-950 font-bold animate-pulse" }
+                : { text: "SCHEDULER ENGINE ON", color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" }
+            ) : { text: "SCHEDULER ENGINE OFF", color: "bg-slate-800 text-slate-400 border-slate-700" },
+            headline: "Autonomous posting loop that manages browser lifecycle cleanly.",
+            bullets: [
+              "Trending Fetch & AI: Fetches latest trending coins once and crafts authentic, non-repetitive comments.",
+              "Clean Chromium Lifecycle: Launches headless browser for an account and completely closes it when finished.",
+              "Continuous Cookie Refresh: Fresh cookies are saved to Firestore after every single post.",
+              "Completely Isolated: Leaves your manual view and dashboard tabs untouched while cycling."
+            ],
+            primaryAction: {
+              label: "🚀 Go to Scheduler & Start Cycle",
+              onClick: () => {
+                navigateTo("scheduler");
+              }
+            }
+          }
+        ];
+
+        const currentSlide = slides[guideSlide] || slides[0];
+        const isFirst = guideSlide === 0;
+        const isLast = guideSlide === slides.length - 1;
+        const CurrentIcon = currentSlide.icon;
+
+        return (
+          <div className="bg-gradient-to-r from-slate-950 via-indigo-950/40 to-slate-950 border-b border-indigo-500/30 px-4 sm:px-6 py-5 shadow-2xl relative">
+            {/* Slim Animated Progress Line */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-slate-900 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-300 ease-out"
+                style={{ width: `${((guideSlide + 1) / slides.length) * 100}%` }}
+              ></div>
+            </div>
+
+            <div className="max-w-[1600px] mx-auto space-y-4">
+              {/* SLIDESHOW HEADER & STEP PILLS */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
+                      <BookOpen className="h-4 w-4" />
+                    </span>
+                    <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                      Quick-Start Operating Tour
+                    </span>
+                  </div>
+
+                  {/* Step Selector Pills */}
+                  <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                    {slides.map((s, sIdx) => (
+                      <button
+                        key={s.stepNum}
+                        onClick={() => setGuideSlide(sIdx)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition cursor-pointer flex items-center gap-1 ${
+                          guideSlide === sIdx
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                            : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                        }`}
+                      >
+                        <span>{sIdx + 1}.</span>
+                        <span className="hidden md:inline">{s.stepNum === 1 ? "Accounts" : s.stepNum === 2 ? "Images" : s.stepNum === 3 ? "Cadence" : "Launch"}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => dismissQuickGuide(true)}
+                    className="text-[11px] text-slate-400 hover:text-slate-200 underline font-medium cursor-pointer"
+                    title="Hide this guide permanently on this browser"
+                  >
+                    Don't show again
+                  </button>
+                  <button
+                    onClick={() => dismissQuickGuide(false)}
+                    className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition cursor-pointer"
+                    title="Close tour"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* SLIDE CARD CONTENT */}
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                {/* Left 8 Columns: Main Information & Action */}
+                <div className="lg:col-span-8 space-y-3.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      {currentSlide.tag}
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${currentSlide.statusBadge.color}`}>
+                      {currentSlide.statusBadge.text}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                      <span className={`p-1.5 rounded-lg border flex-shrink-0 ${currentSlide.iconColor}`}>
+                        <CurrentIcon className="h-5 w-5" />
+                      </span>
+                      <span>{currentSlide.title}</span>
+                    </h3>
+                    <p className="text-xs text-slate-300 font-medium mt-1 leading-relaxed">
+                      {currentSlide.headline}
+                    </p>
+                  </div>
+
+                  {/* Bullet Checklist */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {currentSlide.bullets.map((b, bIdx) => (
+                      <div key={bIdx} className="flex items-start gap-2 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-300 leading-snug">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                        <span>{b}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Direct "Take Me There" Interactive Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <button
+                      onClick={currentSlide.primaryAction.onClick}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition cursor-pointer"
+                    >
+                      <span>{currentSlide.primaryAction.label}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+
+                    {currentSlide.secondaryAction && (
+                      <button
+                        onClick={currentSlide.secondaryAction.onClick}
+                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition cursor-pointer"
+                      >
+                        <Shield className="h-3.5 w-3.5 text-indigo-400" />
+                        <span>{currentSlide.secondaryAction.label}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right 4 Columns: Interactive Live Telemetry / Overview Pill Card */}
+                <div className="lg:col-span-4 bg-slate-950 rounded-xl border border-slate-800 p-4 space-y-3">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-800/80 pb-2">
+                    <span>Live Readiness Check</span>
+                    <span className="text-indigo-400 font-mono">Step {guideSlide + 1}/4</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
+                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                        <Users className="h-3.5 w-3.5 text-blue-400" />
+                        Accounts
+                      </span>
+                      <span className="font-mono font-bold text-slate-200">
+                        {profilesList.length} configured
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
+                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                        <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                        Images
+                      </span>
+                      <span className="font-mono font-bold text-slate-200">
+                        {marketingImages.length} ready ({imageUploadEnabled ? "ON" : "OFF"})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
+                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-cyan-400" />
+                        Target / Cap
+                      </span>
+                      <span className="font-mono font-bold text-slate-200">
+                        200 / 300 cap
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
+                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5 text-emerald-400" />
+                        Scheduler
+                      </span>
+                      <span className={`font-mono font-bold ${schedulerData?.enabled ? "text-emerald-400" : "text-slate-500"}`}>
+                        {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ACTIVE" : "STANDBY")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SLIDESHOW FOOTER CONTROLS */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  disabled={isFirst}
+                  onClick={() => setGuideSlide(Math.max(0, guideSlide - 1))}
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span>Previous</span>
+                </button>
+
+                {/* Dot Indicators */}
+                <div className="flex items-center gap-2">
+                  {slides.map((_, dotIdx) => (
+                    <button
+                      key={dotIdx}
+                      onClick={() => setGuideSlide(dotIdx)}
+                      className={`h-2 rounded-full transition-all cursor-pointer ${
+                        guideSlide === dotIdx
+                          ? "w-6 bg-indigo-500 shadow-sm shadow-indigo-500/50"
+                          : "w-2 bg-slate-800 hover:bg-slate-700"
+                      }`}
+                      title={`Go to step ${dotIdx + 1}`}
+                    />
+                  ))}
+                </div>
+
+                {isLast ? (
+                  <button
+                    type="button"
+                    onClick={() => dismissQuickGuide(false)}
+                    className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                  >
+                    <span>Done / Start Tour</span>
+                    <CheckCircle className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setGuideSlide(Math.min(slides.length - 1, guideSlide + 1))}
+                    className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/30"
+                  >
+                    <span>Next Step</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* DASHBOARD OR ADMIN SCREEN CONTENT BODY */}
       {currentView === "admin" ? (
@@ -2312,6 +2902,24 @@ export default function App() {
                     : "bg-slate-800 text-slate-400"
               }`}>
                 {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+              </span>
+            </button>
+            <button
+              onClick={() => setAdminSection("telegram")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "telegram"
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "text-rose-400 hover:text-rose-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Bell className="h-3.5 w-3.5" />
+              <span>Emergency Alerts</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                telegramEnabled
+                  ? "bg-emerald-500/20 text-emerald-300"
+                  : "bg-slate-800 text-slate-400"
+              }`}>
+                {telegramEnabled ? "ACTIVE" : "OFF"}
               </span>
             </button>
           </div>
@@ -2897,6 +3505,144 @@ export default function App() {
                 <Download className="h-3.5 w-3.5" />
                 <span>Download Scheduler Logs (.log)</span>
               </a>
+            </div>
+          </section>
+          )}
+
+          {/* 5. TELEGRAM EMERGENCY ALERTS SYSTEM */}
+          {(adminSection === "all" || adminSection === "telegram") && (
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-5">
+              <div className="flex items-center gap-3">
+                <span className={`p-2 rounded-xl border flex items-center justify-center ${
+                  telegramEnabled
+                    ? "bg-rose-500/10 text-rose-400 border-rose-500/20 shadow-sm shadow-rose-500/10"
+                    : "bg-slate-800 text-slate-500 border-slate-700"
+                }`}>
+                  <Bell className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-white text-base">Emergency Telegram Alerts (Insane Failures Only)</h2>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
+                      telegramEnabled ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : "bg-slate-800 text-slate-400"
+                    }`}>
+                      {telegramEnabled ? "High-Alert Mode" : "Disabled"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Dispatches instant Telegram notifications ONLY when manual interaction is required (all accounts session out, 24-part background cycle stalled, continuous loop aborted, or deployment build failure).
+                  </p>
+                </div>
+              </div>
+
+              {/* Master Toggle */}
+              <div className="flex items-center gap-3 bg-slate-950/80 border border-slate-800 px-3.5 py-2 rounded-xl">
+                <span className="text-xs font-semibold text-slate-300">Emergency Alerts</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleTelegram(!telegramEnabled)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    telegramEnabled ? "bg-rose-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      telegramEnabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Alert Level Filter Notice */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 mb-5">
+              <div className="flex items-start gap-3">
+                <Shield className="h-5 w-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1.5">
+                  <div className="font-bold text-slate-200">Anti-Spam & Emergency Filtering Protocol Active</div>
+                  <p className="text-slate-400 leading-relaxed">
+                    To prevent hitting Telegram rate limits and avoid buzzing your phone unnecessarily, routine operations run completely silent in the background. The emergency alert fires exclusively under critical conditions:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1 text-[11px]">
+                    <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg">
+                      <span className="font-bold text-rose-400 flex items-center gap-1.5 mb-1">
+                        <AlertTriangle className="h-3.5 w-3.5" /> All Accounts Session Out (Circuit Breaker)
+                      </span>
+                      <span className="text-slate-400">Triggered if all accounts in the 24-part background cycle fail authentication or have expired cookies, halting all automated posting.</span>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg">
+                      <span className="font-bold text-amber-400 flex items-center gap-1.5 mb-1">
+                        <Pause className="h-3.5 w-3.5" /> Continuous Posting Loop Aborted
+                      </span>
+                      <span className="text-slate-400">Triggered if continuous loop is killed due to 3 consecutive failures or expired active credentials requiring manual login.</span>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg">
+                      <span className="font-bold text-purple-400 flex items-center gap-1.5 mb-1">
+                        <Cpu className="h-3.5 w-3.5" /> Deployment & Build Failures
+                      </span>
+                      <span className="text-slate-400">Triggered if frontend compilation or server bundling fails during deployment, alerting you immediately with failure details.</span>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg">
+                      <span className="font-bold text-emerald-400 flex items-center gap-1.5 mb-1">
+                        <Clock className="h-3.5 w-3.5" /> 20-Min Cooldown & Rate Capping
+                      </span>
+                      <span className="text-slate-400">Identical error alerts are throttled with a 20-minute cooldown and a hard ceiling of 6 emergency alerts/hour to protect your chat.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Telegram Bot Details & Testing */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Connected Bot</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-bold text-white">@anup_cms_alert_bot</span>
+                  <a
+                    href="https://t.me/anup_cms_alert_bot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5"
+                  >
+                    <span>Open</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono mt-1 truncate">Token: {telegramToken.slice(0, 14)}...</div>
+              </div>
+
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 flex flex-col justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Recipient Chat ID</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-emerald-400">{telegramChatId || "Not detected"}</span>
+                    <button
+                      onClick={handleDetectTelegramChatId}
+                      disabled={isDetectingTelegram}
+                      className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+                    >
+                      {isDetectingTelegram ? "Detecting..." : "Re-Detect"}
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">Direct private channel to your Telegram app</div>
+              </div>
+
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 flex flex-col justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Verify Emergency Hotline</span>
+                <button
+                  onClick={handleTestEmergencyAlert}
+                  disabled={isTestingTelegram || !telegramEnabled}
+                  className="w-full py-2 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow"
+                >
+                  <Bell className="h-3.5 w-3.5" />
+                  <span>{isTestingTelegram ? "Dispatching..." : "Send Test Emergency Alert"}</span>
+                </button>
+                <div className="text-[10px] text-slate-500 mt-1 text-center font-mono">Bypasses throttle for manual testing</div>
+              </div>
             </div>
           </section>
           )}
@@ -3687,7 +4433,7 @@ export default function App() {
           </section>
 
         {/* ROW 3: STORAGE AND REPORTS DATA EXPLORER (Full width) */}
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+        <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
               <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
@@ -3722,7 +4468,7 @@ export default function App() {
               >
                 {(() => {
                   const activePid = activeProfileIdRef.current || activeProfile?.id;
-                  const count = results.filter(r => !activePid || r.profileId === activePid).length;
+                  const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
                   return `3. Post Submissions (${count})`;
                 })()}
               </button>
@@ -3902,9 +4648,10 @@ export default function App() {
             {/* TAB 2: GENERATED COMMENTS */}
             {activeTab === "comments" && (() => {
               const activePid = activeProfileIdRef.current || activeProfile?.id;
-              const profileResults = results.filter(r => !activePid || r.profileId === activePid);
-              const pendingCoins = messagesList.filter(msgItem => !profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
-              const failedCoins = messagesList.filter(msgItem => profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase() && r.status !== "success"));
+              const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
+              const matchSymbol = (a?: string, b?: string) => String(a || "").replace(/^\$/, "").trim().toLowerCase() === String(b || "").replace(/^\$/, "").trim().toLowerCase();
+              const pendingCoins = messagesList.filter(msgItem => !profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol)));
+              const failedCoins = messagesList.filter(msgItem => profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol) && r.status !== "success"));
               return (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
@@ -4135,7 +4882,7 @@ export default function App() {
             {/* TAB 3: SUBMISSION RESULTS */}
             {activeTab === "results" && (() => {
               const activePid = activeProfileIdRef.current || activeProfile?.id;
-              const profileResults = results.filter(r => !activePid || r.profileId === activePid);
+              const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
               return (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
@@ -4186,10 +4933,11 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (() => {
-                        const pendingItems = messagesList.filter(msgItem => !profileResults.some(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase()));
+                        const matchSymbol = (a?: string, b?: string) => String(a || "").replace(/^\$/, "").trim().toLowerCase() === String(b || "").replace(/^\$/, "").trim().toLowerCase();
+                        const pendingItems = messagesList.filter(msgItem => !profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol)));
                         return messagesList.map((msgItem, index) => {
-                          const item = profileResults.find(r => r.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
-                          const pendingIndex = pendingItems.findIndex(p => p.symbol.toLowerCase() === msgItem.symbol.toLowerCase());
+                          const item = [...profileResults].reverse().find(r => matchSymbol(r.symbol, msgItem.symbol));
+                          const pendingIndex = pendingItems.findIndex(p => matchSymbol(p.symbol, msgItem.symbol));
                           const seqStr = pendingIndex !== -1 ? `Seq #${pendingIndex + 1}` : "";
                         
                         return (
@@ -4651,6 +5399,15 @@ export default function App() {
                     title="Reload images"
                   >
                     <RefreshCw className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    onClick={() => setIsExternalImportModalOpen(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
+                    title="Import images from Google Drive, S3, or public image URLs"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Import Drive / S3
                   </button>
                 </div>
               </div>
@@ -5184,6 +5941,106 @@ export default function App() {
                 )}
               </div>
 
+              {/* EXTERNAL IMAGES IMPORT MODAL (Google Drive, S3, Web URLs) */}
+              {isExternalImportModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl p-6 shadow-2xl relative">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                          <Upload className="h-5 w-5" />
+                        </span>
+                        <div>
+                          <h3 className="text-base font-bold text-white">Import from Google Drive / S3 / Cloud URLs</h3>
+                          <p className="text-xs text-slate-400">Paste shared Google Drive links, S3 bucket URLs, or image web links</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsExternalImportModalOpen(false);
+                          setExternalImportStatus(null);
+                        }}
+                        className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                          Cloud Link or Image URLs (One per line or comma-separated)
+                        </label>
+                        <textarea
+                          value={externalImportLinks}
+                          onChange={(e) => setExternalImportLinks(e.target.value)}
+                          placeholder={`Google Drive Folder: https://drive.google.com/drive/folders/1ABC...
+Google Drive File: https://drive.google.com/file/d/1XYZ...
+S3 Bucket / Image URLs:
+https://my-bucket.s3.amazonaws.com/promo1.png
+https://my-bucket.s3.amazonaws.com/promo2.jpg`}
+                          rows={5}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Tip: For Google Drive folders, ensure the folder sharing link is set to "Anyone with the link can view".
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="modalReplaceExisting"
+                          checked={externalImportReplace}
+                          onChange={(e) => setExternalImportReplace(e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-emerald-600 focus:ring-0 cursor-pointer accent-emerald-600"
+                        />
+                        <label htmlFor="modalReplaceExisting" className="text-xs text-slate-300 font-medium cursor-pointer select-none">
+                          Replace existing images with this new imported batch
+                        </label>
+                      </div>
+
+                      {externalImportStatus && (
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 font-mono">
+                          {externalImportStatus}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsExternalImportModalOpen(false);
+                            setExternalImportStatus(null);
+                          }}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isImportingExternal || !externalImportLinks.trim()}
+                          onClick={handleImportExternalImages}
+                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30 cursor-pointer"
+                        >
+                          {isImportingExternal ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              Importing Images...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="h-3.5 w-3.5" />
+                              Start Cloud Import
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* FULL LIGHTBOX PREVIEW MODAL */}
               {previewModalImage && (
                 <div
@@ -5450,11 +6307,16 @@ export default function App() {
             </div>
           </div>
 
-          {/* MANUAL WEEKLY CHECK NOTICE BANNER */}
+          {/* ACTIVE VS BACKUP & MANUAL CHECK NOTICE BANNER */}
           <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3.5 flex items-start gap-3">
             <Info className="h-4.5 w-4.5 text-indigo-400 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-slate-300 leading-relaxed">
-              <strong className="text-white">Manual Weekly Checking:</strong> For accounts with frequency set to <span className="text-indigo-300 font-semibold">Weekly</span>, you can manually check the <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> checkbox whenever you want that account to participate in the cycle. Account 1 continues posting every cycle, while weekly accounts only post when checked!
+            <div className="text-xs text-slate-300 leading-relaxed space-y-1">
+              <div>
+                <strong className="text-white">Active vs. Backup Accounts:</strong> Check <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> on the accounts you want to post in the cycle (e.g. 3 primary accounts). Unchecked accounts act as <span className="text-amber-300 font-semibold">Standby / Backup</span>—their login sessions remain safely stored in Firestore and on disk, and you can activate them at any time with one click.
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Uploaded marketing images, AI commentary, and human cooldown timers work automatically across all scheduled posting cycles.
+              </div>
             </div>
           </div>
 
@@ -5632,12 +6494,14 @@ export default function App() {
                                     )}
                                   </div>
                                 ) : acc.schedule.enabled ? (
-                                  <span className="text-[10px] text-emerald-400/90 pl-6.5 font-mono">
-                                    Active in queue
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/90 pl-6.5 font-mono font-medium">
+                                    <CheckCircle className="h-3 w-3 text-emerald-400" />
+                                    Active Primary (In cycle)
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-slate-500 pl-6.5 italic">
-                                    Skipped (unchecked)
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 pl-6.5 font-medium">
+                                    <Shield className="h-3 w-3 text-amber-500/80" />
+                                    Standby / Backup (Reserved)
                                   </span>
                                 )}
                               </div>
@@ -6767,6 +7631,10 @@ export default function App() {
           ) : toast.type === "error" ? (
             <div className="p-1.5 bg-rose-500/10 text-rose-400 rounded-lg border border-rose-500/20 flex-shrink-0">
               <AlertTriangle className="h-4 w-4 text-rose-400" />
+            </div>
+          ) : toast.type === "warning" ? (
+            <div className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20 flex-shrink-0">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
             </div>
           ) : (
             <div className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 flex-shrink-0">
