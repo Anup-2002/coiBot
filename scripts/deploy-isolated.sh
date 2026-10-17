@@ -25,8 +25,8 @@ trap 'send_alert "Isolated Deployment Failed" "Deployment script failed unexpect
 echo "=== [1/5] Checking port availability for port :$PORT ==="
 if sudo ss -tulpn 2>/dev/null | grep -q ":$PORT "; then
   # Check if the process occupying the port is already our own bot
-  if sudo -u cmcbot pm2 list 2>/dev/null | grep -q "cmc-trending-bot.*online"; then
-    echo "ℹ️ Port $PORT is currently used by existing cmc-trending-bot instance (will be cleanly updated)."
+  if sudo -u cmcbot pm2 list 2>/dev/null | grep -q "cmc-bot.*online"; then
+    echo "ℹ️ Port $PORT is currently used by existing cmc-bot instance (will be cleanly updated)."
   else
     echo "⚠️ Port $PORT is already in use by another service!"
     echo "Please run this script with a different port, e.g.: ./scripts/deploy-isolated.sh 3006"
@@ -102,8 +102,8 @@ sudo -u cmcbot -i bash -c "
   npm install
   (npx playwright install --with-deps chromium 2>/dev/null || npx playwright install chromium)
   npm run build
-  if pm2 describe cmc-trending-bot &>/dev/null; then
-    pm2 reload ecosystem.config.cjs --update-env || pm2 restart cmc-trending-bot
+  if pm2 describe cmc-bot &>/dev/null; then
+    pm2 reload ecosystem.config.cjs --update-env || pm2 restart cmc-bot
   else
     pm2 start ecosystem.config.cjs
   fi
@@ -114,7 +114,7 @@ echo ""
 echo "🎉 SUCCESS: CoinMarketCap Bot has been deployed in complete isolation on port $PORT!"
 echo "Your existing projects were NOT touched."
 echo "Active sessions and cookies were fully preserved."
-echo "To view live logs: sudo -u cmcbot pm2 logs cmc-trending-bot"
+echo "To view live logs: sudo -u cmcbot pm2 logs cmc-bot"
 echo "To check status:   sudo -u cmcbot pm2 list"
 
-send_alert "Deployment Succeeded" "🎉 CoinMarketCap Bot has deployed successfully in isolated mode on Port :$PORT!\nBot is running under PM2 service 'cmc-trending-bot'." success
+send_alert "Deployment Succeeded" "🎉 CoinMarketCap Bot has deployed successfully in isolated mode on Port :$PORT!\nBot is running under PM2 service 'cmc-bot'." success

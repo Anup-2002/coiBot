@@ -7,7 +7,7 @@ const path = require('path');
 module.exports = {
   apps: [
     {
-      name: 'cmc-trending-bot',
+      name: 'cmc-bot',
       script: 'dist/server.cjs',
       cwd: __dirname,
       instances: 1,
