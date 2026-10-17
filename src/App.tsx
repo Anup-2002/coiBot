@@ -397,11 +397,11 @@ export default function App() {
   const [profilesList, setProfilesList] = useState<any[]>([]);
   const [newProfileName, setNewProfileName] = useState<string>("");
   const [newProfileJson, setNewProfileJson] = useState<string>("");
-  const [newProfileLimit, setNewProfileLimit] = useState<number>(500);
+  const [newProfileLimit, setNewProfileLimit] = useState<number>(300);
   const [editingLimitProfileId, setEditingLimitProfileId] = useState<string | null>(null);
-  const [editingLimitValue, setEditingLimitValue] = useState<number>(500);
+  const [editingLimitValue, setEditingLimitValue] = useState<number>(300);
   const [dailyPostCount, setDailyPostCount] = useState<number>(0);
-  const [dailyPostLimit, setDailyPostLimit] = useState<number>(500);
+  const [dailyPostLimit, setDailyPostLimit] = useState<number>(300);
   const [lastPostDate, setLastPostDate] = useState<string>("");
   const [activeProfile, setActiveProfile] = useState<any | null>(null);
   const activeProfileIdRef = useRef<string | null>(null);
@@ -606,7 +606,7 @@ export default function App() {
     }
   };
 
-  const [targetCoinsCount, setTargetCoinsCount] = useState<number>(30);
+  const [targetCoinsCount, setTargetCoinsCount] = useState<number>(0);
   const [isVerifyingFleet, setIsVerifyingFleet] = useState<boolean>(false);
   const [fleetHealthSummary, setFleetHealthSummary] = useState<{ healthy: number; expired: number; checkedAt?: string } | null>(null);
   const [isResettingDailyQueue, setIsResettingDailyQueue] = useState<boolean>(false);
@@ -1460,7 +1460,7 @@ export default function App() {
     }
   };
 
-  const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 500) => {
+  const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 300) => {
     if (!name.trim() || !stateJson.trim()) {
       showToast("Please provide both profile name and cookies JSON.", "error");
       return;
@@ -1469,16 +1469,16 @@ export default function App() {
       const res = await fetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 500) })
+        body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 300) })
       });
       if (res.ok) {
         setNewProfileName("");
         setNewProfileJson("");
-        setNewProfileLimit(500);
+        setNewProfileLimit(300);
         setShowProfileAddForm(false);
         fetchProfiles();
         fetchSessionDetails();
-        showToast(`Account profile for "${name}" saved successfully with ${dailyPostLimit || 500} posts/day limit!`, "success");
+        showToast(`Account profile for "${name}" saved successfully with ${dailyPostLimit || 300} posts/day limit!`, "success");
       } else {
         const data = await parseResponseJson(res, { error: "Failed to save profile." });
         showToast(data.error || "Failed to save profile.", "error");
@@ -1493,7 +1493,7 @@ export default function App() {
       const res = await fetch(resolveUrl("/api/update-profile-limit"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, dailyPostLimit: Math.max(1, limit || 500) })
+        body: JSON.stringify({ id, dailyPostLimit: Math.max(1, limit || 300) })
       });
       const data = await parseResponseJson(res, {});
       if (res.ok) {
@@ -3368,7 +3368,7 @@ export default function App() {
             </div>
 
             {/* Quick Controls Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Master Switch */}
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
@@ -3401,7 +3401,7 @@ export default function App() {
                     disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
                     onClick={handleRunSchedulerNow}
                     title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : "Run sequential cycle now"}
-                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow"
+                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
                   >
                     <Play className="h-3.5 w-3.5" />
                     <span>Run Cycle Now</span>
@@ -3409,7 +3409,7 @@ export default function App() {
                   <button
                     disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
                     onClick={handleStopScheduler}
-                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5"
+                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Pause className="h-3.5 w-3.5" />
                     <span>Stop</span>
@@ -3438,12 +3438,40 @@ export default function App() {
                   <button
                     onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
                     disabled={isSchedulerActionPending}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
+                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                   >
                     Save
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1">Delay between scheduled full multi-account runs</p>
+              </div>
+
+              {/* Target Batch Limit (Coins / Run) */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300">Target Batch Limit</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {targetCoinsCount === 0 ? "ALL (Default)" : `Top ${targetCoinsCount}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1 mt-2">
+                  {[10, 30, 50, 0].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => handleUpdateTargetCoins(count)}
+                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer ${
+                        targetCoinsCount === count
+                          ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
+                          : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
+                      }`}
+                      title={count === 0 ? "Process all trending coins (Default recommended)" : `Process top ${count} coins`}
+                    >
+                      {count === 0 ? "ALL*" : count}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">*ALL = Default recommended (Safety cap: 300 posts/day)</p>
               </div>
             </div>
 
@@ -6226,20 +6254,22 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* CYCLE STATUS & CONTROLS BAR */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
               {/* Status & Current Account */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
-                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Cycle State
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Cycle State
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
+                    <span className="text-sm font-bold text-white">
+                      {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
-                  <span className="text-sm font-bold text-white">
-                    {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400 truncate">
-                  Current Account: <span className="font-semibold text-slate-200">
+                <div className="text-xs text-slate-400 truncate pt-1">
+                  Current: <span className="font-semibold text-slate-200">
                     {(() => {
                       if (!schedulerData?.currentAccountId) return "None";
                       const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
@@ -6269,7 +6299,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     disabled={isSchedulerActionPending}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
                   >
-                    Save Interval
+                    Save
                   </button>
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -6277,8 +6307,41 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 </div>
               </div>
 
+              {/* Target Batch Limit (Coins / Run) */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {targetCoinsCount === 0 ? "ALL (Default)" : `Top ${targetCoinsCount}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1 mt-1">
+                  {[10, 30, 50, 0].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => handleUpdateTargetCoins(count)}
+                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer ${
+                        targetCoinsCount === count
+                          ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
+                          : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
+                      }`}
+                      title={count === 0 ? "Process all trending coins (Default recommended)" : `Process top ${count} coins`}
+                    >
+                      {count === 0 ? "ALL*" : count}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  *ALL = Default recommended (Safety cap: 300 posts/day)
+                </div>
+              </div>
+
               {/* Cycle Action Buttons */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-center gap-2">
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
+                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Manual Trigger
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -7157,7 +7220,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   </span>
                                 )}
                                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
-                                  ⚡ Limit: {p.dailyPostLimit || 500}/day
+                                  ⚡ Limit: {p.dailyPostLimit || 300}/day
                                 </span>
                                 {p.loginStatus === "logged_in" ? (
                                   <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
@@ -7187,7 +7250,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                       min={1}
                                       max={10000}
                                       value={editingLimitValue}
-                                      onChange={(e) => setEditingLimitValue(parseInt(e.target.value) || 500)}
+                                      onChange={(e) => setEditingLimitValue(parseInt(e.target.value) || 300)}
                                       className="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white font-mono"
                                     />
                                     <button
@@ -7207,7 +7270,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   <button
                                     onClick={() => {
                                       setEditingLimitProfileId(p.id);
-                                      setEditingLimitValue(p.dailyPostLimit || 500);
+                                      setEditingLimitValue(p.dailyPostLimit || 300);
                                     }}
                                     disabled={isBusy || isPostingActive || isContinuousLoopActive}
                                     className="text-[9px] text-emerald-400/80 hover:text-emerald-400 underline font-mono cursor-pointer"

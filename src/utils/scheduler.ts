@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   telegramAlertsEnabled: true,
   telegramBotToken: "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
   telegramChatId: "1817931967",
-  targetCoinsCount: 30,
+  targetCoinsCount: 0,
 };
 
 export function parseBotSettings(raw: string | null | undefined): BotSettings {
@@ -74,7 +74,7 @@ export function parseBotSettings(raw: string | null | undefined): BotSettings {
       telegramAlertsEnabled: typeof data.telegramAlertsEnabled === "boolean" ? data.telegramAlertsEnabled : true,
       telegramBotToken: typeof data.telegramBotToken === "string" ? data.telegramBotToken : "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
       telegramChatId: typeof data.telegramChatId === "string" ? data.telegramChatId : "1817931967",
-      targetCoinsCount: typeof data.targetCoinsCount === "number" ? data.targetCoinsCount : 30,
+      targetCoinsCount: typeof data.targetCoinsCount === "number" ? data.targetCoinsCount : 0,
     };
   } catch (_) {
     return { ...DEFAULT_SETTINGS };

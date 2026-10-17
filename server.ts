@@ -5279,7 +5279,7 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
   }
 
   const settings = getLocalBotSettings();
-  const targetCount = typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 30;
+  const targetCount = typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0;
   const targetedCoins = targetCount > 0 ? resolvedCoins.slice(0, targetCount) : resolvedCoins;
 
   await writeJsonFile(LAST_TRENDING_FILE, targetedCoins);
@@ -6525,7 +6525,7 @@ app.post("/api/profiles/verify-all", async (req, res) => {
 app.post("/api/settings/target-coins", (req, res) => {
   try {
     const { targetCoinsCount } = req.body;
-    const count = typeof targetCoinsCount === "number" ? targetCoinsCount : 30;
+    const count = typeof targetCoinsCount === "number" ? targetCoinsCount : 0;
     const settings = getLocalBotSettings();
     settings.targetCoinsCount = count;
     saveLocalBotSettings(settings);
@@ -7102,7 +7102,7 @@ app.get("/api/scheduler", (req, res) => {
     nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
     queue: schedulerQueue,
     accounts,
-    targetCoinsCount: typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 30,
+    targetCoinsCount: typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0,
   });
 });
 
