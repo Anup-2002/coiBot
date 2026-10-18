@@ -3451,7 +3451,7 @@ export default function App() {
                     Save
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">Delay between scheduled full multi-account runs</p>
+                <p className="text-[10px] text-slate-500 mt-1">Runtime is deducted automatically so 4 cycles complete within 24h</p>
               </div>
 
               {/* Target Batch Limit (Coins / Run) */}
@@ -6235,7 +6235,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   )}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  When enabled, the bot iterates sequentially through queued accounts every {schedulerData?.intervalMinutes || 20} minutes without affecting your single-account manual tabs.
+                  When enabled, the bot runs 4 daily cycles across queued accounts (runtime is automatically deducted so all 4 cycles finish within 24 hours).
                 </p>
               </div>
 
@@ -6266,8 +6266,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               {/* Status & Current Account */}
               <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                    Cycle State
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                      {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
@@ -6276,14 +6279,20 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     </span>
                   </div>
                 </div>
-                <div className="text-xs text-slate-400 truncate pt-1">
-                  Current: <span className="font-semibold text-slate-200">
-                    {(() => {
-                      if (!schedulerData?.currentAccountId) return "None";
-                      const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
-                      return cur ? cur.name : schedulerData.currentAccountId;
-                    })()}
-                  </span>
+                <div className="text-[11px] text-slate-400 truncate pt-1">
+                  {schedulerData?.cycleRunning ? (
+                    <>Current: <span className="font-semibold text-slate-200">
+                      {(() => {
+                        if (!schedulerData?.currentAccountId) return "None";
+                        const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
+                        return cur ? cur.name : schedulerData.currentAccountId;
+                      })()}
+                    </span></>
+                  ) : schedulerData?.nextCycleAt ? (
+                    <>Next Run: <span className="font-mono font-semibold text-emerald-400">{new Date(schedulerData.nextCycleAt).toLocaleTimeString()}</span></>
+                  ) : (
+                    <>Next Run: <span className="text-slate-500">Auto-scheduled on enable</span></>
+                  )}
                 </div>
               </div>
 
@@ -6291,7 +6300,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
-                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 20} mins</span>
+                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <input
@@ -6311,7 +6320,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </button>
                 </div>
                 <div className="text-[10px] text-slate-500">
-                  Delay between consecutive sequential multi-account runs
+                  Execution time deducted automatically so all 4 cycles complete within 24h
                 </div>
               </div>
 
