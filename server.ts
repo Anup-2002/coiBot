@@ -421,7 +421,9 @@ function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
     const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
-    const dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
+    let dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
+    // Auto-migrate legacy 500 default to standard 300 cap
+    if (dailyPostLimit === 500) dailyPostLimit = 300;
     return {
       ...p,
       dailyPostLimit,
@@ -667,6 +669,7 @@ function getAccountDailyPostLimit(profileId?: string | null): number {
         const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
         const target = profiles.find((p: any) => p.id === profileId);
         if (target && typeof target.dailyPostLimit === "number" && target.dailyPostLimit > 0) {
+          if (target.dailyPostLimit === 500) return 300;
           return target.dailyPostLimit;
         }
       }
@@ -674,11 +677,13 @@ function getAccountDailyPostLimit(profileId?: string | null): number {
   } else {
     const active = getActiveProfile();
     if (active && typeof active.dailyPostLimit === "number" && active.dailyPostLimit > 0) {
+      if (active.dailyPostLimit === 500) return 300;
       return active.dailyPostLimit;
     }
   }
   const envVal = Number(process.env.DAILY_POST_LIMIT);
   if (!isNaN(envVal) && envVal > 0) {
+    if (envVal === 500) return 300; // Auto-migrate legacy 500 from old .env files
     return envVal;
   }
   return 300; // Configurable daily posting limit default: 300 posts/day
@@ -6786,6 +6791,7 @@ function updateProfileSchedule(
 let schedulerCycleIntervalMinutes = 360;
 let schedulerCycleTimeout: NodeJS.Timeout | null = null;
 let nextSchedulerCycleStartTime: number | null = null;
+let lastSchedulerCycleStartTime: number | null = null;
 
 function cancelNextSchedulerCycle() {
   if (schedulerCycleTimeout) {
@@ -6822,11 +6828,25 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     gapMs = Math.max(5 * 60 * 1000, minsToMidnight * 60 * 1000 - (now.getUTCSeconds() * 1000));
     sessionDesc = `All ${maxCycles}/${maxCycles} cycles completed for today (${todayStr}). Next cycle scheduled for Tomorrow Asia Open (00:00 UTC)`;
   } else if (settings.schedulerMode === "interval") {
-    const mins = settings.schedulerIntervalMinutes || 360;
-    gapMs = mins * 60 * 1000;
-    sessionDesc = `Every ${mins}m (${Math.round(mins / 60)}h cadence)`;
+    // 24 Hours / 4 cycles = 360 minutes total time per cycle slot
+    const targetIntervalMins = settings.schedulerIntervalMinutes || 360;
+    const targetIntervalMs = targetIntervalMins * 60 * 1000;
+    
+    // Deduct the actual execution duration of the completed cycle
+    // e.g. If posting 30 coins took 25 minutes, sleep 335 minutes so cycle + cooldown = exactly 360 minutes (6 hours)
+    if (lastSchedulerCycleStartTime) {
+      const cycleDurationMs = Math.max(0, Date.now() - lastSchedulerCycleStartTime);
+      gapMs = Math.max(5 * 60 * 1000, targetIntervalMs - cycleDurationMs);
+      const cycleDurationMins = Math.round(cycleDurationMs / 60000);
+      const remainingCooldownMins = Math.round(gapMs / 60000);
+      sessionDesc = `Next cycle in ${remainingCooldownMins}m (${targetIntervalMins}m slot - ${cycleDurationMins}m execution duration)`;
+    } else {
+      gapMs = targetIntervalMs;
+      sessionDesc = `Every ${targetIntervalMins}m (${Math.round(targetIntervalMins / 60)}h cadence)`;
+    }
   } else {
     // Default: "peak_hours" (4 Global Peak Trading Sessions: 00:00, 08:00, 14:00, 20:00 UTC)
+    // Wall-clock anchored: automatically calculates the exact remaining time from NOW to the next market open
     const peakInfo = getNextPeakTradingSession(new Date());
     gapMs = peakInfo.delayMs;
     sessionDesc = `${peakInfo.session.label}`;
@@ -6886,6 +6906,7 @@ async function runScheduledCycle(): Promise<void> {
   const initialActiveProfileId = getActiveProfileId();
 
   isSchedulerCycleRunning = true;
+  lastSchedulerCycleStartTime = Date.now();
   stopSchedulerRequested = false;
   isStopping = false;
   botStatus = "Fetching";

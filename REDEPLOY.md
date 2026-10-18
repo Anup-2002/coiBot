@@ -159,13 +159,26 @@ sudo ss -tulpn | grep 3005
 pm2 restart cmc-bot
 ```
 
-### 2. Playwright Chromium Missing on Fresh Server
+### 2. Updating Daily Post Limit in `.env`
+To check or update the daily posting limit directly in your server's `.env`:
+```bash
+# Check current value
+grep "DAILY_POST_LIMIT" .env
+
+# Set it to 300 in one command
+sed -i 's/DAILY_POST_LIMIT=.*/DAILY_POST_LIMIT=300/' .env
+
+# Apply the change to PM2
+pm2 restart cmc-bot --update-env
+```
+
+### 3. Playwright Chromium Missing on Fresh Server
 If Playwright logs say Chromium binary not found:
 ```bash
 npx playwright install chromium
 ```
 
-### 3. Session Cookies Not Loaded
+### 4. Session Cookies Not Loaded
 If bot logs report `Session expired / missing cookies`:
 1. Open the web UI in your browser via your Cloudflare tunnel URL.
 2. Go to the **Profiles** tab.
