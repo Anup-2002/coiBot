@@ -1,5 +1,37 @@
 // Helper utilities and formatters for comments, CSV, and sessions
 
+export function cleanCommentForCmc(comment: string, symbol: string): string {
+  if (!comment) return "";
+  let cleaned = comment.trim();
+  const sym = (symbol || "").trim().replace(/^\$/, "").toUpperCase();
+
+  if (sym) {
+    // 1. Remove leading cashtag or tag variants like "$BTC - ", "$BTC: ", "$BTC ", "$BTC"
+    const leadingTagRegex = new RegExp(`^\\s*\\$${sym}\\s*[-:,]?\\s*`, "i");
+    cleaned = cleaned.replace(leadingTagRegex, "").trim();
+
+    // 2. Remove redundant cashtag inside the text if it duplicates what CMC already shows
+    const midTagRegex = new RegExp(`\\$${sym}\\b`, "gi");
+    cleaned = cleaned.replace(midTagRegex, sym);
+  }
+
+  // Clean any generic leading cashtags or hashtags
+  cleaned = cleaned.replace(/^\$[A-Za-z0-9_.-]+\s*[-:,]?\s*/i, "").trim();
+  cleaned = cleaned.replace(/#([A-Za-z0-9_.-]+)/gi, "$1");
+
+  // Fix any dangling linking verbs if a leading tag was stripped (e.g. "$BTC is looking..." -> "Showing solid...")
+  if (/^(?:is|are|was|were)\s+/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^(?:is|are|was|were)\s+/i, "").trim();
+    cleaned = "Looking " + cleaned;
+  }
+
+  // Ensure first character is capitalized
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
 export function formatCommentWithCashtag(comment: string, symbol: string): string {
   if (!symbol || !comment) return comment || "";
   let cleaned = comment.trim();

@@ -64,8 +64,12 @@ import {
   ScheduleFrequency,
   LastRunStatus,
   ProfileSchedule,
-  ProfileLastRun
+  ProfileLastRun,
+  getNextPeakTradingSession,
+  PEAK_TRADING_SESSIONS,
+  PeakSession,
 } from "./src/utils/scheduler";
+import { cleanCommentForCmc } from "./src/utils/formatters";
 
 import express from "express";
 import OpenAI from "openai";
@@ -114,14 +118,72 @@ try {
   }
 }
 
+// Define File Paths matching project structure
+let LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
+let GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
+let RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
+let POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
+let TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
+let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
+let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
+let SETTINGS_FILE = path.join(AUTH_DIR, "settings.json");
+let SCHEDULER_LOG_FILE = path.join(OUTPUT_DIR, "scheduler.log");
+let MARKETING_IMAGES_DIR = path.join(OUTPUT_DIR, "marketing_images");
+
 app.use(express.json({ limit: "50mb" }));
+
+// Session cookie and profile authentication validation helpers
+function sessionHasValidCookies(str: string): boolean {
+  if (!str || !str.trim()) return false;
+  try {
+    const parsed = JSON.parse(str);
+    const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
+    if (!Array.isArray(cookies) || cookies.length === 0) return false;
+    return cookies.some((c: any) =>
+      (c.name === "Authorization" && typeof c.value === "string" && c.value.length > 20) ||
+      (c.name === "u-prod" && typeof c.value === "string" && c.value.length > 20) ||
+      (c.name === "cmc_user_session" && typeof c.value === "string" && c.value.length > 10)
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function isProfileSessionActive(profileId?: string | null): boolean {
+  if (profileId) {
+    try {
+      if (fs.existsSync(PROFILES_FILE)) {
+        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+        const target = profiles.find((p: any) => p.id === profileId);
+        if (target && target.stateJson && sessionHasValidCookies(target.stateJson)) {
+          // If AUTH_STATE_FILE is missing on disk and this is the active profile, auto-hydrate it!
+          if (target.isActive && !fs.existsSync(AUTH_STATE_FILE)) {
+            try {
+              fs.writeFileSync(AUTH_STATE_FILE, target.stateJson, "utf-8");
+            } catch (_) {}
+          }
+          return true;
+        }
+      }
+    } catch (_) {}
+  }
+  if (fs.existsSync(AUTH_STATE_FILE)) {
+    try {
+      const content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      if (sessionHasValidCookies(content)) {
+        return true;
+      }
+    } catch (_) {}
+  }
+  return false;
+}
 
 // Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const queryProfileId = (req.query.profileId as string)?.trim();
   const activeId = queryProfileId || getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = isProfileSessionActive(activeId);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
@@ -132,6 +194,11 @@ app.get("/output/last_trending.json", (req, res) => {
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
+  // Fallback to shared root file if profile file not yet created
+  const rootFile = path.join(OUTPUT_DIR, "last_trending.json");
+  if (fs.existsSync(rootFile)) {
+    return res.sendFile(rootFile);
+  }
   res.json([]);
 });
 
@@ -139,7 +206,7 @@ app.get("/output/generated_messages.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const queryProfileId = (req.query.profileId as string)?.trim();
   const activeId = queryProfileId || getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = isProfileSessionActive(activeId);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
@@ -150,6 +217,11 @@ app.get("/output/generated_messages.json", (req, res) => {
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
+  // Fallback to shared root file if profile file not yet created
+  const rootFile = path.join(OUTPUT_DIR, "generated_messages.json");
+  if (fs.existsSync(rootFile)) {
+    return res.sendFile(rootFile);
+  }
   res.json([]);
 });
 
@@ -157,7 +229,7 @@ app.get("/output/results.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const queryProfileId = (req.query.profileId as string)?.trim();
   const activeId = queryProfileId || getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = isProfileSessionActive(activeId);
   if (!activeId || !sessionExists) {
     return res.json([]);
   }
@@ -171,19 +243,20 @@ app.get("/output/results.json", (req, res) => {
   res.json([]);
 });
 
-app.use("/output", express.static(OUTPUT_DIR));
+// Dedicated API endpoint for results to prevent file lock or caching issues
+app.get("/api/results", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const queryProfileId = (req.query.profileId as string)?.trim();
+  const activeId = queryProfileId || getActiveProfileId();
+  if (!activeId || !isProfileSessionActive(activeId)) {
+    return res.json({ success: true, results: [] });
+  }
+  const rawResults = getIsolatedResults(activeId);
+  const results = rawResults.filter(r => r.profileId === activeId);
+  res.json({ success: true, results });
+});
 
-// Define File Paths matching Python project structure
-let LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
-let GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
-let RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
-let POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
-let TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
-let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
-let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
-let SETTINGS_FILE = path.join(AUTH_DIR, "settings.json");
-let SCHEDULER_LOG_FILE = path.join(OUTPUT_DIR, "scheduler.log");
-let MARKETING_IMAGES_DIR = path.join(OUTPUT_DIR, "marketing_images");
+app.use("/output", express.static(OUTPUT_DIR));
 
 try {
   if (!fs.existsSync(MARKETING_IMAGES_DIR)) {
@@ -348,8 +421,10 @@ function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
     const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
+    const dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
     return {
       ...p,
+      dailyPostLimit,
       schedule,
       lastRun,
     };
@@ -433,7 +508,11 @@ function updateRealFetchTime(): void {
   const ts = getRealTimestamps(activeId);
   ts.coinsFetchedAt = Date.now();
   ts.coinsFetchedTime = new Date().toISOString();
-  writeJsonFile(TIMESTAMPS_FILE, ts);
+  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
+  writeJsonFile(tsFilePath, ts);
+  if (tsFilePath !== TIMESTAMPS_FILE) {
+    writeJsonFile(TIMESTAMPS_FILE, ts);
+  }
   if (activeId) {
     saveTimestampsCloud(ts, activeId).catch(() => {});
   }
@@ -444,7 +523,11 @@ function updateRealGenerateTime(): void {
   const ts = getRealTimestamps(activeId);
   ts.commentsGeneratedAt = Date.now();
   ts.commentsGeneratedTime = new Date().toISOString();
-  writeJsonFile(TIMESTAMPS_FILE, ts);
+  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
+  writeJsonFile(tsFilePath, ts);
+  if (tsFilePath !== TIMESTAMPS_FILE) {
+    writeJsonFile(TIMESTAMPS_FILE, ts);
+  }
   if (activeId) {
     saveTimestampsCloud(ts, activeId).catch(() => {});
   }
@@ -458,7 +541,11 @@ function clearRealTimestamps(): void {
     commentsGeneratedAt: null,
     commentsGeneratedTime: null,
   };
-  writeJsonFile(TIMESTAMPS_FILE, emptyTs);
+  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
+  writeJsonFile(tsFilePath, emptyTs);
+  if (tsFilePath !== TIMESTAMPS_FILE) {
+    writeJsonFile(TIMESTAMPS_FILE, emptyTs);
+  }
   if (activeId) {
     saveTimestampsCloud(emptyTs, activeId).catch(() => {});
   }
@@ -2664,7 +2751,13 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     } catch {}
     await page.waitForTimeout(300);
 
-    // 2. Inspect what is in the editor now (CoinMarketCap Draft.js often keeps its un-deletable coin tag chip, e.g. "$SIREN" or "$TIA")
+    // 2. Focus editor and position cursor strictly after the pre-filled CMC tag chip
+    await editor.focus().catch(() => {});
+    await page.keyboard.press("End").catch(() => {});
+    await page.keyboard.press("ArrowRight").catch(() => {});
+    await page.waitForTimeout(100);
+
+    // Inspect what is in the editor now (CoinMarketCap Draft.js retains its coin tag chip e.g. "$DGAI")
     let existingTag = "";
     let currentEditorText = "";
     try {
@@ -2675,23 +2768,24 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
     } catch (_) {}
 
-    // 3. Prepare exact text to type:
-    let textToType = finalComment.trim();
-    if (existingTag) {
-      // The editor still retains the CMC pre-filled coin tag!
-      // Strip any duplicate leading tag from our comment to avoid "$TIA$TIA" or "$AGT$AGT"
-      const escapedTag = existingTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const leadingTagRegex = new RegExp(`^\\s*${escapedTag}\\s*[-:,]?\\s*`, "i");
-      if (leadingTagRegex.test(textToType)) {
-        textToType = textToType.replace(leadingTagRegex, "").trim();
-      }
-      // Guarantee a space separating the pre-filled tag from the comment so words never glue ("$SIREN Crazy" instead of "$SIRENCrazy")
-      if (!currentEditorText.endsWith(" ")) {
-        textToType = ` ${textToType}`;
+    // Clean comment using cleanCommentForCmc so there are NEVER duplicate tags or cashtags
+    let textToType = cleanCommentForCmc(finalComment, existingTag).trim();
+
+    // Guarantee physical separation after CMC's Draft.js tag chip so words NEVER glue together (e.g. prevents "$DGAISeeing")
+    const hasPreExistingTag = Boolean(existingTag || currentEditorText.trim().length > 0);
+    if (hasPreExistingTag) {
+      await editor.focus().catch(() => {});
+      await page.keyboard.press("End").catch(() => {});
+      await page.keyboard.press("ArrowRight").catch(() => {});
+      await page.keyboard.press("Space").catch(() => {});
+      await page.waitForTimeout(150);
+      // Prepend an explicit leading space to the typed text buffer to guarantee separation in Draft.js AST
+      if (!textToType.startsWith(" ")) {
+        textToType = " " + textToType;
       }
     }
 
-    addLog("info", `Typing comment into editor: "${textToType}"`);
+    addLog("info", `Typing comment into editor: "${textToType.trim()}" (with tag separation guaranteed)`);
     try {
       await editor.type(textToType, { delay: 15 });
       // CoinMarketCap displays a coin tag autocomplete popup when "$" is typed.
@@ -3790,7 +3884,7 @@ app.post("/api/delete-profile", async (req, res) => {
 app.get("/api/status", async (req, res) => {
   const queryProfileId = (req.query.profileId as string)?.trim();
   const activeId = queryProfileId || getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = isProfileSessionActive(activeId);
 
   if (!activeId || !sessionExists) {
     if (!isPostingRunning && !isSinglePostingRunning && !isSchedulerCycleRunning && !isGeneratingRunning) {
@@ -3812,7 +3906,7 @@ app.get("/api/status", async (req, res) => {
       results: [],
       progressIndex: 0,
       dailyPostCount: 0,
-      dailyPostLimit: getAccountDailyPostLimit(null),
+      dailyPostLimit: getAccountDailyPostLimit(activeId),
       lastPostDate: getTodayDateString(),
       currentCoin: "N/A",
       coinsFetchedAt: null,
@@ -3851,11 +3945,19 @@ app.get("/api/status", async (req, res) => {
 
   syncLocalFromCloudIfStale().catch(() => {});
 
-  const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
-  const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const targetCoinsFile = activeId ? path.join(OUTPUT_DIR, activeId, "last_trending.json") : LAST_TRENDING_FILE;
+  const targetMessagesFile = activeId ? path.join(OUTPUT_DIR, activeId, "generated_messages.json") : GENERATED_MESSAGES_FILE;
+  let coins = readJsonFile<Coin[]>(targetCoinsFile, []);
+  if (coins.length === 0 && fs.existsSync(path.join(OUTPUT_DIR, "last_trending.json"))) {
+    coins = readJsonFile<Coin[]>(path.join(OUTPUT_DIR, "last_trending.json"), []);
+  }
+  let messages = readJsonFile<GeneratedMessage[]>(targetMessagesFile, []);
+  if (messages.length === 0 && fs.existsSync(path.join(OUTPUT_DIR, "generated_messages.json"))) {
+    messages = readJsonFile<GeneratedMessage[]>(path.join(OUTPUT_DIR, "generated_messages.json"), []);
+  }
   const rawResults = getIsolatedResults(activeId);
   const results = rawResults.filter(r => r.profileId === activeId);
-  const progress = readBotProgress();
+  const progress = readBotProgress(activeId);
   const dailyPostLimit = getAccountDailyPostLimit(activeId);
   const ts = getRealTimestamps(activeId);
 
@@ -5181,7 +5283,7 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
     if (process.env.CMC_API_KEY) {
       addLog("info", "Scrape failed, falling back to CoinMarketCap listings (top by market cap).");
       try {
-        const response = await fetch("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=50&convert=USD", {
+        const response = await fetch("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=100&convert=USD", {
           headers: {
             "Accepts": "application/json",
             "X-CMC_PRO_API_KEY": process.env.CMC_API_KEY,
@@ -5220,7 +5322,7 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
       addLog("info", "Scrape failed, falling back to CoinGecko markets (top by market cap).");
       
       try {
-        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=30&page=1&sparkline=false&price_change_percentage=1h,24h,7d");
+        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=1h,24h,7d");
         
         if (response.ok) {
           const cgData = (await response.json()) as any;
@@ -5353,18 +5455,18 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         addLog("info", `${schedPrefix}Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gpt-4o-mini...`);
 
         const prompt = `
-          Generate ONE unique, authentic, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
+          Generate ONE unique, insightful, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          CRITICAL Anti-Spam & Human Voice Rules:
-          - Write like a real crypto trader discussing the coin in a lively Telegram/Discord group or Twitter/X feed.
-          - 1 to 2 natural sentences. Varied lengths (some short 6-10 words, some 15-20 words).
-          - NEVER use rigid price-reporting templates like "[Coin] is up X% to $Y". Do NOT just repeat numbers. Discuss market sentiment, volume, momentum, breakout, consolidation, support, or ask the community a question.
-          - Rotate across these 4 distinct archetypes:
-            1. Community Discussion / Questions (e.g. "Volume picking up nicely on $BTC. Anyone taking profits here or holding for new highs?")
-            2. Technical & Chart Sentiment (e.g. "$ETH holding this support zone remarkably well on the 4H chart. Looks ready for the next leg.")
-            3. Casual Market Observation (e.g. "Impressive rebound on $SOL today. Definitely keeping this on my close watchlist.")
-            4. Project & Ecosystem Momentum (e.g. "$LINK accumulation looking very steady this week despite broader market volatility.")
-          - Include the coin's cashtag ($SYMBOL, e.g. $BTC, $ETH) naturally ONCE inside the sentence. Never write double cashtags like "$BTC $BTC".
+          CRITICAL Anti-Spam & Authenticity Rules:
+          - DO NOT write any cashtag prefix like "$BTC", "$ETH", "$DGAI" or "#SYMBOL". CoinMarketCap already attaches and displays the official coin cashtag chip automatically on the comment. Writing "$SYMBOL" causes duplicate tags and glued text.
+          - STRICTLY FORBIDDEN REPETITIVE PHRASES: Do NOT use phrases like "struggling to find its footing", "anyone else worried about this recent dip", "could this be the start of something bigger", "making small gains today", "is a bummer", "showing signs of weakness", "turnaround on the horizon".
+          - Rotate dynamically across these 5 authentic trader archetypes:
+            1. Technical & Price Structure (e.g. "Consolidating tightly above local support on the 4H chart. Clean retest here could trigger the next wave up.")
+            2. Volume & Order Flow (e.g. "Noticeable uptick in buy-side volume over the past few hours. Bulls absorbing sell pressure nicely.")
+            3. Relative Strength & Accumulation (e.g. "Showing solid relative strength while broader markets remain choppy. Steady accumulation taking place.")
+            4. Community & Market Debate (e.g. "Testing the upper bounds of the range on expanding volume. Are you holding spot or scaling out here?")
+            5. Short & Punchy Reaction (e.g. "Chart structure looking very constructive into the daily close. Watching key levels.")
+          - 1 to 2 natural sentences. Varied lengths (some 8-12 words, some 15-22 words).
           - No emojis. No hashtags (#). No disclaimers ("not financial advice").
           - No two comments should share the same opening words or sentence structure!
 
@@ -5374,7 +5476,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
               {
                 "symbol": "BTC",
                 "sentiment": "bullish",
-                "message": "Actual comment text here"
+                "message": "Actual clean comment text here"
               }
             ]
           }
@@ -5397,7 +5499,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
           parsed.messages.forEach((msg: any) => {
             const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
             if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
-              const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
+              const formattedComment = cleanCommentForCmc(msg.message, matchCoin.symbol);
               generatedMessages.push({
                 name: matchCoin.name,
                 symbol: matchCoin.symbol,
@@ -5443,18 +5545,18 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         addLog("info", `Generating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(missingForGemini.length / batchSize)} with gemini-2.5-flash (${chunk.length} coins)...`);
 
         const prompt = `
-          Generate ONE unique, authentic, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
+          Generate ONE unique, insightful, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          CRITICAL Anti-Spam & Human Voice Rules:
-          - Write like a real crypto trader discussing the coin in a lively Telegram/Discord group or Twitter/X feed.
-          - 1 to 2 natural sentences. Varied lengths (some short 6-10 words, some 15-20 words).
-          - NEVER use rigid price-reporting templates like "[Coin] is up X% to $Y". Do NOT just repeat numbers. Discuss market sentiment, volume, momentum, breakout, consolidation, support, or ask the community a question.
-          - Rotate across these 4 distinct archetypes:
-            1. Community Discussion / Questions (e.g. "Volume picking up nicely on $BTC. Anyone taking profits here or holding for new highs?")
-            2. Technical & Chart Sentiment (e.g. "$ETH holding this support zone remarkably well on the 4H chart. Looks ready for the next leg.")
-            3. Casual Market Observation (e.g. "Impressive rebound on $SOL today. Definitely keeping this on my close watchlist.")
-            4. Project & Ecosystem Momentum (e.g. "$LINK accumulation looking very steady this week despite broader market volatility.")
-          - Include the coin's cashtag ($SYMBOL, e.g. $BTC, $ETH) naturally ONCE inside the sentence. Never write double cashtags like "$BTC $BTC".
+          CRITICAL Anti-Spam & Authenticity Rules:
+          - DO NOT write any cashtag prefix like "$BTC", "$ETH", "$DGAI" or "#SYMBOL". CoinMarketCap already attaches and displays the official coin cashtag chip automatically on the comment. Writing "$SYMBOL" causes duplicate tags and glued text.
+          - STRICTLY FORBIDDEN REPETITIVE PHRASES: Do NOT use phrases like "struggling to find its footing", "anyone else worried about this recent dip", "could this be the start of something bigger", "making small gains today", "is a bummer", "showing signs of weakness", "turnaround on the horizon".
+          - Rotate dynamically across these 5 authentic trader archetypes:
+            1. Technical & Price Structure (e.g. "Consolidating tightly above local support on the 4H chart. Clean retest here could trigger the next wave up.")
+            2. Volume & Order Flow (e.g. "Noticeable uptick in buy-side volume over the past few hours. Bulls absorbing sell pressure nicely.")
+            3. Relative Strength & Accumulation (e.g. "Showing solid relative strength while broader markets remain choppy. Steady accumulation taking place.")
+            4. Community & Market Debate (e.g. "Testing the upper bounds of the range on expanding volume. Are you holding spot or scaling out here?")
+            5. Short & Punchy Reaction (e.g. "Chart structure looking very constructive into the daily close. Watching key levels.")
+          - 1 to 2 natural sentences. Varied lengths (some 8-12 words, some 15-22 words).
           - No emojis. No hashtags (#). No disclaimers ("not financial advice").
           - No two comments should share the same opening words or sentence structure!
 
@@ -5464,7 +5566,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
               {
                 "symbol": "BTC",
                 "sentiment": "bullish",
-                "message": "Actual comment text here"
+                "message": "Actual clean comment text here"
               }
             ]
           }
@@ -5521,7 +5623,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
             parsed.messages.forEach((msg: any) => {
               const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
               if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
-                const formattedComment = formatCommentWithCashtag(msg.message, matchCoin.symbol);
+                const formattedComment = cleanCommentForCmc(msg.message, matchCoin.symbol);
                 generatedMessages.push({
                   name: matchCoin.name,
                   symbol: matchCoin.symbol,
@@ -5548,16 +5650,24 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     
     const templates = {
       bullish: [
-        (c: Coin) => `$${c.symbol} is looking quite resilient here. Volume picking up and holding key support nicely on the 4H chart.`,
-        (c: Coin) => `Solid accumulation phase for $${c.symbol}. Anyone taking profits here or holding for higher targets?`,
-        (c: Coin) => `Volume on $${c.symbol} is gaining good momentum. If we clear local resistance, next leg up could follow quickly.`,
-        (c: Coin) => `Really like the chart structure on $${c.symbol} today. Keeping this on close watchlist for continuation.`,
+        (c: Coin) => `Showing solid price action and defending key levels on the 4H chart. Watch for volume confirmation on the next push.`,
+        (c: Coin) => `Volume structure continues to build steady support here. Healthy accumulation taking place across recent trading sessions.`,
+        (c: Coin) => `Clean consolidation above local structure with solid bid interest. Looking for continuation if local resistance gets tested.`,
+        (c: Coin) => `Order flow looks constructive around this zone. Accumulation holding up nicely despite broader market chop.`,
+        (c: Coin) => `Testing key resistance on expanding buyer interest. Let's see if follow-through volume sustains into the daily close.`,
+        (c: Coin) => `Consolidating in a tight range after the recent impulse. Decisive breakout could open up higher targets.`,
+        (c: Coin) => `Chart structure remains constructive above key moving averages. Watching closely for momentum continuation.`,
+        (c: Coin) => `Steady bid support stepping in on every minor dip. Accumulation phase looking very healthy on the higher timeframe.`,
       ],
       bearish: [
-        (c: Coin) => `$${c.symbol} experiencing some healthy consolidation today. Watching closely to see if buyers step in at support.`,
-        (c: Coin) => `Short-term cooling off period for $${c.symbol}. Could present an interesting dip-buying opportunity if support holds.`,
-        (c: Coin) => `A bit of market pressure on $${c.symbol} right now. Waiting for clear reversal confirmation before making moves.`,
-        (c: Coin) => `Momentum pausing for $${c.symbol} today. Let's see how the daily candle closes before the next directional move.`,
+        (c: Coin) => `Healthy pullback into key support with seller exhaustion showing. Dip buyers could step in if price holds this range.`,
+        (c: Coin) => `Momentum taking a breather here while volume cools off near support. Watching the daily close for clear direction.`,
+        (c: Coin) => `Short-term cooling off phase after the recent surge. Clean structure to monitor for any trend reversal confirmation.`,
+        (c: Coin) => `Price testing lower boundary of the range with cautious volume. Watching key levels closely before the next directional move.`,
+        (c: Coin) => `Consolidating lower while absorbing overhead supply. A decisive reclaim of local support would flip momentum back.`,
+        (c: Coin) => `Cooling down after hitting local resistance. Looking for buyers to establish a firm base before the next leg.`,
+        (c: Coin) => `Market taking profits at upper levels, leading to healthy retracement. Keeping an eye on buy orders near support.`,
+        (c: Coin) => `Patience warranted here while the price consolidates near range lows. Let's see if demand steps in over the next 4H candle.`,
       ]
     };
 
@@ -5565,7 +5675,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
       const isBullish = coin.change_24h >= 0;
       const list = isBullish ? templates.bullish : templates.bearish;
       const fn = list[index % list.length];
-      const formattedComment = formatCommentWithCashtag(fn(coin), coin.symbol);
+      const formattedComment = fn(coin);
       generatedMessages.push({
         name: coin.name,
         symbol: coin.symbol,
@@ -5958,8 +6068,8 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       touchProcessLock();
       const item = messages[currentPostingIndex];
       
-      const MAX_DAILY_POSTS = getAccountDailyPostLimit();
-      const progressData = readBotProgress();
+      const MAX_DAILY_POSTS = getAccountDailyPostLimit(activeId);
+      const progressData = readBotProgress(activeId || undefined);
       const todayStr = getTodayDateString();
       let dailyPostCount = progressData.daily_post_count || 0;
 
@@ -6625,26 +6735,6 @@ app.get("/api/download/overall_report.csv", (req, res) => {
 });
 
 // ============================================================================
-// SESSION COOKIES VALIDATION HELPER
-// ============================================================================
-
-function sessionHasValidCookies(str: string): boolean {
-  if (!str || !str.trim()) return false;
-  try {
-    const parsed = JSON.parse(str);
-    const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
-    if (!Array.isArray(cookies) || cookies.length === 0) return false;
-    return cookies.some((c: any) =>
-      (c.name === "Authorization" && typeof c.value === "string" && c.value.length > 20) ||
-      (c.name === "u-prod" && typeof c.value === "string" && c.value.length > 20) ||
-      (c.name === "cmc_user_session" && typeof c.value === "string" && c.value.length > 10)
-    );
-  } catch (_) {
-    return false;
-  }
-}
-
-// ============================================================================
 // SEQUENTIAL MULTI-ACCOUNT SCHEDULER ENGINE (PARTS 2 & 3)
 // ============================================================================
 
@@ -6693,7 +6783,7 @@ function updateProfileSchedule(
   return profiles[targetIdx];
 }
 
-let schedulerCycleIntervalMinutes = 20;
+let schedulerCycleIntervalMinutes = 360;
 let schedulerCycleTimeout: NodeJS.Timeout | null = null;
 let nextSchedulerCycleStartTime: number | null = null;
 
@@ -6710,9 +6800,43 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled) return;
 
-  const gapMs = delayMsOverride !== undefined ? delayMsOverride : schedulerCycleIntervalMinutes * 60 * 1000;
+  const todayStr = getTodayDateString();
+  let dailyCycles = settings.dailyCycleCount || 0;
+  if (settings.lastCycleDate !== todayStr) {
+    dailyCycles = 0;
+    saveLocalBotSettings({ ...settings, dailyCycleCount: 0, lastCycleDate: todayStr });
+  }
+
+  const maxCycles = settings.maxCyclesPerDay || 4;
+  let gapMs = 0;
+  let sessionDesc = "";
+
+  if (delayMsOverride !== undefined) {
+    gapMs = delayMsOverride;
+    sessionDesc = `Retry postponed by ${Math.round(gapMs / 60000)}m`;
+  } else if (dailyCycles >= maxCycles) {
+    // All 4 cycles for today completed! Pause until tomorrow's 00:00 UTC session
+    const now = new Date();
+    const currentUtcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const minsToMidnight = (24 * 60) - currentUtcMins;
+    gapMs = Math.max(5 * 60 * 1000, minsToMidnight * 60 * 1000 - (now.getUTCSeconds() * 1000));
+    sessionDesc = `All ${maxCycles}/${maxCycles} cycles completed for today (${todayStr}). Next cycle scheduled for Tomorrow Asia Open (00:00 UTC)`;
+  } else if (settings.schedulerMode === "interval") {
+    const mins = settings.schedulerIntervalMinutes || 360;
+    gapMs = mins * 60 * 1000;
+    sessionDesc = `Every ${mins}m (${Math.round(mins / 60)}h cadence)`;
+  } else {
+    // Default: "peak_hours" (4 Global Peak Trading Sessions: 00:00, 08:00, 14:00, 20:00 UTC)
+    const peakInfo = getNextPeakTradingSession(new Date());
+    gapMs = peakInfo.delayMs;
+    sessionDesc = `${peakInfo.session.label}`;
+  }
+
   nextSchedulerCycleStartTime = Date.now() + gapMs;
-  addLog("info", `[SCHEDULER] Next sequential multi-account cycle scheduled in ${Math.round(gapMs / 60000)}m (at ${new Date(nextSchedulerCycleStartTime).toLocaleTimeString()}).`);
+  addLog(
+    "info",
+    `[SCHEDULER] Next cycle: ${sessionDesc} (at ${new Date(nextSchedulerCycleStartTime).toLocaleTimeString()}). Today's progress: ${dailyCycles}/${maxCycles} cycles.`
+  );
 
   schedulerCycleTimeout = setTimeout(async () => {
     schedulerCycleTimeout = null;
@@ -6721,7 +6845,7 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     if (!currentSettings.schedulerEnabled) return;
 
     if (isPostingRunning || isSinglePostingRunning || isContinuousLoopActive || isBusy() || activeSystemProcess !== "none") {
-      addLog("warning", "[SCHEDULER] User's manual single-account task is currently active. Postponing scheduled cycle by 2 minutes...");
+      addLog("warning", "[SCHEDULER] Another task is currently active. Postponing scheduled cycle by 2 minutes...");
       scheduleNextSchedulerCycle(2 * 60 * 1000);
       return;
     }
@@ -6970,8 +7094,8 @@ async function runScheduledCycle(): Promise<void> {
       }
 
       // Setup isolated profile directory and progress data for this turn
-      const maxDaily = getAccountDailyPostLimit();
-      const progressData = readBotProgress();
+      const maxDaily = getAccountDailyPostLimit(account.id);
+      const progressData = readBotProgress(account.id);
       const todayStr = getTodayDateString();
       const dailyCount = progressData.daily_post_count || 0;
 
@@ -6981,7 +7105,8 @@ async function runScheduledCycle(): Promise<void> {
       }
       writeJsonFile(path.join(accountDir, "last_trending.json"), accountCoins);
       writeJsonFile(path.join(accountDir, "generated_messages.json"), accountMessages);
-      writeJsonFile(path.join(accountDir, "results.json"), []);
+      const existingAccountResults = getIsolatedResults(account.id);
+      writeJsonFile(path.join(accountDir, "results.json"), existingAccountResults);
       writeJsonFile(path.join(accountDir, "post_progress.json"), {
         next_index: 0,
         daily_post_count: dailyCount,
@@ -6993,13 +7118,13 @@ async function runScheduledCycle(): Promise<void> {
       updateActiveProfilePaths();
       writeJsonFile(LAST_TRENDING_FILE, accountCoins);
       writeJsonFile(GENERATED_MESSAGES_FILE, accountMessages);
-      writeJsonFile(RESULTS_FILE, []);
+      writeJsonFile(RESULTS_FILE, existingAccountResults);
       currentPostingIndex = 0;
 
       // Run posting loop for this account awaiting it fully
       isPostingRunning = true;
       botStatus = "Posting";
-      addLog("info", `[${account.name}] Launching automated posting loop for ${accountMessages.length} assigned coins in this cycle...`);
+      addLog("info", `[${account.name}] Launching automated posting loop for ${accountMessages.length} assigned coins in this cycle (Daily Cap: ${dailyCount}/${maxDaily})...`);
 
       const summary = await runPostingLoop({
         scheduleNextCycle: false,
@@ -7039,8 +7164,21 @@ async function runScheduledCycle(): Promise<void> {
       ).catch(() => {});
     }
 
+    const todayStr = getTodayDateString();
+    const currentSettings = getLocalBotSettings();
+    let updatedDailyCycles = (currentSettings.dailyCycleCount || 0) + 1;
+    if (currentSettings.lastCycleDate !== todayStr) {
+      updatedDailyCycles = 1;
+    }
+    const maxCycles = currentSettings.maxCyclesPerDay || 4;
+    saveLocalBotSettings({
+      ...currentSettings,
+      dailyCycleCount: updatedDailyCycles,
+      lastCycleDate: todayStr,
+    });
+
     addLog("info", "==================================================");
-    addLog("success", "[SCHEDULER] Sequential multi-account scheduled cycle finished.");
+    addLog("success", `[SCHEDULER] Sequential multi-account scheduled cycle finished. (Cycle ${updatedDailyCycles}/${maxCycles} completed for today).`);
     botStatus = "Completed";
   } catch (err) {
     addLog("error", `[SCHEDULER] Fatal error in scheduled cycle: ${(err as Error).message}`);
@@ -7094,12 +7232,22 @@ app.get("/api/scheduler", (req, res) => {
     };
   });
 
+  const todayStr = getTodayDateString();
+  const dailyCycles = settings.lastCycleDate === todayStr ? (settings.dailyCycleCount || 0) : 0;
+  const maxCycles = settings.maxCyclesPerDay || 4;
+  const peakInfo = getNextPeakTradingSession(new Date());
+
   res.json({
     enabled: settings.schedulerEnabled,
-    intervalMinutes: schedulerCycleIntervalMinutes,
+    mode: settings.schedulerMode || "peak_hours",
+    intervalMinutes: settings.schedulerIntervalMinutes || 360,
+    maxCyclesPerDay: maxCycles,
+    dailyCycleCount: dailyCycles,
+    lastCycleDate: settings.lastCycleDate || todayStr,
     cycleRunning: isSchedulerCycleRunning,
     currentAccountId: currentSchedulerAccountId,
     nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
+    nextPeakSession: peakInfo.session,
     queue: schedulerQueue,
     accounts,
     targetCoinsCount: typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0,
@@ -7107,47 +7255,64 @@ app.get("/api/scheduler", (req, res) => {
 });
 
 app.post("/api/scheduler/settings", (req, res) => {
-  const { enabled, intervalMinutes } = req.body;
+  const { enabled, intervalMinutes, mode, maxCyclesPerDay } = req.body;
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return res.status(400).json({ error: "Invalid 'enabled' value. Must be a boolean." });
   }
 
   const current = getLocalBotSettings();
   const nextEnabled = enabled !== undefined ? enabled : current.schedulerEnabled;
-  const updated: BotSettings = { ...current, schedulerEnabled: nextEnabled };
-  saveLocalBotSettings(updated);
+  let nextMode = current.schedulerMode || "peak_hours";
+  if (mode === "peak_hours" || mode === "interval") {
+    nextMode = mode;
+  }
+  let nextMaxCycles = current.maxCyclesPerDay || 4;
+  if (typeof maxCyclesPerDay === "number" && maxCyclesPerDay >= 1 && maxCyclesPerDay <= 24) {
+    nextMaxCycles = Math.round(maxCyclesPerDay);
+  }
 
+  let nextInterval = current.schedulerIntervalMinutes || 360;
   let intervalChanged = false;
   if (intervalMinutes !== undefined) {
     const parsedMins = Number(intervalMinutes);
     if (!isNaN(parsedMins) && parsedMins >= 1 && parsedMins <= 1440) {
-      schedulerCycleIntervalMinutes = Math.round(parsedMins);
+      nextInterval = Math.round(parsedMins);
       intervalChanged = true;
-      addLog("info", `[SCHEDULER] Multi-account cycle interval set to ${schedulerCycleIntervalMinutes} minutes.`);
+      addLog("info", `[SCHEDULER] Multi-account cycle interval set to ${nextInterval} minutes.`);
     }
   }
 
+  const updated: BotSettings = {
+    ...current,
+    schedulerEnabled: nextEnabled,
+    schedulerMode: nextMode,
+    maxCyclesPerDay: nextMaxCycles,
+    schedulerIntervalMinutes: nextInterval,
+  };
+  saveLocalBotSettings(updated);
+
   if (enabled !== undefined) {
-    addLog("info", `[SCHEDULER] Sequential multi-account scheduler set to: ${nextEnabled ? "ENABLED" : "DISABLED"}`);
+    addLog("info", `[SCHEDULER] Sequential multi-account scheduler set to: ${nextEnabled ? "ENABLED" : "DISABLED"} (Mode: ${nextMode}, Max: ${nextMaxCycles} cycles/day)`);
 
     if (nextEnabled && !isSchedulerCycleRunning) {
-      scheduleNextSchedulerCycle(1000); // Dedicated timer, completely isolated from continuous loop!
+      scheduleNextSchedulerCycle(1000);
     } else if (!nextEnabled) {
       cancelNextSchedulerCycle();
       if (isSchedulerCycleRunning) {
         stopSchedulerRequested = true;
       }
     }
-  }
-
-  if (updated.schedulerEnabled && intervalChanged && !isSchedulerCycleRunning) {
+  } else if (updated.schedulerEnabled && !isSchedulerCycleRunning) {
     scheduleNextSchedulerCycle();
   }
 
   res.json({
     success: true,
     enabled: updated.schedulerEnabled,
-    intervalMinutes: schedulerCycleIntervalMinutes,
+    mode: updated.schedulerMode,
+    intervalMinutes: updated.schedulerIntervalMinutes,
+    maxCyclesPerDay: updated.maxCyclesPerDay,
+    dailyCycleCount: updated.dailyCycleCount || 0,
   });
 });
 

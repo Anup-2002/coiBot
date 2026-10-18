@@ -138,14 +138,25 @@ export const api = {
     return res.json();
   },
 
-  async setSchedulerSettings(params: { enabled?: boolean; intervalMinutes?: number } | boolean): Promise<{ success: boolean; enabled: boolean; intervalMinutes?: number; error?: string }> {
-    const payload: { enabled?: boolean; intervalMinutes?: number } = {};
+  async setSchedulerSettings(params: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+    mode?: "peak_hours" | "interval";
+    maxCyclesPerDay?: number;
+  } | boolean): Promise<{ success: boolean; enabled: boolean; intervalMinutes?: number; mode?: string; maxCyclesPerDay?: number; error?: string }> {
+    const payload: { enabled?: boolean; intervalMinutes?: number; mode?: "peak_hours" | "interval"; maxCyclesPerDay?: number } = {};
     if (typeof params === "boolean") {
       payload.enabled = params;
     } else if (params && typeof params === "object") {
       if (typeof params.enabled === "boolean") payload.enabled = params.enabled;
       if (typeof params.intervalMinutes === "number" && !isNaN(params.intervalMinutes)) {
         payload.intervalMinutes = Math.round(params.intervalMinutes);
+      }
+      if (params.mode === "peak_hours" || params.mode === "interval") {
+        payload.mode = params.mode;
+      }
+      if (typeof params.maxCyclesPerDay === "number" && !isNaN(params.maxCyclesPerDay)) {
+        payload.maxCyclesPerDay = Math.round(params.maxCyclesPerDay);
       }
     }
     const res = await fetch("/api/scheduler/settings", {
@@ -389,8 +400,13 @@ export interface SchedulerAccountItem {
 export interface SchedulerStatusResponse {
   enabled: boolean;
   intervalMinutes: number;
+  schedulerMode?: "peak_hours" | "interval";
+  maxCyclesPerDay?: number;
+  dailyCycleCount?: number;
+  lastCycleDate?: string;
   cycleRunning: boolean;
   currentAccountId: string | null;
+  nextCycleAt?: string | null;
   queue: string[];
   accounts: SchedulerAccountItem[];
   targetCoinsCount?: number;

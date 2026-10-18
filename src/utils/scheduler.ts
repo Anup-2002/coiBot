@@ -34,8 +34,61 @@ export interface SchedulableProfile {
   [key: string]: any;
 }
 
+export interface PeakSession {
+  hoursUtc: number;
+  minsUtc: number;
+  label: string;
+}
+
+export const PEAK_TRADING_SESSIONS: PeakSession[] = [
+  { hoursUtc: 0, minsUtc: 0, label: "Asia/Tokyo Open (00:00 UTC)" },
+  { hoursUtc: 8, minsUtc: 0, label: "Europe/London Open (08:00 UTC)" },
+  { hoursUtc: 14, minsUtc: 0, label: "US/New York Open (14:00 UTC)" },
+  { hoursUtc: 20, minsUtc: 0, label: "US Close / Asia Pre-Market (20:00 UTC)" },
+];
+
+export function getNextPeakTradingSession(now: Date = new Date()): {
+  session: PeakSession;
+  targetDate: Date;
+  delayMs: number;
+} {
+  const currentUtcHours = now.getUTCHours();
+  const currentUtcMins = now.getUTCMinutes();
+  const currentTotalMins = currentUtcHours * 60 + currentUtcMins;
+
+  // Look for next session at least 3 minutes in the future
+  for (const session of PEAK_TRADING_SESSIONS) {
+    const sessionTotalMins = session.hoursUtc * 60 + session.minsUtc;
+    if (sessionTotalMins - currentTotalMins >= 3) {
+      const targetDate = new Date(now);
+      targetDate.setUTCHours(session.hoursUtc, session.minsUtc, 0, 0);
+      return {
+        session,
+        targetDate,
+        delayMs: Math.max(1000, targetDate.getTime() - now.getTime()),
+      };
+    }
+  }
+
+  // All 4 sessions today have passed -> Tomorrow's first session (00:00 UTC)
+  const tomorrowSession = PEAK_TRADING_SESSIONS[0];
+  const targetDate = new Date(now);
+  targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+  targetDate.setUTCHours(tomorrowSession.hoursUtc, tomorrowSession.minsUtc, 0, 0);
+  return {
+    session: tomorrowSession,
+    targetDate,
+    delayMs: Math.max(1000, targetDate.getTime() - now.getTime()),
+  };
+}
+
 export interface BotSettings {
   schedulerEnabled: boolean;
+  schedulerMode?: "peak_hours" | "interval";
+  schedulerIntervalMinutes?: number;
+  maxCyclesPerDay?: number;
+  dailyCycleCount?: number;
+  lastCycleDate?: string;
   imageUploadEnabled?: boolean;
   imageSelectionMode?: "cycle" | "random";
   activeImageIndex?: number;
@@ -49,6 +102,11 @@ export interface BotSettings {
 
 export const DEFAULT_SETTINGS: BotSettings = {
   schedulerEnabled: false,
+  schedulerMode: "peak_hours",
+  schedulerIntervalMinutes: 360,
+  maxCyclesPerDay: 4,
+  dailyCycleCount: 0,
+  lastCycleDate: new Date().toISOString().split("T")[0],
   imageUploadEnabled: false,
   imageSelectionMode: "cycle",
   activeImageIndex: 0,
@@ -66,6 +124,11 @@ export function parseBotSettings(raw: string | null | undefined): BotSettings {
     const data = JSON.parse(raw);
     return {
       schedulerEnabled: typeof data.schedulerEnabled === "boolean" ? data.schedulerEnabled : false,
+      schedulerMode: data.schedulerMode === "interval" ? "interval" : "peak_hours",
+      schedulerIntervalMinutes: typeof data.schedulerIntervalMinutes === "number" && data.schedulerIntervalMinutes >= 1 ? data.schedulerIntervalMinutes : 360,
+      maxCyclesPerDay: typeof data.maxCyclesPerDay === "number" && data.maxCyclesPerDay >= 1 ? data.maxCyclesPerDay : 4,
+      dailyCycleCount: typeof data.dailyCycleCount === "number" && data.dailyCycleCount >= 0 ? data.dailyCycleCount : 0,
+      lastCycleDate: typeof data.lastCycleDate === "string" ? data.lastCycleDate : new Date().toISOString().split("T")[0],
       imageUploadEnabled: typeof data.imageUploadEnabled === "boolean" ? data.imageUploadEnabled : false,
       imageSelectionMode: data.imageSelectionMode === "random" ? "random" : "cycle",
       activeImageIndex: typeof data.activeImageIndex === "number" && !isNaN(data.activeImageIndex) ? data.activeImageIndex : 0,

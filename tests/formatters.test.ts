@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  cleanCommentForCmc,
   formatCommentWithCashtag,
   escapeCsvField,
   sessionHasValidCookies,
@@ -8,6 +9,17 @@ import {
 } from "../src/utils/formatters";
 
 describe("Formatters and Session Helpers", () => {
+  it("cleans comment for CoinMarketCap to prevent duplicate tags and glued words", () => {
+    // Strips leading cashtag
+    expect(cleanCommentForCmc("$DGAI Seeing $DGAI struggle in this market", "DGAI")).toBe("Seeing DGAI struggle in this market");
+    // Strips glued cashtag with hyphen or colon
+    expect(cleanCommentForCmc("$ELGATO - Wow, momentum is impressive!", "ELGATO")).toBe("Wow, momentum is impressive!");
+    // Strips mid-comment cashtags
+    expect(cleanCommentForCmc("Accumulation looking steady for $SOL here", "SOL")).toBe("Accumulation looking steady for SOL here");
+    // Capitalizes first letter
+    expect(cleanCommentForCmc("solid volume expansion", "BTC")).toBe("Solid volume expansion");
+  });
+
   it("formats comment with cashtag correctly", () => {
     // Already has cashtag
     expect(formatCommentWithCashtag("Bullish on $BTC today", "BTC")).toBe("Bullish on $BTC today");

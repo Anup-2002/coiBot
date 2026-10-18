@@ -391,4 +391,28 @@ describe("src/utils/scheduler - Part 1 Unit Tests", () => {
       expect(warned).toBe(true);
     });
   });
+
+  describe("getNextPeakTradingSession", () => {
+    it("correctly identifies the next peak trading session", async () => {
+      const { getNextPeakTradingSession } = await import("../src/utils/scheduler");
+      
+      // At 03:00 UTC, next peak should be 08:00 UTC (Europe/London Open)
+      const dateAt3Utc = new Date("2026-10-18T03:00:00Z");
+      const next1 = getNextPeakTradingSession(dateAt3Utc);
+      expect(next1.session.hoursUtc).toBe(8);
+      expect(next1.session.label).toContain("08:00 UTC");
+
+      // At 10:00 UTC, next peak should be 14:00 UTC (US/New York Open)
+      const dateAt10Utc = new Date("2026-10-18T10:00:00Z");
+      const next2 = getNextPeakTradingSession(dateAt10Utc);
+      expect(next2.session.hoursUtc).toBe(14);
+      expect(next2.session.label).toContain("14:00 UTC");
+
+      // At 21:00 UTC, all sessions today passed, next peak is tomorrow 00:00 UTC
+      const dateAt21Utc = new Date("2026-10-18T21:00:00Z");
+      const next3 = getNextPeakTradingSession(dateAt21Utc);
+      expect(next3.session.hoursUtc).toBe(0);
+      expect(next3.targetDate.getUTCDate()).toBe(19);
+    });
+  });
 });

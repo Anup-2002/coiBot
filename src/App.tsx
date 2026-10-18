@@ -259,7 +259,15 @@ function formatTimeAgo(timestamp: number | null | undefined): { text: string; fu
     return { text: "Previous session", full: "N/A", isStale: true, isVeryStale: false, isExpired2Days: false, hasTimestamp: false };
   }
   const diffSec = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  const full = new Date(time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const full = new Date(time).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  });
   const isExpired2Days = diffSec >= (48 * 3600);
   if (diffSec < 60) {
     return { text: "Just now (<1m ago)", full, isStale: false, isVeryStale: false, isExpired2Days: false, hasTimestamp: true };
@@ -3451,7 +3459,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300">Target Batch Limit</span>
                   <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL (Default)" : `Top ${targetCoinsCount}`}
+                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-1 mt-2">
@@ -3465,13 +3473,13 @@ export default function App() {
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
                       }`}
-                      title={count === 0 ? "Process all trending coins (Default recommended)" : `Process top ${count} coins`}
+                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
                     >
-                      {count === 0 ? "ALL*" : count}
+                      {count === 0 ? "ALL" : `Top ${count}`}
                     </button>
                   ))}
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">*ALL = Default recommended (Safety cap: 300 posts/day)</p>
+                <p className="text-[10px] text-slate-500 mt-1">ALL = Default recommended (Safety cap: 300 posts/day)</p>
               </div>
             </div>
 
@@ -6312,7 +6320,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
                   <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL (Default)" : `Top ${targetCoinsCount}`}
+                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-1 mt-1">
@@ -6326,14 +6334,14 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
                       }`}
-                      title={count === 0 ? "Process all trending coins (Default recommended)" : `Process top ${count} coins`}
+                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
                     >
-                      {count === 0 ? "ALL*" : count}
+                      {count === 0 ? "ALL" : `Top ${count}`}
                     </button>
                   ))}
                 </div>
                 <div className="text-[10px] text-slate-500">
-                  *ALL = Default recommended (Safety cap: 300 posts/day)
+                  ALL = Default recommended (Safety cap: 300 posts/day)
                 </div>
               </div>
 
