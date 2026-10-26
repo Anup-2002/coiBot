@@ -960,15 +960,6 @@ async function installPlaywrightChromium(): Promise<void> {
 
     addLog("info", `Executing command: PLAYWRIGHT_BROWSERS_PATH=${targetBrowserPath} npx playwright install chromium`);
     execSync(`npx playwright install chromium`, { env: childEnv, stdio: "inherit", cwd: process.cwd() });
-    
-    addLog("info", `Executing command to install system dependencies (best-effort): PLAYWRIGHT_BROWSERS_PATH=${targetBrowserPath} npx playwright install-deps chromium`);
-    try {
-      execSync(`npx playwright install-deps chromium`, { env: childEnv, stdio: "inherit", cwd: process.cwd() });
-      addLog("success", "Playwright system dependencies installation complete!");
-    } catch (depsErr) {
-      addLog("warning", `Note: non-root or standard container system dependencies install returned: ${(depsErr as Error).message}. Proceeding resiliently...`);
-    }
-
     addLog("success", "Playwright chromium browser successfully installed!");
   } catch (err) {
     addLog("error", `Failed to automatically run playwright install: ${(err as Error).message}`);
