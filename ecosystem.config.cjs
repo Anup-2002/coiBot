@@ -22,7 +22,6 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: process.env.PORT || 3005,
-        PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(__dirname, '.cache', 'ms-playwright'),
       },
       out_file: path.join(__dirname, 'logs', 'pm2-out.log'),
       error_file: path.join(__dirname, 'logs', 'pm2-err.log'),

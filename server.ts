@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { execSync } from "child_process";
 
 // Auto-detect production mode if running from bundled dist/server.cjs or process.env.NODE_ENV is not explicitly set
@@ -15,19 +16,48 @@ if (!process.env.NODE_ENV) {
 }
 console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
 
-// Configure Playwright to use a consistent local cache directory inside the project folder
-if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH);
-} else {
-  const localCachePath = path.join(process.cwd(), ".cache", "ms-playwright");
-  const rootCachePath = "/root/.cache/ms-playwright";
-  let chosenPlaywrightPath = localCachePath;
-  if (!fs.existsSync(localCachePath) && fs.existsSync(rootCachePath)) {
-    chosenPlaywrightPath = rootCachePath;
+// Auto-detect where Playwright browser is actually installed on disk (user home cache, project local cache, root cache, or custom env)
+function resolvePlaywrightBrowsersPath(): string {
+  const candidates: string[] = [];
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    candidates.push(path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH));
   }
-  process.env.PLAYWRIGHT_BROWSERS_PATH = chosenPlaywrightPath;
+  candidates.push(path.join(os.homedir(), ".cache", "ms-playwright"));
+  candidates.push(path.join(process.cwd(), ".cache", "ms-playwright"));
+  candidates.push("/root/.cache/ms-playwright");
+
+  // Check each candidate for existing chromium / chrome folders
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        const items = fs.readdirSync(c);
+        if (items.some(f => f.startsWith("chromium") || f.startsWith("chrome") || f.startsWith("firefox"))) {
+          return c;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // If candidate with browser files not found yet, prefer home cache or project cache
+  const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
+  if (fs.existsSync(homeCache)) return homeCache;
+  return path.join(process.cwd(), ".cache", "ms-playwright");
 }
-console.log(`[PLAYWRIGHT] Configured PLAYWRIGHT_BROWSERS_PATH to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+
+process.env.PLAYWRIGHT_BROWSERS_PATH = resolvePlaywrightBrowsersPath();
+console.log(`[PLAYWRIGHT] Auto-detected PLAYWRIGHT_BROWSERS_PATH to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+
+// Bridge symlink: If browser exists in home cache but project .cache doesn't have it, create symlink
+try {
+  const projectCache = path.join(process.cwd(), ".cache", "ms-playwright");
+  const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
+  if (fs.existsSync(homeCache) && !fs.existsSync(projectCache)) {
+    const parentDir = path.dirname(projectCache);
+    if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+    fs.symlinkSync(homeCache, projectCache, "dir");
+    console.log(`[PLAYWRIGHT] Linked ${projectCache} -> ${homeCache}`);
+  }
+} catch (_) {}
 
 import {
   getSessionStateCloud,
