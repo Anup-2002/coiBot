@@ -2009,28 +2009,21 @@ export default function App() {
           setIsStartingPost(false);
         }
 
-        if (data.sessionStatus === "Session active") {
-          // If session became active, transition or maintain success!
-          setLoginStep(prev => {
-            if (prev === "authenticating" || prev === "failed") return "success";
-            return prev;
-          });
-        }
         if (data.loginState) {
           const step = data.loginState.status === "requires_otp" ? "otp_required" : data.loginState.status;
           setLoginStep(prev => {
-            if (prev === "idle" && step === "success") return "idle";
-            // If session is already active, ignore false failures!
-            if (data.sessionStatus === "Session active" && step === "failed") return "success";
-            if (step === "success") return "success";
-            return step;
-          });
-          if (step !== "idle") {
-            if (data.sessionStatus === "Session active" && step === "failed") {
-              setLoginStatusMessage("Session is active and verified! Account logged in successfully.");
-            } else {
-              setLoginStatusMessage(data.loginState.message);
+            // When in idle state waiting for user input, stay idle so user can enter new credentials
+            if (prev === "idle") {
+              return "idle";
             }
+            if (step === "authenticating") return "authenticating";
+            if (step === "requires_otp") return "otp_required";
+            if (step === "success") return "success";
+            if (step === "failed") return "failed";
+            return prev;
+          });
+          if (step !== "idle" && data.loginState.message) {
+            setLoginStatusMessage(data.loginState.message);
           }
         }
       }
@@ -7666,9 +7659,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => {
                   setLoginTab("credentials");
-                  if (loginStep === "success" || loginStep === "failed") {
-                    handleResetLoginState();
-                  }
+                  handleResetLoginState();
                 }}
                 disabled={isBusy || isContinuousLoopActive}
                 className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${

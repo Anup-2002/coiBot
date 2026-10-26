@@ -16,7 +16,9 @@ if (!process.env.NODE_ENV) {
 console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
 
 // Configure Playwright to use a consistent local cache directory inside the project folder
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH);
+} else {
   const localCachePath = path.join(process.cwd(), ".cache", "ms-playwright");
   const rootCachePath = "/root/.cache/ms-playwright";
   let chosenPlaywrightPath = localCachePath;
@@ -923,15 +925,15 @@ async function installPlaywrightChromium(): Promise<void> {
   }
   isInstallingPlaywright = true;
   try {
-    addLog("info", "Missing Playwright browser or launch timed out. Automatically downloading chromium and system dependencies...");
-    const envStr = process.env.PLAYWRIGHT_BROWSERS_PATH ? `PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH} ` : '';
+    const targetBrowserPath = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.cwd(), ".cache", "ms-playwright");
+    const childEnv = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: targetBrowserPath };
+
+    addLog("info", `Executing command: PLAYWRIGHT_BROWSERS_PATH=${targetBrowserPath} npx playwright install chromium`);
+    execSync(`npx playwright install chromium`, { env: childEnv, stdio: "inherit", cwd: process.cwd() });
     
-    addLog("info", `Executing command: ${envStr}npx playwright install chromium`);
-    execSync(`${envStr}npx playwright install chromium`, { stdio: "inherit" });
-    
-    addLog("info", `Executing command to install system dependencies (best-effort): ${envStr}npx playwright install-deps chromium`);
+    addLog("info", `Executing command to install system dependencies (best-effort): PLAYWRIGHT_BROWSERS_PATH=${targetBrowserPath} npx playwright install-deps chromium`);
     try {
-      execSync(`${envStr}npx playwright install-deps chromium`, { stdio: "inherit" });
+      execSync(`npx playwright install-deps chromium`, { env: childEnv, stdio: "inherit", cwd: process.cwd() });
       addLog("success", "Playwright system dependencies installation complete!");
     } catch (depsErr) {
       addLog("warning", `Note: non-root or standard container system dependencies install returned: ${(depsErr as Error).message}. Proceeding resiliently...`);
