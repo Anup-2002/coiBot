@@ -94,10 +94,16 @@ export interface BotSettings {
   activeImageIndex?: number;
   autoPruneEnabled?: boolean;
   autoPruneLimit?: number;
+  autoPruneOldDataEnabled?: boolean;
+  dataRetentionDays?: number;
+  maxResultsHistoryCount?: number;
+  autoPruneCompletedBatches?: boolean;
   telegramAlertsEnabled?: boolean;
   telegramBotToken?: string;
   telegramChatId?: string;
   targetCoinsCount?: number;
+  adminAuthEnabled?: boolean;
+  adminPassword?: string;
 }
 
 export const DEFAULT_SETTINGS: BotSettings = {
@@ -112,10 +118,16 @@ export const DEFAULT_SETTINGS: BotSettings = {
   activeImageIndex: 0,
   autoPruneEnabled: false,
   autoPruneLimit: 30,
+  autoPruneOldDataEnabled: true,
+  dataRetentionDays: 7,
+  maxResultsHistoryCount: 300,
+  autoPruneCompletedBatches: true,
   telegramAlertsEnabled: true,
   telegramBotToken: "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
   telegramChatId: "1817931967",
   targetCoinsCount: 0,
+  adminAuthEnabled: true,
+  adminPassword: "admin123",
 };
 
 export function parseBotSettings(raw: string | null | undefined): BotSettings {
@@ -134,10 +146,16 @@ export function parseBotSettings(raw: string | null | undefined): BotSettings {
       activeImageIndex: typeof data.activeImageIndex === "number" && !isNaN(data.activeImageIndex) ? data.activeImageIndex : 0,
       autoPruneEnabled: typeof data.autoPruneEnabled === "boolean" ? data.autoPruneEnabled : false,
       autoPruneLimit: typeof data.autoPruneLimit === "number" && data.autoPruneLimit > 0 ? data.autoPruneLimit : 30,
+      autoPruneOldDataEnabled: typeof data.autoPruneOldDataEnabled === "boolean" ? data.autoPruneOldDataEnabled : true,
+      dataRetentionDays: typeof data.dataRetentionDays === "number" && data.dataRetentionDays > 0 ? data.dataRetentionDays : 7,
+      maxResultsHistoryCount: typeof data.maxResultsHistoryCount === "number" && data.maxResultsHistoryCount > 0 ? data.maxResultsHistoryCount : 300,
+      autoPruneCompletedBatches: typeof data.autoPruneCompletedBatches === "boolean" ? data.autoPruneCompletedBatches : true,
       telegramAlertsEnabled: typeof data.telegramAlertsEnabled === "boolean" ? data.telegramAlertsEnabled : true,
       telegramBotToken: typeof data.telegramBotToken === "string" ? data.telegramBotToken : "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
       telegramChatId: typeof data.telegramChatId === "string" ? data.telegramChatId : "1817931967",
       targetCoinsCount: typeof data.targetCoinsCount === "number" ? data.targetCoinsCount : 0,
+      adminAuthEnabled: typeof data.adminAuthEnabled === "boolean" ? data.adminAuthEnabled : true,
+      adminPassword: typeof data.adminPassword === "string" && data.adminPassword.trim() ? data.adminPassword.trim() : (process.env.ADMIN_PASSWORD || "admin123"),
     };
   } catch (_) {
     return { ...DEFAULT_SETTINGS };

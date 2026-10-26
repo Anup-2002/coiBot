@@ -180,9 +180,10 @@ export async function savePostResultsMongo(results: any[], profileId?: string): 
     const database = await getMongoDb();
     if (!database) return;
     const docId = profileId ? `results_${profileId}` : "results";
+    const boundedList = Array.isArray(results) ? results.slice(-500) : [];
     await database.collection("post_results").updateOne(
       { _id: docId as any },
-      { $set: { list: results, lastUpdated: new Date().toISOString() } },
+      { $set: { list: boundedList, lastUpdated: new Date().toISOString() } },
       { upsert: true }
     );
   } catch (err) {

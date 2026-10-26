@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   AlertCircle,
   Database,
+  Archive,
   FileText,
   Download,
   Trash2,
@@ -52,7 +53,11 @@ import {
   GripVertical,
   FileCode,
   Copy,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Share2,
+  LogOut,
+  EyeOff,
+  RotateCcw
 } from "lucide-react";
 import { api, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo, MarketingImage } from "./api";
 
@@ -86,6 +91,7 @@ interface PostResult {
   status: "success" | "captcha" | "expired" | "failed" | "retry" | "skipped";
   message: string;
   timestamp: string;
+  createdAt?: number;
   sentiment?: "bullish" | "bearish" | "neutral";
   profileId?: string;
 }
@@ -214,16 +220,34 @@ function areLogsEqual(prev: LogEntry[], next: LogEntry[]): boolean {
 
 function areCoinsEqual(prev: Coin[], next: Coin[]): boolean {
   if (prev === next) return true;
+  if (!prev || !next) return false;
   if (prev.length !== next.length) return false;
   if (prev.length === 0) return true;
-  return prev[0]?.symbol === next[0]?.symbol && prev[prev.length - 1]?.symbol === next[next.length - 1]?.symbol;
+  // Compare symbols and prices of all coins to detect any ranking, price, or coin membership changes
+  for (let i = 0; i < prev.length; i++) {
+    const p = prev[i];
+    const n = next[i];
+    if (p.symbol !== n.symbol || p.price !== n.price || p.change_24h !== n.change_24h || p.cmc_rank !== n.cmc_rank) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function areMessagesEqual(prev: GeneratedMessage[], next: GeneratedMessage[]): boolean {
   if (prev === next) return true;
+  if (!prev || !next) return false;
   if (prev.length !== next.length) return false;
   if (prev.length === 0) return true;
-  return prev[0]?.symbol === next[0]?.symbol && prev[prev.length - 1]?.symbol === next[next.length - 1]?.symbol;
+  // Compare symbol, message body and sentiment of all messages so new generated comments immediately render
+  for (let i = 0; i < prev.length; i++) {
+    const p = prev[i];
+    const n = next[i];
+    if (p.symbol !== n.symbol || p.message !== n.message || p.sentiment !== n.sentiment) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function areResultsEqual(prev: PostResult[], next: PostResult[]): boolean {
@@ -431,11 +455,11 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram">("all");
+  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security">("all");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
-  const [telegramToken, setTelegramToken] = useState<string>("8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU");
-  const [telegramChatId, setTelegramChatId] = useState<string>("1817931967");
+  const [telegramToken, setTelegramToken] = useState<string>("");
+  const [telegramChatId, setTelegramChatId] = useState<string>("");
   const [isDetectingTelegram, setIsDetectingTelegram] = useState<boolean>(false);
   const [isTestingTelegram, setIsTestingTelegram] = useState<boolean>(false);
 
@@ -474,7 +498,7 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security") => {
     setCurrentView(view);
     if (section) setAdminSection(section);
     let path = "/";
@@ -632,16 +656,18 @@ export default function App() {
     }
   };
 
-  const handleResetDailyQueue = async () => {
+  const handleResetDailyQueue = async (resetDailyCap: boolean = false) => {
     setIsResettingDailyQueue(true);
     try {
-      const res = await api.resetDailyQueue();
+      const res = await api.resetDailyQueue({ resetDailyCap });
       if (res.success) {
         setResults([]);
         setProgressIndex(0);
-        setDailyPostCount(0);
+        if (resetDailyCap) {
+          setDailyPostCount(0);
+        }
         setShowResetQueueConfirm(false);
-        showToast("Today's queue and results reset. Accounts and cookies preserved.", "success");
+        showToast("Queue safely restarted at Coin #1. Previous posts archived in 7-day retention database.", "success");
         await fetchStats();
         await fetchResults();
       } else {
@@ -651,6 +677,50 @@ export default function App() {
       showToast("Error resetting daily queue.", "error");
     } finally {
       setIsResettingDailyQueue(false);
+    }
+  };
+
+  const [isPruningData, setIsPruningData] = useState<boolean>(false);
+  const [retentionDays, setRetentionDays] = useState<number>(7);
+  const [showRetentionSettingsModal, setShowRetentionSettingsModal] = useState<boolean>(false);
+  const [retentionStats, setRetentionStats] = useState<{ activeCount: number; archivedCount: number } | null>(null);
+
+  const handlePruneOldData = async (days?: number) => {
+    setIsPruningData(true);
+    try {
+      const res = await api.pruneOldData({ retentionDays: days || retentionDays });
+      if (res.success) {
+        showToast(res.details || `Pruned ${res.prunedCount} old submissions.`, "success");
+        await fetchStats();
+        await fetchResults();
+      } else {
+        showToast(res.error || "Failed to prune old data.", "error");
+      }
+    } catch (_) {
+      showToast("Error executing data pruning.", "error");
+    } finally {
+      setIsPruningData(false);
+    }
+  };
+
+  const handleSaveRetentionSettings = async (days: number, autoBatchPrune: boolean) => {
+    try {
+      setRetentionDays(days);
+      const res = await api.updateDataRetentionSettings({
+        autoPruneOldDataEnabled: true,
+        dataRetentionDays: days,
+        autoPruneCompletedBatches: autoBatchPrune,
+      });
+      if (res.success) {
+        showToast(`Retention policy updated to ${days} days. Auto-compaction active.`, "success");
+        setShowRetentionSettingsModal(false);
+        await fetchStats();
+        await fetchResults();
+      } else {
+        showToast(res.error || "Failed to update retention policy.", "error");
+      }
+    } catch (_) {
+      showToast("Error updating retention settings.", "error");
     }
   };
 
@@ -680,6 +750,202 @@ export default function App() {
     }
   };
 
+  // ==========================================
+  // Company Admin Access & Login Gate State
+  // ==========================================
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("cmc_admin_auth_token");
+      if (stored) return true;
+    } catch (_) {}
+    return false;
+  });
+  const [adminAuthRequired, setAdminAuthRequired] = useState<boolean>(true);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
+  const [showAdminPassword, setShowAdminPassword] = useState<boolean>(false);
+  const [adminAuthLoading, setAdminAuthLoading] = useState<boolean>(false);
+  const [adminLoginError, setAdminLoginError] = useState<string>("");
+  const [rememberAdminLogin, setRememberAdminLogin] = useState<boolean>(true);
+  const [currentAdminPassword, setCurrentAdminPassword] = useState<string>("");
+  const [showRevealedAdminPassword, setShowRevealedAdminPassword] = useState<boolean>(false);
+  const [newAdminPasswordInput, setNewAdminPasswordInput] = useState<string>("");
+  const [isChangingAdminPassword, setIsChangingAdminPassword] = useState<boolean>(false);
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [adminSchedulerStatus, setAdminSchedulerStatus] = useState<{
+    enabled?: boolean;
+    cycleRunning?: boolean;
+    postingRunning?: boolean;
+    botStatus?: string;
+    nextCycleAt?: string | null;
+    isContinuousLoopActive?: boolean;
+  } | null>(null);
+  // Check 1-click access token in URL / hash and verify auth status
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    const urlKey = params.get("key") || params.get("pass") || params.get("token") || params.get("access_token");
+    let hashKey = "";
+    if (hash && hash.includes("key=")) {
+      const match = hash.match(/key=([^&]+)/);
+      if (match) hashKey = decodeURIComponent(match[1]);
+    }
+    const keyToTest = urlKey || hashKey;
+
+    const checkAuth = async () => {
+      try {
+        const storedToken = localStorage.getItem("cmc_admin_auth_token") || "";
+        const statusRes = await api.getAdminAuthStatus(storedToken || keyToTest || undefined);
+        
+        if (statusRes.scheduler) {
+          setAdminSchedulerStatus(statusRes.scheduler);
+        }
+
+        if (statusRes.authRequired === false) {
+          setIsAdminAuthenticated(true);
+          setAdminAuthRequired(false);
+          return;
+        }
+
+        if (statusRes.currentPassword) {
+          setCurrentAdminPassword(statusRes.currentPassword);
+        }
+
+        if (statusRes.authenticated) {
+          setIsAdminAuthenticated(true);
+          return;
+        }
+
+        // Auto-login if URL key was supplied
+        if (keyToTest) {
+          setAdminAuthLoading(true);
+          const loginRes = await api.adminLogin(keyToTest);
+          if (loginRes.success && loginRes.token) {
+            localStorage.setItem("cmc_admin_auth_token", loginRes.token);
+            setIsAdminAuthenticated(true);
+            showToast("Authenticated via Company Admin 1-Click Link!", "success");
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+          }
+          setAdminAuthLoading(false);
+        }
+      } catch (err) {
+        console.warn("Admin auth verification error:", err);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // Poll scheduler state on the admin login screen so live background activity is visible
+  useEffect(() => {
+    if (!adminAuthRequired || isAdminAuthenticated) return;
+    const pollLoginScheduler = async () => {
+      try {
+        const st = await api.getAdminAuthStatus();
+        if (st.scheduler) setAdminSchedulerStatus(st.scheduler);
+      } catch (_) {}
+    };
+    pollLoginScheduler();
+    const interval = setInterval(pollLoginScheduler, 3000);
+    return () => clearInterval(interval);
+  }, [adminAuthRequired, isAdminAuthenticated]);
+
+
+  const handleAdminLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!adminPasswordInput.trim()) {
+      setAdminLoginError("Please enter the company admin password.");
+      return;
+    }
+    setAdminAuthLoading(true);
+    setAdminLoginError("");
+    try {
+      const res = await api.adminLogin(adminPasswordInput.trim());
+      if (res.success && res.token) {
+        if (rememberAdminLogin) {
+          localStorage.setItem("cmc_admin_auth_token", res.token);
+        }
+        setIsAdminAuthenticated(true);
+        setAdminLoginError("");
+        showToast("Company Admin access granted!", "success");
+        api.getAdminAuthStatus(res.token).then(st => {
+          if (st.currentPassword) setCurrentAdminPassword(st.currentPassword);
+          if (st.scheduler) setAdminSchedulerStatus(st.scheduler);
+        });
+      } else {
+        setAdminLoginError(res.error || "Incorrect password. Please verify and try again.");
+      }
+    } catch (_) {
+      setAdminLoginError("Connection error. Could not verify admin credentials.");
+    } finally {
+      setAdminAuthLoading(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    try {
+      localStorage.removeItem("cmc_admin_auth_token");
+    } catch (_) {}
+    setIsAdminAuthenticated(false);
+    setAdminPasswordInput("");
+    showToast("Logged out of Company Admin.", "info");
+    api.getAdminAuthStatus().then(st => {
+      if (st.scheduler) setAdminSchedulerStatus(st.scheduler);
+    }).catch(() => {});
+  };
+
+  const handleCopyShareLink = () => {
+    const origin = window.location.origin;
+    const shareUrl = `${origin}/?key=${encodeURIComponent(currentAdminPassword)}`;
+    navigator.clipboard.writeText(shareUrl);
+    showToast("1-Click Team Access Link copied to clipboard!", "success");
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(currentAdminPassword);
+    showToast("Admin password copied to clipboard!", "success");
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!newAdminPasswordInput.trim() || newAdminPasswordInput.trim().length < 3) {
+      showToast("Password must be at least 3 characters.", "error");
+      return;
+    }
+    try {
+      const token = localStorage.getItem("cmc_admin_auth_token") || currentAdminPassword;
+      const res = await api.updateAdminPassword(newAdminPasswordInput.trim(), token);
+      if (res.success) {
+        if (res.token) {
+          localStorage.setItem("cmc_admin_auth_token", res.token);
+        }
+        setCurrentAdminPassword(newAdminPasswordInput.trim());
+        setNewAdminPasswordInput("");
+        setIsChangingAdminPassword(false);
+        showToast("Company admin password updated successfully!", "success");
+      } else {
+        showToast(res.error || "Failed to update password.", "error");
+      }
+    } catch (_) {
+      showToast("Error updating password.", "error");
+    }
+  };
+
+  const handleToggleAdminAuth = async (enabled: boolean) => {
+    try {
+      const token = localStorage.getItem("cmc_admin_auth_token") || currentAdminPassword;
+      const res = await api.toggleAdminAuth(enabled, token);
+      if (res.success) {
+        setAdminAuthRequired(res.authRequired !== false);
+        showToast(
+          res.authRequired !== false ? "Password protection enabled." : "Password requirement disabled.",
+          "info"
+        );
+      }
+    } catch (_) {
+      showToast("Failed to toggle admin security setting.", "error");
+    }
+  };
+
   // Interactive Login State
   const [loginTab, setLoginTab] = useState<"credentials" | "cookies" | "profiles">("credentials");
   const [email, setEmail] = useState<string>("");
@@ -696,6 +962,7 @@ export default function App() {
 
   // Data Explorer Tabs & Search Filters
   const [activeTab, setActiveTab] = useState<string>("coins");
+  const [submissionsViewMode, setSubmissionsViewMode] = useState<"current_batch" | "all_history">("current_batch");
   const [coinsList, setCoinsList] = useState<Coin[]>([]);
   const [messagesList, setMessagesList] = useState<GeneratedMessage[]>([]);
   const [coinSearchQuery, setCoinSearchQuery] = useState<string>("");
@@ -793,6 +1060,16 @@ export default function App() {
   const handleToggleScheduler = async (explicitVal?: boolean | unknown) => {
     setIsSchedulerActionPending(true);
     const nextVal = typeof explicitVal === "boolean" ? explicitVal : !Boolean(schedulerData?.enabled);
+    
+    if (nextVal && schedulerData && Array.isArray(schedulerData.accounts) && schedulerData.accounts.length > 0) {
+      const hasAuth = schedulerData.accounts.some(a => a.hasValidSession);
+      if (!hasAuth) {
+        showToast("Cannot enable 24-hr scheduler: None of your accounts have valid session cookies. Please log in or import cookies in Profiles first.", "error", 6000);
+        setIsSchedulerActionPending(false);
+        return;
+      }
+    }
+
     try {
       const res = await api.setSchedulerSettings({ enabled: nextVal });
       if (res.success) {
@@ -830,6 +1107,14 @@ export default function App() {
 
   const handleRunSchedulerNow = async () => {
     setIsSchedulerActionPending(true);
+    if (schedulerData && Array.isArray(schedulerData.accounts) && schedulerData.accounts.length > 0) {
+      const hasAuth = schedulerData.accounts.some(a => a.hasValidSession);
+      if (!hasAuth) {
+        showToast("Cannot run cycle: None of your accounts have valid session cookies. Please log in first.", "error", 6000);
+        setIsSchedulerActionPending(false);
+        return;
+      }
+    }
     try {
       const res = await api.runSchedulerNow();
       if (res.success) {
@@ -850,7 +1135,8 @@ export default function App() {
     try {
       await api.stopScheduler().catch(() => {});
       await api.stopPosting().catch(() => {});
-      showToast("Stop signal sent. Halting scheduler cycle cleanly...", "info");
+      setSchedulerData(prev => prev ? { ...prev, enabled: false, cycleRunning: false } : null);
+      showToast("24-Hour Scheduler stopped and background cycles cancelled cleanly.", "info");
       await fetchSchedulerStatus();
     } catch (err) {
       showToast("Error stopping scheduler: " + (err as Error).message, "error");
@@ -2233,6 +2519,154 @@ export default function App() {
   );
   const totalMarketingBytes = marketingImages.reduce((acc, curr) => acc + (curr.sizeBytes || 0), 0);
 
+  // If company admin authentication is required and user is not authenticated, render login gate
+  if (adminAuthRequired && !isAdminAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden selection:bg-emerald-500 selection:text-slate-950">
+        {/* Subtle decorative background glows */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md relative z-10">
+          {/* Brand header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center p-3.5 bg-gradient-to-tr from-emerald-500/20 to-indigo-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30 shadow-2xl shadow-emerald-500/10 mb-4 ring-1 ring-emerald-500/20">
+              <Shield className="h-8 w-8 text-emerald-400" />
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold mb-3">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              OPERATIONS GATE
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white">
+              Company Admin Access
+            </h1>
+            <p className="text-sm text-slate-400 mt-1.5">
+              Enter the company admin password or use the 1-click team link to manage CoinMarketCap bot operations.
+            </p>
+          </div>
+
+          {/* Background Engine Status (Informational - Admin access required to control) */}
+          <div className="mb-4">
+            {adminSchedulerStatus?.enabled || adminSchedulerStatus?.cycleRunning || adminSchedulerStatus?.postingRunning || adminSchedulerStatus?.isContinuousLoopActive ? (
+              <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl shadow-xl space-y-2">
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                        <span>24-Hour Scheduler is ACTIVE</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase">
+                          {adminSchedulerStatus.cycleRunning ? "Cycle Running" : (adminSchedulerStatus.postingRunning ? "Posting" : "Scheduled 24/7")}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 mt-0.5">
+                        {adminSchedulerStatus.nextCycleAt
+                          ? `Running 24/7 background cycles. Next automatic cycle: ${new Date(adminSchedulerStatus.nextCycleAt).toLocaleTimeString()}`
+                          : "Continuous background bot processes are active 24/7."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-slate-400">
+                  <span className="flex items-center gap-1">
+                    <Shield className="h-3 w-3 text-emerald-400" />
+                    Background daemon runs 24/7 until failure or admin stop
+                  </span>
+                  <span className="text-emerald-400 font-mono font-semibold">Protected</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-500" />
+                  <span>24-Hr Scheduler: <strong className="text-slate-300">IDLE / STANDBY</strong></span>
+                </div>
+                <span className="text-[10px] font-mono text-slate-500">Log in to activate</span>
+              </div>
+            )}
+          </div>
+
+          {/* Login Card */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl backdrop-blur-xl">
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              {adminLoginError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <span>{adminLoginError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2 font-mono">
+                  Company Admin Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAdminPassword ? "text" : "password"}
+                    value={adminPasswordInput}
+                    onChange={(e) => {
+                      setAdminPasswordInput(e.target.value);
+                      if (adminLoginError) setAdminLoginError("");
+                    }}
+                    placeholder="Enter admin password"
+                    autoFocus
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 pr-11 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition p-1 cursor-pointer"
+                    title={showAdminPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberAdminLogin}
+                    onChange={(e) => setRememberAdminLogin(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500/20"
+                  />
+                  <span>Remember on this browser</span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={adminAuthLoading || !adminPasswordInput.trim()}
+                className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 transition duration-200 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {adminAuthLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-slate-950" />
+                    <span>Verifying Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-4 w-4 text-slate-950" />
+                    <span>Sign In to Bot Console</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center text-xs text-slate-500">
+              Authorized operators only. Contact your organization administrator for access credentials or a direct team link.
+            </div>
+          </div>
+
+          <div className="text-center mt-6 text-xs text-slate-500 font-mono">
+            CMC Operations Console &bull; Security Level: High
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-emerald-500 selection:text-slate-950">
       
@@ -2431,6 +2865,28 @@ export default function App() {
               <Shield className="h-3.5 w-3.5" />
               <span>{currentView === "admin" ? "Dashboard" : "Admin"}</span>
             </button>
+
+            {/* Quick Share Team Link & Lock Button */}
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+              <button
+                onClick={handleCopyShareLink}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-[11px] font-bold transition cursor-pointer border border-indigo-500/20"
+                title="Copy 1-Click Company Team Access Link to clipboard"
+              >
+                <Share2 className="h-3 w-3 text-indigo-400" />
+                <span className="hidden xl:inline">Share Link</span>
+              </button>
+              {adminAuthRequired && (
+                <button
+                  onClick={handleAdminLogout}
+                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 text-[11px] font-medium transition cursor-pointer"
+                  title="Lock Dashboard / Sign Out of Company Admin"
+                >
+                  <LogOut className="h-3 w-3" />
+                  <span className="hidden xl:inline">Lock</span>
+                </button>
+              )}
+            </div>
 
             {/* NOTIFICATION ALERTS TOGGLE BUTTON */}
             <button
@@ -2930,6 +3386,24 @@ export default function App() {
                 {telegramEnabled ? "ACTIVE" : "OFF"}
               </span>
             </button>
+            <button
+              onClick={() => setAdminSection("security")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                adminSection === "security"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "text-amber-400 hover:text-amber-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <Key className="h-3.5 w-3.5" />
+              <span>Security & Sharing</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                adminAuthRequired
+                  ? "bg-emerald-500/20 text-emerald-300"
+                  : "bg-slate-800 text-slate-400"
+              }`}>
+                {adminAuthRequired ? "ACTIVE" : "OFF"}
+              </span>
+            </button>
           </div>
 
           {/* 1. SYSTEM ENVIRONMENT DIAGNOSTICS CARD */}
@@ -3415,7 +3889,7 @@ export default function App() {
                     <span>Run Cycle Now</span>
                   </button>
                   <button
-                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled)}
                     onClick={handleStopScheduler}
                     className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
@@ -3678,6 +4152,150 @@ export default function App() {
                   <span>{isTestingTelegram ? "Dispatching..." : "Send Test Emergency Alert"}</span>
                 </button>
                 <div className="text-[10px] text-slate-500 mt-1 text-center font-mono">Bypasses throttle for manual testing</div>
+              </div>
+            </div>
+          </section>
+          )}
+
+          {/* 6. COMPANY ADMIN ACCESS & TEAM SHARING CARD */}
+          {(adminSection === "all" || adminSection === "security") && (
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                  <Key className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    Company Admin Credentials & Access Management
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      Team Access
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Manage the company admin password, copy 1-click access links for team members, and configure protection.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleToggleAdminAuth(!adminAuthRequired)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    adminAuthRequired
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                      : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                  }`}
+                  title="Toggle password requirement on dashboard"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>{adminAuthRequired ? "Password Gate: Enabled" : "Password Gate: Disabled"}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Left Column: Current Credentials & 1-Click Share */}
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                    <Shield className="h-4 w-4 text-emerald-400" />
+                    Current Admin Password
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRevealedAdminPassword(!showRevealedAdminPassword)}
+                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition cursor-pointer"
+                    >
+                      {showRevealedAdminPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      <span>{showRevealedAdminPassword ? "Hide" : "Show"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyPassword}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Copy className="h-3 w-3" />
+                      <span>Copy Password</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                  <div className="font-mono text-sm font-bold text-white tracking-wider">
+                    {showRevealedAdminPassword ? currentAdminPassword : "•".repeat(Math.max(8, currentAdminPassword.length || 8))}
+                  </div>
+                  <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded font-mono">
+                    Active Passcode
+                  </span>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                    <Share2 className="h-4 w-4 text-indigo-400" />
+                    Shareable 1-Click Team Access Link
+                  </span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Share this URL with company operators. Anyone with this link is automatically authenticated without typing passwords:
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type={showRevealedAdminPassword ? "text" : "password"}
+                      readOnly
+                      value={`${window.location.origin}/?key=${encodeURIComponent(currentAdminPassword)}`}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono select-all focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyShareLink}
+                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer shadow-md shadow-indigo-600/20"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy Link</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Change Admin Password */}
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-4">
+                <div className="border-b border-slate-800/60 pb-3">
+                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                    <Lock className="h-4 w-4 text-amber-400" />
+                    Update Admin Password
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Set a new password for company administrators. The 1-click shareable link will automatically update to use the new password.
+                </p>
+
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">
+                      New Admin Password
+                    </label>
+                    <input
+                      type="text"
+                      value={newAdminPasswordInput}
+                      onChange={(e) => setNewAdminPasswordInput(e.target.value)}
+                      placeholder="Enter at least 3 characters..."
+                      className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleUpdatePassword}
+                    disabled={!newAdminPasswordInput.trim() || newAdminPasswordInput.trim().length < 3}
+                    className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5 text-slate-950" />
+                    <span>Save New Password</span>
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -4288,19 +4906,26 @@ export default function App() {
                         <div className="text-base font-black text-amber-400 font-mono tabular-nums mt-0.5">{remainingBatch}</div>
                       </div>
 
-                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1 flex flex-col justify-between">
+                      <div 
+                        className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1 flex flex-col justify-between"
+                        title="Daily safety cap resets automatically every day at 00:00 UTC"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
-                          <span className="text-[9px] font-mono text-slate-500 font-bold">Cap {dailyPostLimit}</span>
+                          <span className="text-[9px] font-mono text-slate-400 font-bold" title="Resets every calendar day">Cap {dailyPostLimit} &bull; Daily</span>
                         </div>
                         <div className="flex items-baseline gap-1 mt-0.5">
                           <span className={`text-base font-black font-mono tabular-nums ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
                             {dailyPostCount}
                           </span>
                           <span className="text-xs text-slate-500 font-mono tabular-nums">/ {dailyPostLimit}</span>
-                          {dailyPostCount >= dailyPostLimit && (
+                          {dailyPostCount >= dailyPostLimit ? (
                             <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
                               Cap Reached
+                            </span>
+                          ) : (
+                            <span className="ml-auto text-[8px] font-mono text-slate-400">
+                              Resets 00:00 UTC
                             </span>
                           )}
                         </div>
@@ -4919,20 +5544,101 @@ export default function App() {
             {activeTab === "results" && (() => {
               const activePid = activeProfileIdRef.current || activeProfile?.id;
               const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
+              const batchGenTime = commentsGeneratedAt || 0;
+              
+              const isCurrentBatchResult = (r: PostResult) => {
+                if (!batchGenTime) return true;
+                const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+                return !isNaN(rTime) && rTime >= (batchGenTime - 120000);
+              };
+
+              const currentBatchResults = profileResults.filter(isCurrentBatchResult);
+              const matchSymbol = (a?: string, b?: string) => String(a || "").replace(/^\$/, "").trim().toLowerCase() === String(b || "").replace(/^\$/, "").trim().toLowerCase();
+              const pendingItems = messagesList.filter(msgItem => !currentBatchResults.some(r => matchSymbol(r.symbol, msgItem.symbol) && r.status === "success"));
+              const batchPostedCount = currentBatchResults.filter(r => r.status === "success").length;
+
               return (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
-                    <span className="text-xs text-slate-400 font-mono">
-                      Showing submission history and queue status ({profileResults.length} posted results)
-                    </span>
-                    <button
-                      onClick={handleManualRefresh}
-                      disabled={isRefreshingData}
-                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                      Refresh Submissions
-                    </button>
+                  {/* Top Bar with Mode Switcher & Actions */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center bg-slate-900 p-1 rounded-lg border border-slate-800">
+                        <button
+                          onClick={() => setSubmissionsViewMode("current_batch")}
+                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            submissionsViewMode === "current_batch"
+                              ? "bg-emerald-500 text-slate-950 shadow-sm"
+                              : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          Current Cycle Queue ({batchPostedCount}/{messagesList.length})
+                        </button>
+                        <button
+                          onClick={() => setSubmissionsViewMode("all_history")}
+                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            submissionsViewMode === "all_history"
+                              ? "bg-blue-500 text-slate-950 shadow-sm"
+                              : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          All History ({profileResults.length})
+                        </button>
+                      </div>
+                      <span className="hidden sm:inline-block text-[11px] font-mono text-slate-400 ml-2">
+                        {submissionsViewMode === "current_batch" 
+                          ? `${pendingItems.length} pending in current cycle`
+                          : `Total lifetime submissions log`}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setShowRetentionSettingsModal(true)}
+                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        title="Configure automatic data retention and completed batch auto-pruning"
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        Retention: {retentionDays}d
+                      </button>
+                      <button
+                        onClick={() => handlePruneOldData(retentionDays)}
+                        disabled={isPruningData || profileResults.length === 0}
+                        className="py-1.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold border border-amber-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        title={`Prune records older than ${retentionDays} days into long-term archive`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {isPruningData ? "Pruning..." : `Prune >${retentionDays}d`}
+                      </button>
+                      <button
+                        onClick={() => setShowResetQueueConfirm(true)}
+                        disabled={isResettingDailyQueue || profileResults.length === 0}
+                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        title="Archive completed submissions into 7-day database and restart queue from Coin #1 (accounts and cookies preserved)"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Archive & Restart ({profileResults.length})
+                      </button>
+                      <button
+                        onClick={handleManualRefresh}
+                        disabled={isRefreshingData}
+                        className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Automated Background Isolation & Compaction Notice Banner */}
+                  <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2.5 text-blue-300">
+                      <span className="p-1 bg-blue-500/20 rounded-md text-blue-400 font-bold whitespace-nowrap">⚡ AUTO-COMPACTION</span>
+                      <p className="text-[11px] leading-relaxed">
+                        <strong>Automated Data Lifecycle Active:</strong> Completed batches and records older than {retentionDays} days are automatically archived to keep queue files lean and maintain peak bot speed. Unattended 24/7 background scheduler runs with zero bloat and never repeats finished coins.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
@@ -4949,154 +5655,222 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
-                        {messagesList.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
-                              <div className="space-y-3 max-w-md mx-auto">
-                                <p className="text-slate-500 font-medium">No generated comments or submissions found for this profile.</p>
-                                <p className="text-[11px] text-slate-400">
-                                  If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> or <strong>"Full Cycle"</strong> in the Control Center to populate.
-                                </p>
-                                <button
-                                  onClick={handleManualRefresh}
-                                  disabled={isRefreshingData}
-                                  className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
-                                >
-                                  <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
-                                  Refresh Now
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : (() => {
-                        const matchSymbol = (a?: string, b?: string) => String(a || "").replace(/^\$/, "").trim().toLowerCase() === String(b || "").replace(/^\$/, "").trim().toLowerCase();
-                        const pendingItems = messagesList.filter(msgItem => !profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol)));
-                        return messagesList.map((msgItem, index) => {
-                          const item = [...profileResults].reverse().find(r => matchSymbol(r.symbol, msgItem.symbol));
-                          const pendingIndex = pendingItems.findIndex(p => matchSymbol(p.symbol, msgItem.symbol));
-                          const seqStr = pendingIndex !== -1 ? `Seq #${pendingIndex + 1}` : "";
-                        
-                        return (
-                          <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
-                            <td className="py-3.5 px-4 font-mono text-slate-400 border-r border-slate-800/80">
-                              {item ? (item.timestamp || "N/A") : "Pending"}
-                            </td>
-                            <td className="py-3.5 px-4 border-r border-slate-800/80">
-                              <div className="font-bold text-white leading-none">{msgItem.name}</div>
-                              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{msgItem.symbol}</span>
-                            </td>
-                            <td className="py-3.5 px-4 font-bold border-r border-slate-800/80">
-                              {(item?.sentiment || msgItem.sentiment || "bullish") === "bearish" ? (
-                                <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
-                                  Bearish
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
-                                  Bullish
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3.5 px-4 font-semibold border-r border-slate-800/80">
-                              {!item ? (
-                                isPostingActive ? (
-                                  <span className="text-cyan-400 flex items-center gap-1.5 font-medium font-mono">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                                    In Queue {seqStr && <span className="text-[10px] text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400 flex items-center gap-1.5 font-medium font-mono">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
-                                    Pending Run {seqStr && <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
-                                  </span>
-                                )
-                              ) : item.status === "skipped" ? (
-                                <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
-                                </span>
-                              ) : item.status === "success" ? (
-                                <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                                  <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
-                                </span>
-                              ) : item.status === "captcha" ? (
-                                <span className="text-amber-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha Detected
-                                </span>
-                              ) : item.status === "expired" ? (
-                                <span className="text-rose-400 flex items-center gap-1 font-bold" title="Account session expired: CoinMarketCap displayed Log In">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Session Expired (Log In Required)
-                                </span>
-                              ) : (
-                                <span className="text-red-400 flex items-center gap-1 font-bold">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {item.status.toUpperCase()}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={item ? item.message : msgItem.message}>
-                              {item ? (
-                                item.message === "Post button text is Log In" ? (
-                                  <span className="text-rose-400 font-semibold">Post button said "Log In" (Cookies not logged in)</span>
-                                ) : (
-                                  item.message
-                                )
-                              ) : (
-                                `Generated: "${msgItem.message.substring(0, 40)}..."`
-                              )}
-                            </td>
-                            
-                             {/* Manual post retry controls */}
-                            <td className="py-3.5 px-4 text-center border-r border-slate-800/80">
-                              {item && item.status !== "success" ? (
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={() => handleRetrySingle(msgItem.symbol)}
-                                    disabled={individualLoading[msgItem.symbol] !== null || isBusy}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-emerald-500/25 transition flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
-                                    title="Bot auto-posts this coin via Playwright browser"
-                                  >
-                                    {individualLoading[msgItem.symbol] === "retry" ? (
-                                      <RefreshCw className="h-2.5 w-2.5 animate-spin" />
-                                    ) : (
-                                      <Play className="h-2.5 w-2.5 fill-current" />
-                                    )}
-                                    Auto Retry
-                                  </button>
+                        {submissionsViewMode === "all_history" ? (
+                          // VIEW MODE: ALL LIFETIME HISTORY
+                          profileResults.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
+                                <p className="text-slate-500 font-medium">No historical submission records found.</p>
+                              </td>
+                            </tr>
+                          ) : (
+                            [...profileResults].reverse().map((histItem, hIdx) => (
+                              <tr key={hIdx} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
+                                <td className="py-3 px-4 font-mono text-slate-400 border-r border-slate-800/80 whitespace-nowrap">
+                                  {histItem.timestamp || "N/A"}
+                                </td>
+                                <td className="py-3 px-4 border-r border-slate-800/80">
+                                  <div className="font-bold text-white leading-none">{histItem.name}</div>
+                                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{histItem.symbol}</span>
+                                </td>
+                                <td className="py-3 px-4 font-bold border-r border-slate-800/80">
+                                  {(histItem.sentiment || "bullish") === "bearish" ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                                      Bearish
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                                      Bullish
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-semibold border-r border-slate-800/80">
+                                  {histItem.status === "success" ? (
+                                    <span className="text-emerald-400 flex items-center gap-1 font-bold">
+                                      <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
+                                    </span>
+                                  ) : histItem.status === "skipped" ? (
+                                    <span className="text-slate-400 flex items-center gap-1 font-bold">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
+                                    </span>
+                                  ) : histItem.status === "captcha" ? (
+                                    <span className="text-amber-400 flex items-center gap-1 font-bold">
+                                      <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha
+                                    </span>
+                                  ) : (
+                                    <span className="text-red-400 flex items-center gap-1 font-bold">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {histItem.status.toUpperCase()}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={histItem.message}>
+                                  {histItem.message}
+                                </td>
+                                <td className="py-3 px-4 text-center border-r border-slate-800/80">
+                                  <span className="text-slate-600 font-mono text-[11px]">—</span>
+                                </td>
+                                <td className="py-3 px-4 text-right">
                                   <a
-                                    href={msgItem.url}
+                                    href={histItem.url}
                                     target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={() => handleCopyAndOpenCMC(msgItem.url, msgItem.message, msgItem.symbol)}
-                                    className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-blue-500/25 transition flex items-center gap-1 cursor-pointer"
-                                    title="Copies comment to clipboard and opens CoinMarketCap to post manually"
+                                    rel="noreferrer"
+                                    className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
                                   >
-                                    <ExternalLink className="h-2.5 w-2.5" />
-                                    Manual Post
+                                    Verify <ChevronRight className="h-3 w-3" />
                                   </a>
+                                </td>
+                              </tr>
+                            ))
+                          )
+                        ) : (
+                          // VIEW MODE: CURRENT BATCH QUEUE
+                          messagesList.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
+                                <div className="space-y-3 max-w-md mx-auto">
+                                  <p className="text-slate-500 font-medium">No generated comments loaded for the current cycle.</p>
+                                  <p className="text-[11px] text-slate-400">
+                                    Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> in the Control Center to populate the queue.
+                                  </p>
+                                  <button
+                                    onClick={handleManualRefresh}
+                                    disabled={isRefreshingData}
+                                    className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                                    Refresh Now
+                                  </button>
                                 </div>
-                              ) : (
-                                <span className="text-slate-600 font-mono text-[11px]">—</span>
-                              )}
-                            </td>
+                              </td>
+                            </tr>
+                          ) : (
+                            messagesList.map((msgItem, index) => {
+                              const item = [...currentBatchResults].reverse().find(r => matchSymbol(r.symbol, msgItem.symbol));
+                              const pendingIndex = pendingItems.findIndex(p => matchSymbol(p.symbol, msgItem.symbol));
+                              const seqStr = pendingIndex !== -1 ? `Seq #${pendingIndex + 1}` : "";
+                            
+                              return (
+                                <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
+                                  <td className="py-3.5 px-4 font-mono text-slate-400 border-r border-slate-800/80">
+                                    {item ? (item.timestamp || "N/A") : "Pending"}
+                                  </td>
+                                  <td className="py-3.5 px-4 border-r border-slate-800/80">
+                                    <div className="font-bold text-white leading-none">{msgItem.name}</div>
+                                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{msgItem.symbol}</span>
+                                  </td>
+                                  <td className="py-3.5 px-4 font-bold border-r border-slate-800/80">
+                                    {(item?.sentiment || msgItem.sentiment || "bullish") === "bearish" ? (
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                                        Bearish
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                                        Bullish
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 px-4 font-semibold border-r border-slate-800/80">
+                                    {!item ? (
+                                      isPostingActive ? (
+                                        <span className="text-cyan-400 flex items-center gap-1.5 font-medium font-mono">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                                          In Queue {seqStr && <span className="text-[10px] text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400 flex items-center gap-1.5 font-medium font-mono">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                                          Pending Run {seqStr && <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
+                                        </span>
+                                      )
+                                    ) : item.status === "skipped" ? (
+                                      <span className="text-slate-400 flex items-center gap-1 font-bold">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
+                                      </span>
+                                    ) : item.status === "success" ? (
+                                      <span className="text-emerald-400 flex items-center gap-1 font-bold">
+                                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
+                                      </span>
+                                    ) : item.status === "captcha" ? (
+                                      <span className="text-amber-400 flex items-center gap-1 font-bold">
+                                        <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha Detected
+                                      </span>
+                                    ) : item.status === "expired" ? (
+                                      <span className="text-rose-400 flex items-center gap-1 font-bold" title="Account session expired: CoinMarketCap displayed Log In">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Session Expired (Log In Required)
+                                      </span>
+                                    ) : (
+                                      <span className="text-red-400 flex items-center gap-1 font-bold">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {item.status.toUpperCase()}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={item ? item.message : msgItem.message}>
+                                    {item ? (
+                                      item.message === "Post button text is Log In" ? (
+                                        <span className="text-rose-400 font-semibold">Post button said "Log In" (Cookies not logged in)</span>
+                                      ) : (
+                                        item.message
+                                      )
+                                    ) : (
+                                      `Generated: "${msgItem.message.substring(0, 40)}..."`
+                                    )}
+                                  </td>
+                                  
+                                  {/* Manual post retry controls */}
+                                  <td className="py-3.5 px-4 text-center border-r border-slate-800/80">
+                                    {item && item.status !== "success" ? (
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <button
+                                          onClick={() => handleRetrySingle(msgItem.symbol)}
+                                          disabled={individualLoading[msgItem.symbol] !== null || isBusy}
+                                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-emerald-500/25 transition flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
+                                          title="Bot auto-posts this coin via Playwright browser"
+                                        >
+                                          {individualLoading[msgItem.symbol] === "retry" ? (
+                                            <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                                          ) : (
+                                            <Play className="h-2.5 w-2.5 fill-current" />
+                                          )}
+                                          Auto Retry
+                                        </button>
+                                        <a
+                                          href={msgItem.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={() => handleCopyAndOpenCMC(msgItem.url, msgItem.message, msgItem.symbol)}
+                                          className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-blue-500/25 transition flex items-center gap-1 cursor-pointer"
+                                          title="Copies comment to clipboard and opens CoinMarketCap to post manually"
+                                        >
+                                          <ExternalLink className="h-2.5 w-2.5" />
+                                          Manual Post
+                                        </a>
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-600 font-mono text-[11px]">—</span>
+                                    )}
+                                  </td>
 
-                            <td className="py-3.5 px-4 text-right">
-                              <a
-                                href={msgItem.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
-                              >
-                                Verify <ChevronRight className="h-3 w-3" />
-                              </a>
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })()}
+                                  <td className="py-3.5 px-4 text-right">
+                                    <a
+                                      href={msgItem.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
+                                    >
+                                      Verify <ChevronRight className="h-3 w-3" />
+                                    </a>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* TAB 4: CSV EXPORTS & REPORTS */}
             {activeTab === "reports" && (
@@ -5117,7 +5891,7 @@ export default function App() {
 
                 <div className="space-y-8">
                 {/* 4.1. CSV Exporters Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                   
                   <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition">
                     <div className="space-y-2">
@@ -5164,7 +5938,7 @@ export default function App() {
                       </div>
                       <h3 className="font-bold text-white text-sm">Post Submissions CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Detailed execution outcome logs representing each individual automated browser posting session.
+                        Active cycle and recent execution logs representing each individual automated browser posting session.
                       </p>
                     </div>
                     <a
@@ -5192,6 +5966,25 @@ export default function App() {
                       className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-amber-400" /> Download CSV
+                    </a>
+                  </div>
+
+                  <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition">
+                    <div className="space-y-2">
+                      <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 w-fit">
+                        <Archive className="h-5 w-5 text-indigo-400" />
+                      </div>
+                      <h3 className="font-bold text-white text-sm">Archived Logs CSV</h3>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Lifetime historical records of older pruned batches (&gt;{retentionDays}d), safely preserved for audit compliance.
+                      </p>
+                    </div>
+                    <a
+                      href={resolveUrl("/api/download/archived_submissions.csv")}
+                      onClick={() => showToast("Downloading Archived Submissions CSV...", "info", 2500)}
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                    >
+                      <Download className="h-3.5 w-3.5 text-indigo-400" /> Download Archive
                     </a>
                   </div>
 
@@ -6372,7 +7165,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </button>
                   <button
                     type="button"
-                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled)}
                     onClick={handleStopScheduler}
                     className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
@@ -7494,6 +8287,144 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 className="py-2 px-5 bg-purple-500 hover:bg-purple-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
               >
                 Yes, Regenerate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET QUEUE / CLEAR SUBMISSIONS CONFIRMATION MODAL */}
+      {showResetQueueConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-md w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <span className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 flex-shrink-0">
+                <RotateCcw className="h-6 w-6" />
+              </span>
+              <div className="space-y-1.5 flex-1">
+                <h3 className="font-bold text-white text-base">
+                  Archive Batch & Restart Queue?
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  This resets the queue index back to Coin #1 for <strong>{activeProfile?.name || "the active profile"}</strong>. All completed submission records will be automatically moved into your <strong>7-Day Retention Archive</strong> so no historical results are lost. Your CoinMarketCap logins, cookies, and daily post caps remain 100% intact.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowResetQueueConfirm(false)}
+                disabled={isResettingDailyQueue}
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleResetDailyQueue(false)}
+                disabled={isResettingDailyQueue}
+                className="py-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isResettingDailyQueue ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Archiving & Resetting...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Archive & Restart Queue
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DATA RETENTION & COMPACTION SETTINGS MODAL */}
+      {showRetentionSettingsModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-lg w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <span className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 flex-shrink-0">
+                <Clock className="h-6 w-6" />
+              </span>
+              <div className="space-y-1 flex-1">
+                <h3 className="font-bold text-white text-base">
+                  Data Retention & Lifecycle Policy
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Configure how long older trending coins, completed comment batches, and submission logs are kept in active memory.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                <label className="text-xs font-bold text-slate-300 block">
+                  Keep Active Submission Records For:
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveRetentionSettings(4, true)}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                      retentionDays === 4
+                        ? "bg-indigo-500/20 border-indigo-500 text-white"
+                        : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="font-bold text-sm">4 Days (Lean & Fast)</div>
+                    <div className="text-[11px] text-slate-400 mt-1">Recommended for high-frequency bots running continuous cycles.</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSaveRetentionSettings(7, true)}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                      retentionDays === 7
+                        ? "bg-indigo-500/20 border-indigo-500 text-white"
+                        : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="font-bold text-sm">7 Days (Standard)</div>
+                    <div className="text-[11px] text-slate-400 mt-1">Preserves one full week of posting data before archiving.</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200">Auto-Archive Completed Batches</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">ENABLED</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  When all comments in a cycle batch (e.g. 70+ posts) are completely posted, the active queue resets automatically so the next cycle starts fresh with zero blockage or slowdown.
+                </p>
+              </div>
+
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between">
+                <div className="text-xs text-amber-300">
+                  <span className="font-bold">Manual Clean Now:</span> Immediately prune records older than {retentionDays} days into the archive.
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRetentionSettingsModal(false);
+                    handlePruneOldData(retentionDays);
+                  }}
+                  disabled={isPruningData}
+                  className="py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition cursor-pointer whitespace-nowrap ml-3"
+                >
+                  {isPruningData ? "Pruning..." : "Prune Now"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end">
+              <button
+                onClick={() => setShowRetentionSettingsModal(false)}
+                className="py-2 px-5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

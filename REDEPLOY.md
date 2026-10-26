@@ -172,13 +172,26 @@ sed -i 's/DAILY_POST_LIMIT=.*/DAILY_POST_LIMIT=300/' .env
 pm2 restart cmc-bot --update-env
 ```
 
-### 3. Playwright Chromium Missing on Fresh Server
+### 3. Adjusting Posting Speed / Cooldown (`POST_COOLDOWN_SECONDS`)
+The default pacing is **35–45s** between posts (safe human cadence). To increase speed:
+```bash
+# Set to 20s (Fast Turbo — ~50% faster, 40 coins in ~20 minutes)
+grep -q "POST_COOLDOWN_SECONDS" .env && sed -i 's/POST_COOLDOWN_SECONDS=.*/POST_COOLDOWN_SECONDS=20/' .env || echo "POST_COOLDOWN_SECONDS=20" >> .env
+
+# Or set to 12s (Maximum Turbo — 40 coins in ~15 minutes)
+# sed -i 's/POST_COOLDOWN_SECONDS=.*/POST_COOLDOWN_SECONDS=12/' .env
+
+# Apply to PM2
+pm2 restart cmc-bot --update-env
+```
+
+### 4. Playwright Chromium Missing on Fresh Server
 If Playwright logs say Chromium binary not found:
 ```bash
 npx playwright install chromium
 ```
 
-### 4. Session Cookies Not Loaded
+### 5. Session Cookies Not Loaded
 If bot logs report `Session expired / missing cookies`:
 1. Open the web UI in your browser via your Cloudflare tunnel URL.
 2. Go to the **Profiles** tab.

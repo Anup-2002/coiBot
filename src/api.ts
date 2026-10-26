@@ -327,9 +327,11 @@ export const api = {
     return res.json();
   },
 
-  async resetDailyQueue(): Promise<{ success: boolean; message?: string; error?: string }> {
+  async resetDailyQueue(options?: { resetDailyCap?: boolean }): Promise<{ success: boolean; message?: string; error?: string }> {
     const res = await fetch("/api/queue/reset-daily", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options || {}),
     });
     return res.json();
   },
@@ -361,6 +363,103 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetCoinsCount }),
+    });
+    return res.json();
+  },
+
+  async pruneOldData(options?: { profileId?: string; retentionDays?: number; maxKeep?: number }): Promise<{
+    success: boolean;
+    prunedCount: number;
+    remainingCount: number;
+    archivedCount: number;
+    details: string;
+    error?: string;
+  }> {
+    const res = await fetch("/api/data/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options || {}),
+    });
+    return res.json();
+  },
+
+  async getDataRetentionStats(): Promise<{
+    success: boolean;
+    activeCount: number;
+    archivedCount: number;
+    retentionDays: number;
+    autoPruneEnabled: boolean;
+    maxKeep: number;
+    error?: string;
+  }> {
+    const res = await fetch("/api/data/retention-stats");
+    return res.json();
+  },
+
+  async updateDataRetentionSettings(settings: {
+    autoPruneOldDataEnabled?: boolean;
+    dataRetentionDays?: number;
+    maxResultsHistoryCount?: number;
+    autoPruneCompletedBatches?: boolean;
+  }): Promise<{ success: boolean; error?: string }> {
+    const res = await fetch("/api/settings/data-retention", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    return res.json();
+  },
+
+  async adminLogin(password: string): Promise<{ success: boolean; token?: string; error?: string; message?: string }> {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    return res.json();
+  },
+
+  async getAdminAuthStatus(token?: string): Promise<{
+    success: boolean;
+    authRequired: boolean;
+    authenticated: boolean;
+    currentPassword?: string;
+    scheduler?: {
+      enabled: boolean;
+      cycleRunning: boolean;
+      postingRunning: boolean;
+      botStatus: string;
+      nextCycleAt: string | null;
+      isContinuousLoopActive: boolean;
+    };
+  }> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch("/api/auth/status", { headers });
+    return res.json();
+  },
+
+
+  async updateAdminPassword(newPassword: string, token: string): Promise<{ success: boolean; message?: string; token?: string; error?: string; newPassword?: string }> {
+    const res = await fetch("/api/auth/update-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ newPassword }),
+    });
+    return res.json();
+  },
+
+  async toggleAdminAuth(enabled: boolean, token: string): Promise<{ success: boolean; authRequired?: boolean; error?: string }> {
+    const res = await fetch("/api/auth/toggle-auth", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ enabled }),
     });
     return res.json();
   },

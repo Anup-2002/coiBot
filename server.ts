@@ -1,4 +1,3 @@
-import "./src/env";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
@@ -51,7 +50,7 @@ import {
   isMongoEnabled,
   isFirebaseDisabled,
   isMongoPrimary
-} from "./src/storage";
+} from "./src/storage.ts";
 
 import {
   normalizeProfileSchedule,
@@ -59,17 +58,17 @@ import {
   orderDueAccounts,
   nextDueAt,
   parseBotSettings,
-  BotSettings,
   DEFAULT_SETTINGS,
-  ScheduleFrequency,
-  LastRunStatus,
-  ProfileSchedule,
-  ProfileLastRun,
   getNextPeakTradingSession,
   PEAK_TRADING_SESSIONS,
-  PeakSession,
-} from "./src/utils/scheduler";
-import { cleanCommentForCmc } from "./src/utils/formatters";
+  type BotSettings,
+  type ScheduleFrequency,
+  type LastRunStatus,
+  type ProfileSchedule,
+  type ProfileLastRun,
+  type PeakSession,
+} from "./src/utils/scheduler.ts";
+import { cleanCommentForCmc, sanitizeCommentForAntiSpam, generateDynamicUniqueComment } from "./src/utils/formatters.ts";
 
 import express from "express";
 import OpenAI from "openai";
@@ -709,6 +708,10 @@ function readBotProgress(specificProfileId?: string): BotProgressData {
   if (!data.last_post_date || data.last_post_date !== todayStr) {
     data.daily_post_count = 0;
     data.last_post_date = todayStr;
+    writeJsonFile(filePath, data);
+    if (activeId) {
+      saveBotProgressCloud(data, activeId).catch(() => {});
+    }
   } else if (typeof data.daily_post_count !== "number") {
     data.daily_post_count = 0;
   }
@@ -786,6 +789,113 @@ function addLog(level: "info" | "success" | "warning" | "error", message: string
   }
   triggerLogSync();
 }
+
+function pruneOldAndCompletedData(targetProfileId?: string | null): {
+  prunedCount: number;
+  remainingCount: number;
+  archivedCount: number;
+  details: string;
+} {
+  try {
+    const settings = getLocalBotSettings();
+    if (settings.autoPruneOldDataEnabled === false) {
+      return { prunedCount: 0, remainingCount: 0, archivedCount: 0, details: "Data retention auto-pruning is disabled in settings." };
+    }
+
+    const retentionDays = settings.dataRetentionDays && settings.dataRetentionDays > 0 ? settings.dataRetentionDays : 7;
+    const maxKeep = settings.maxResultsHistoryCount && settings.maxResultsHistoryCount > 0 ? settings.maxResultsHistoryCount : 300;
+    const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+
+    let targetProfiles: string[] = [];
+    if (targetProfileId) {
+      targetProfiles = [targetProfileId];
+    } else if (fs.existsSync(PROFILES_FILE)) {
+      try {
+        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+        targetProfiles = profiles.map((p: any) => p.id).filter(Boolean);
+      } catch (_) {}
+    }
+
+    let totalPruned = 0;
+    let totalRemaining = 0;
+    let totalArchived = 0;
+
+    const itemsToCheck: { pid: string | null; resFile: string; arcFile: string }[] = targetProfiles.map((pid) => ({
+      pid,
+      resFile: path.join(OUTPUT_DIR, pid, "results.json"),
+      arcFile: path.join(OUTPUT_DIR, pid, "archived_results.json")
+    }));
+    itemsToCheck.push({
+      pid: null,
+      resFile: path.join(OUTPUT_DIR, "results.json"),
+      arcFile: path.join(OUTPUT_DIR, "archived_results.json")
+    });
+
+    for (const item of itemsToCheck) {
+      if (!fs.existsSync(item.resFile)) continue;
+      const allResults = readJsonFile<PostResult[]>(item.resFile, []);
+      if (!allResults || allResults.length === 0) continue;
+
+      const keptResults: PostResult[] = [];
+      const prunedResults: PostResult[] = [];
+
+      for (const res of allResults) {
+        const itemCreated = res.createdAt || (res.timestamp ? new Date(res.timestamp).getTime() : 0);
+        if (itemCreated > 0 && itemCreated < cutoffTime) {
+          prunedResults.push(res);
+        } else {
+          keptResults.push(res);
+        }
+      }
+
+      if (keptResults.length > maxKeep) {
+        const excessCount = keptResults.length - maxKeep;
+        const excess = keptResults.slice(0, excessCount);
+        prunedResults.push(...excess);
+        keptResults.splice(0, excessCount);
+      }
+
+      if (prunedResults.length > 0) {
+        const existingArchive = readJsonFile<PostResult[]>(item.arcFile, []);
+        const mergedArchive = [...existingArchive, ...prunedResults];
+        const cappedArchive = mergedArchive.slice(-2500);
+        writeJsonFile(item.arcFile, cappedArchive);
+        writeJsonFile(item.resFile, keptResults);
+
+        totalPruned += prunedResults.length;
+        totalArchived += prunedResults.length;
+        totalRemaining += keptResults.length;
+
+        if (item.pid) {
+          savePostResultsCloud(keptResults, item.pid).catch(() => {});
+        }
+      } else {
+        totalRemaining += keptResults.length;
+      }
+    }
+
+    if (totalPruned > 0) {
+      addLog("info", `[DATA RETENTION] Auto-pruned ${totalPruned} old submission records older than ${retentionDays} days. Kept ${totalRemaining} active records. Safely archived.`);
+    }
+
+    return {
+      prunedCount: totalPruned,
+      remainingCount: totalRemaining,
+      archivedCount: totalArchived,
+      details: `Pruned ${totalPruned} submissions older than ${retentionDays} days. Active pool size: ${totalRemaining}.`
+    };
+  } catch (err) {
+    console.error("[DATA RETENTION] Error during auto-pruning:", err);
+    return { prunedCount: 0, remainingCount: 0, archivedCount: 0, details: (err as Error).message };
+  }
+}
+
+// Initial data retention check at startup to prune accumulated old data
+setTimeout(() => {
+  try {
+    pruneOldAndCompletedData();
+  } catch (_) {}
+}, 3000);
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   let timeoutId: NodeJS.Timeout;
@@ -970,6 +1080,7 @@ interface PostResult {
   status: "success" | "captcha" | "expired" | "failed" | "retry" | "skipped";
   message: string;
   timestamp: string;
+  createdAt?: number;
   sentiment?: "bullish" | "bearish" | "neutral";
   profileId?: string;
 }
@@ -1096,10 +1207,13 @@ function cancelNextAutomationCycle() {
 
 async function triggerFullFlowExecution() {
   const activeId = getActiveProfileId();
+  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const activeProfile = rawProfiles.find(p => p.id === activeId);
   const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
 
-  if (!activeId || !sessionExists) {
-    addLog("error", "[AUTOMATION] Cannot run continuous cycle: No active account profile or authenticated session found. Disabling loop.");
+  if (!activeId || !hasValidAuth) {
+    addLog("error", "[AUTOMATION] Continuous automation loop cancelled: Active profile is missing a valid authenticated session. Please log in or import cookies to resume.");
     cancelNextAutomationCycle();
     botStatus = "Idle";
     return;
@@ -1204,7 +1318,7 @@ interface LoginSession {
 }
 let activeLoginSession: LoginSession | null = null;
 let loginState: {
-  status: "idle" | "authenticating" | "requires_otp" | "success" | "failed";
+  status: "idle" | "authenticating" | "requires_otp" | "success" | "failed" | "captcha";
   message: string;
 } = { status: "idle", message: "" };
 
@@ -1338,6 +1452,35 @@ async function fillInputResiliently(page: any, input: any, value: string) {
   }
 }
 
+// Humanized typing simulation with natural micro-jitter, space pauses, and punctuation rhythm
+// Guarantees absence of flat-delay bot signatures detected by WAFs / anti-bot suites
+async function typeWithHumanRhythm(page: any, text: string): Promise<void> {
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    await page.keyboard.type(char);
+
+    // Realistic human keystroke interval (35ms - 75ms)
+    let charDelay = 35 + Math.floor(Math.random() * 45);
+
+    // Natural pauses:
+    // Punctuation pause (commas, periods, questions): human thought rhythm
+    if (char === '.' || char === '!' || char === '?') {
+      charDelay += 180 + Math.floor(Math.random() * 220);
+    } else if (char === ',' || char === ';' || char === ':') {
+      charDelay += 100 + Math.floor(Math.random() * 120);
+    } else if (char === ' ') {
+      charDelay += 40 + Math.floor(Math.random() * 60);
+    }
+
+    // Micro-jitter: 5% chance of slight cognitive hesitation (120-220ms)
+    if (Math.random() < 0.05) {
+      charDelay += 120 + Math.floor(Math.random() * 100);
+    }
+
+    await page.waitForTimeout(charDelay);
+  }
+}
+
 async function locateAndPrepareCommentEditor(page: any): Promise<any> {
   // 1. Purge all blocking overlays/cookie banners immediately via extremely fast DOM script
   await removeBlockingOverlays(page).catch(() => {});
@@ -1416,6 +1559,44 @@ async function locateAndPrepareCommentEditor(page: any): Promise<any> {
     }
   } catch (err) {
     addLog("warning", `Comment editor not visible via main selector: ${(err as Error).message}`);
+  }
+
+  // 5.5. Heuristic DOM element scanner fallback (Frontend Redesign & Class Obfuscation Protection)
+  try {
+    addLog("info", "Executing heuristic DOM element scanner fallback for comment editor...");
+    const fallbackEditorHandle = await page.evaluateHandle(() => {
+      // 1. Check all elements with contenteditable="true" or role="textbox"
+      const editables = Array.from(document.querySelectorAll('[contenteditable="true"], [contenteditable=""], [role="textbox"], textarea'));
+      for (const el of editables) {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (rect.width > 50 && rect.height > 20 && style.visibility !== "hidden" && style.display !== "none") {
+          return el;
+        }
+      }
+      // 2. Check for inputs inside containers mentioning comments/thoughts/discussion/feed
+      const containers = Array.from(document.querySelectorAll('div, section, article, form, [class*="community" i]'));
+      for (const c of containers) {
+        const text = (c as HTMLElement).innerText || "";
+        const lower = text.toLowerCase();
+        if (lower.includes("share your thoughts") || lower.includes("write a comment") || lower.includes("leave a comment") || lower.includes("join discussion")) {
+          const input = c.querySelector('textarea, div[contenteditable], [role="textbox"], input[type="text"]');
+          if (input) return input;
+        }
+      }
+      return null;
+    });
+
+    const el = fallbackEditorHandle?.asElement();
+    if (el) {
+      const isVisible = await el.isVisible().catch(() => false);
+      if (isVisible) {
+        addLog("success", "Successfully located comment editor using heuristic DOM scanner fallback!");
+        return el;
+      }
+    }
+  } catch (heurErr) {
+    addLog("warning", `Heuristic editor search warning: ${(heurErr as Error).message}`);
   }
 
   // 6. Check frames as a fallback
@@ -1583,9 +1764,10 @@ function hasRealAuthCookies(cookies: any[]): boolean {
   return cookies.some((c: any) => {
     const n = (c.name || "").trim().toLowerCase();
     const v = (c.value || "").trim();
-    if (n === "authorization" && v.length > 20) return true;
-    if (n === "u-prod" && v.length > 20) return true;
-    if ((n === "token" || n === "access_token" || n === "auth_token") && v.length > 30) return true;
+    // Genuine JWT token or Bearer authorization header cookie
+    if (n === "authorization" && (v.startsWith("Bearer ") || v.startsWith("eyJ") || v.length > 30)) return true;
+    if (n === "cmc_user_session" && v.length > 15) return true;
+    if ((n === "token" || n === "access_token" || n === "auth_token") && (v.startsWith("eyJ") || v.length > 40)) return true;
     return false;
   });
 }
@@ -2204,27 +2386,64 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       let isSuccessEarly = false;
       let isOtpEarly = false;
 
-      // Poll up to 35 seconds (70 x 500ms) for authentication cookies, localStorage, or OTP challenge
-      for (let p = 0; p < 70; p++) {
+      // Poll up to 25 seconds (50 x 500ms) for authentication verification, errors, or OTP challenge
+      let detectedError = "";
+      for (let p = 0; p < 50; p++) {
         await page.waitForTimeout(500);
 
-        const currentCookies = await context.cookies().catch(() => []);
-        const hasAuthCookies = hasRealAuthCookies(currentCookies);
-
-        const hasAvatar = await page.evaluate(() => {
-          return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
+        // 1. Immediate check for Cloudflare Turnstile / Captcha
+        const hasCaptcha = await page.evaluate(() => {
+          return document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile, iframe[src*="challenges.cloudflare"]') !== null;
         }).catch(() => false);
+        if (hasCaptcha) {
+          addLog("error", "Cloudflare Turnstile challenge detected during credentials submission.");
+          activeLoginSession = { browser, context, page, email };
+          loginState = { status: "captcha", message: "Cloudflare Turnstile verification challenge detected." };
+          return { status: "captcha", message: "Cloudflare Turnstile challenge detected." };
+        }
 
-        const isRedirectedHome = await page.evaluate(() => {
-          const url = window.location.href;
-          return !url.includes("/login") && !url.includes("/signin") && !url.includes("/auth");
-        }).catch(() => false);
+        // 2. Immediate check for visible error messages on every poll iteration (instant failure feedback)
+        try {
+          const visibleErr = await page.evaluate(() => {
+            const errorSelectors = [
+              '.error-message',
+              '.errorMessage',
+              '[class*="error-message" i]',
+              '[class*="errorMessage" i]',
+              '[class*="form-error" i]',
+              '[class*="FormError" i]',
+              '[role="alert"]',
+              '.error',
+            ];
+            for (const sel of errorSelectors) {
+              const els = document.querySelectorAll(sel);
+              for (let i = 0; i < els.length; i++) {
+                const el = els[i] as HTMLElement;
+                if (!el || el.offsetParent === null) continue;
+                const text = (el.innerText || "").trim();
+                const lower = text.toLowerCase();
+                if (
+                  text.length > 3 &&
+                  !lower.includes("sign up") &&
+                  !lower.includes("terms") &&
+                  !lower.includes("cookie") &&
+                  (lower.includes("wrong") || lower.includes("incorrect") || lower.includes("invalid") || lower.includes("failed") || lower.includes("not match") || lower.includes("does not exist") || lower.includes("too many attempts") || lower.includes("locked"))
+                ) {
+                  return text;
+                }
+              }
+            }
+            return null;
+          }).catch(() => null);
 
-        const isModalGone = await page.evaluate(() => {
-          const modal = document.querySelector('div[role="dialog"]');
-          return !modal || (modal as HTMLElement).offsetParent === null;
-        }).catch(() => false);
+          if (visibleErr) {
+            detectedError = visibleErr;
+            addLog("error", `CoinMarketCap rejected credentials: "${visibleErr}"`);
+            break;
+          }
+        } catch (_) {}
 
+        // 3. Check for 6-digit verification code / OTP challenge
         const hasOtpField = await page.evaluate(() => {
           const inp = document.querySelector('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"], [data-test*="otp" i], [data-test*="verification" i]');
           const bodyText = (document.body.innerText || "").toLowerCase();
@@ -2236,15 +2455,30 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
           break;
         }
 
-        // Only declare early success if real auth cookies are confirmed AND either avatar appeared or modal closed and user redirected (with p >= 4 to allow network requests to settle)
-        if (hasAuthCookies && (hasAvatar || (isModalGone && isRedirectedHome)) && p >= 4) {
+        // 4. Strict authentication check: requires avatar OR verified user session
+        const currentCookies = await context.cookies().catch(() => []);
+        const hasAuthCookies = hasRealAuthCookies(currentCookies);
+
+        const hasAvatar = await page.evaluate(() => {
+          return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
+        }).catch(() => false);
+
+        // Only declare early success if genuine user avatar is present, or verified JWT auth cookie with settled state (p >= 4)
+        if (hasAvatar || (hasAuthCookies && p >= 4)) {
           isSuccessEarly = true;
           break;
         }
 
         if (p % 10 === 0 && p > 0) {
-          loginState = { status: "authenticating", message: `Processing authentication with CoinMarketCap (${Math.round((p / 70) * 100)}%)...` };
+          loginState = { status: "authenticating", message: `Processing authentication with CoinMarketCap (${Math.round((p / 50) * 100)}%)...` };
         }
+      }
+
+      if (detectedError) {
+        await browser.close().catch(() => {});
+        loginState = { status: "failed", message: `Login failed: ${detectedError}` };
+        botStatus = "Idle";
+        return { status: "failed", message: `Login failed: ${detectedError}` };
       }
 
       if (isSuccessEarly) {
@@ -2274,81 +2508,58 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
       }
 
-      // Check if visible error is present inside modal with strict validation (must be genuine error text, not generic form labels)
-      let modalErrorMessage = "";
-      try {
-        const errorSelectors = [
-          '.error-message',
-          '.errorMessage',
-          '[class*="error-message" i]',
-          '[class*="errorMessage" i]',
-          '[class*="form-error" i]',
-          '[class*="FormError" i]',
-          '[role="alert"]',
-        ];
-        for (const sel of errorSelectors) {
-          const errorEls = await page.$$(sel);
-          for (const errorEl of errorEls) {
-            const isVisible = await errorEl.isVisible().catch(() => false);
-            if (!isVisible) continue;
-
-            const rect = await errorEl.boundingBox().catch(() => null);
-            if (!rect || rect.height < 5 || rect.width < 10) continue;
-
-            const text = (await errorEl.innerText().catch(() => "")).trim();
-            const lower = text.toLowerCase();
-            // Filter out common false positives and non-error UI texts
-            if (
-              text &&
-              !lower.includes("at least") &&
-              !lower.includes("sign up") &&
-              !lower.includes("log in") &&
-              !lower.includes("forgot password") &&
-              !lower.includes("continue with") &&
-              !lower.includes("terms") &&
-              !lower.includes("cookie") &&
-              (lower.includes("wrong") || lower.includes("incorrect") || lower.includes("invalid") || lower.includes("failed") || lower.includes("not match") || lower.includes("error") || lower.includes("does not exist") || lower.includes("disabled") || lower.includes("locked"))
-            ) {
-              modalErrorMessage = text;
-              addLog("warning", `Detected verified error message: "${text}"`);
-              break;
-            }
-          }
-          if (modalErrorMessage) break;
-        }
-      } catch {}
-
-      // Pre-check cookies right now before navigating away
-      const midCheckCookies = await context.cookies().catch(() => []);
-      const midHasAuth = hasRealAuthCookies(midCheckCookies);
-
-      if (midHasAuth) {
-        addLog("success", "Verified authentic CoinMarketCap authorization cookies in browser context!");
-        await context.storageState({ path: AUTH_STATE_FILE });
-        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
-
+      // Check if visible error is present inside modal with strict validation
+      let modalErrorMessage = detectedError;
+      if (!modalErrorMessage) {
         try {
-          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-          const activeId = getActiveProfileId();
-          await saveSessionStateCloud(cookiesStr, activeId || undefined);
-          await autoSyncSessionToProfiles(cookiesStr, email);
-        } catch (e) {
-          console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
-        }
+          const errorSelectors = [
+            '.error-message',
+            '.errorMessage',
+            '[class*="error-message" i]',
+            '[class*="errorMessage" i]',
+            '[class*="form-error" i]',
+            '[class*="FormError" i]',
+            '[role="alert"]',
+          ];
+          for (const sel of errorSelectors) {
+            const errorEls = await page.$$(sel);
+            for (const errorEl of errorEls) {
+              const isVisible = await errorEl.isVisible().catch(() => false);
+              if (!isVisible) continue;
 
+              const text = (await errorEl.innerText().catch(() => "")).trim();
+              const lower = text.toLowerCase();
+              if (
+                text &&
+                !lower.includes("sign up") &&
+                !lower.includes("terms") &&
+                !lower.includes("cookie") &&
+                (lower.includes("wrong") || lower.includes("incorrect") || lower.includes("invalid") || lower.includes("failed") || lower.includes("not match") || lower.includes("error") || lower.includes("does not exist") || lower.includes("disabled") || lower.includes("locked"))
+              ) {
+                modalErrorMessage = text;
+                addLog("warning", `Detected verified error message: "${text}"`);
+                break;
+              }
+            }
+            if (modalErrorMessage) break;
+          }
+        } catch {}
+      }
+
+      if (modalErrorMessage) {
         await browser.close().catch(() => {});
-        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
         botStatus = "Idle";
-        return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
       }
 
       // Secondary verification on bitcoin community page
       addLog("info", "Performing secondary verification on community page...");
       loginState = { status: "authenticating", message: "Verifying live session cookies on CoinMarketCap community..." };
       try {
-        await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 25000 });
+        await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 20000 });
       } catch (_) {}
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
       const secondaryCookies = await context.cookies().catch(() => []);
       const hasSecondaryAuth = hasRealAuthCookies(secondaryCookies);
@@ -2360,7 +2571,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       const secondaryEditor = await locateAndPrepareCommentEditor(page).catch(() => null);
       const editorRequiresLogin = await isEditorPostButtonRequiringLogin(page);
 
-      if (!editorRequiresLogin && (hasSecondaryAuth || (secondaryAvatar && secondaryEditor))) {
+      if (!editorRequiresLogin && (secondaryAvatar || (hasSecondaryAuth && secondaryEditor))) {
         addLog("success", "Successfully authenticated and verified community access!");
         await context.storageState({ path: AUTH_STATE_FILE });
         addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
@@ -2773,8 +2984,8 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
     } catch (_) {}
 
-    // Clean comment using cleanCommentForCmc so there are NEVER duplicate tags or cashtags
-    let textToType = cleanCommentForCmc(finalComment, existingTag).trim();
+    // Clean comment using sanitizeCommentForAntiSpam so there are NEVER duplicate tags, spam words, or formatting glitches
+    let textToType = sanitizeCommentForAntiSpam(finalComment, existingTag).trim();
 
     // Guarantee physical separation after CMC's Draft.js tag chip so words NEVER glue together (e.g. prevents "$DGAISeeing")
     const hasPreExistingTag = Boolean(existingTag || currentEditorText.trim().length > 0);
@@ -2790,17 +3001,22 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
     }
 
-    addLog("info", `Typing comment into editor: "${textToType.trim()}" (with tag separation guaranteed)`);
+    addLog("info", `Typing comment into editor using human typing cadence: "${textToType.trim()}" (anti-ban simulation active)`);
     try {
-      await editor.type(textToType, { delay: 15 });
+      // Humanized typing simulation with natural micro-jitter, punctuation pacing, and word breaks
+      await typeWithHumanRhythm(page, textToType);
+      
       // CoinMarketCap displays a coin tag autocomplete popup when "$" is typed.
       // Pressing Escape dismisses the autocomplete popup while retaining the tag.
       await page.waitForTimeout(300);
       await page.keyboard.press("Escape").catch(() => {});
       await page.keyboard.press("Escape").catch(() => {});
-      await page.waitForTimeout(200);
+      
+      // Human cognitive delay: Pause to simulate reading/reviewing the comment before clicking submit
+      const reviewPause = 800 + Math.floor(Math.random() * 800);
+      await page.waitForTimeout(reviewPause);
     } catch (e) {
-      addLog("warning", `Direct typing failed: ${(e as Error).message}. Using page.evaluate fallback...`);
+      addLog("warning", `Direct human typing failed: ${(e as Error).message}. Using page.evaluate fallback...`);
       try {
         await editor.evaluate((el: any, msg: string) => {
           const element = el as HTMLElement;
@@ -2882,13 +3098,23 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       'button:has-text("Bullish")',
       'span:has-text("Bullish")',
       '.bullish-button',
-      '[class*="bullish" i]'
+      '[class*="bullish" i]',
+      'button:has-text("Bull")',
+      '[data-test*="bullish" i]',
+      '[aria-label*="bullish" i]',
+      'button:has-text("🚀")',
+      'button:has-text("🐂")'
     ] : [
       '[data-test="editor-bearish-button"]',
       'button:has-text("Bearish")',
       'span:has-text("Bearish")',
       '.bearish-button',
-      '[class*="bearish" i]'
+      '[class*="bearish" i]',
+      'button:has-text("Bear")',
+      '[data-test*="bearish" i]',
+      '[aria-label*="bearish" i]',
+      'button:has-text("📉")',
+      'button:has-text("🐻")'
     ];
     let sentimentBtn = null;
     for (const selector of sentimentSelectors) {
@@ -2906,14 +3132,24 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       addLog("warning", `Could not find ${isBullish ? "bullish" : "bearish"} sentiment toggle button.`);
     }
     
-    // Find Post submit button
+    // Find Post submit button with multi-tier selectors and heuristic fallback
     const postButtonSelectors = [
       '[data-test="editor-post-button"]',
       'button:has-text("Post")',
       'button:has-text("Submit")',
       'button:has-text("Comment")',
       'button.editor-post-button',
-      '.editor-post-button'
+      '.editor-post-button',
+      'button:has-text("Publish")',
+      'button[type="submit"]',
+      '[role="button"]:has-text("Post")',
+      '[role="button"]:has-text("Submit")',
+      'div:has-text("Post")[role="button"]',
+      'span:has-text("Post")',
+      'button[aria-label*="post" i]',
+      'button[aria-label*="submit" i]',
+      'button[data-testid*="post" i]',
+      'button[data-testid*="submit" i]'
     ];
     let postBtn = null;
     for (const selector of postButtonSelectors) {
@@ -2922,6 +3158,36 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
         addLog("info", `Found submit button using: ${selector}`);
         break;
       }
+    }
+
+    // Heuristic DOM evaluation fallback for Post button (protection against obfuscated class names)
+    if (!postBtn) {
+      try {
+        addLog("info", "Executing heuristic DOM scanner fallback for post button...");
+        const fallbackBtnHandle = await page.evaluateHandle(() => {
+          const buttons = Array.from(document.querySelectorAll('button, [role="button"], div[style*="cursor: pointer"], span[role="button"]'));
+          for (const btn of buttons) {
+            const txt = ((btn as HTMLElement).innerText || "").trim().toLowerCase();
+            const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+            if (txt === "post" || txt === "submit" || txt === "publish" || txt === "comment" || aria.includes("post") || aria.includes("submit")) {
+              const rect = (btn as HTMLElement).getBoundingClientRect();
+              const style = window.getComputedStyle(btn);
+              if (rect.width > 20 && rect.height > 15 && style.visibility !== "hidden" && style.display !== "none") {
+                return btn;
+              }
+            }
+          }
+          return null;
+        });
+        const el = fallbackBtnHandle?.asElement();
+        if (el) {
+          const isVisible = await el.isVisible().catch(() => false);
+          if (isVisible) {
+            addLog("success", "Located post button using heuristic DOM scanner fallback!");
+            postBtn = el;
+          }
+        }
+      } catch (_) {}
     }
 
     if (!postBtn) {
@@ -2941,33 +3207,71 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       return { status: "failed", message: "Posting sequence stopped by user." };
     }
 
+    // Natural human hover and pause before clicking Post button
+    await postBtn.hover().catch(() => {});
+    await page.waitForTimeout(300 + Math.floor(Math.random() * 400));
+
     addLog("info", "Clicking post submission button...");
     await clickResiliently(page, postBtn, "post submission button");
     
     // Wait for submission to process
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(3500);
     
-    // Item 12: Scope rate-limit detection near comment editor, toast alerts, or feedback containers
+    // Anti-Ban & Moderation Detection: Scan alerts, feedback, toasts, and DOM error notices
     let isRateLimited = false;
     let rateLimitMsg = "";
+    let isModerationFlagged = false;
+    let moderationMsg = "";
+    let isAccountRestricted = false;
+    let accountRestrictedMsg = "";
+
     try {
       const feedbackContainers = await page.$$('[role="alert"], [class*="toast" i], [class*="notification" i], [class*="feedback" i], [class*="error" i], [class*="alert" i], [data-test="editor-error"], .editor-area, form');
       for (const fc of feedbackContainers) {
         if (await fc.isVisible().catch(() => false)) {
-          const txt = (await fc.innerText().catch(() => "")).toLowerCase();
+          const txt = (await fc.innerText().catch(() => "")).toLowerCase().trim();
+          if (!txt) continue;
+
+          // 1. Rate-limit triggers
           if (txt.includes("frequent") || txt.includes("too fast") || txt.includes("rate limit") || txt.includes("seconds before") || txt.includes("please wait")) {
             isRateLimited = true;
             rateLimitMsg = txt;
+            break;
+          }
+
+          // 2. Account ban or restriction triggers
+          if (txt.includes("account suspended") || txt.includes("account restricted") || txt.includes("banned from commenting") || txt.includes("account blocked") || txt.includes("temporarily restricted")) {
+            isAccountRestricted = true;
+            accountRestrictedMsg = txt;
+            break;
+          }
+
+          // 3. Moderation / content removal triggers
+          if (txt.includes("prohibited") || txt.includes("violate") || txt.includes("guidelines") || txt.includes("forbidden") || txt.includes("restricted words") || txt.includes("cannot be posted") || txt.includes("under review") || txt.includes("spam detected")) {
+            isModerationFlagged = true;
+            moderationMsg = txt;
             break;
           }
         }
       }
     } catch (_) {}
 
+    if (isAccountRestricted) {
+      addLog("error", `CRITICAL: CoinMarketCap account restriction detected: "${accountRestrictedMsg.slice(0, 100)}". Halting posting to protect account.`);
+      await saveDebugScreenshot(page, "account_restricted_submission");
+      return { status: "expired", message: `Account restricted: ${accountRestrictedMsg.slice(0, 100)}` };
+    }
+
     if (isRateLimited) {
       addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
       await saveDebugScreenshot(page, "rate_limited_submission");
       return { status: "retry", message: "Rate limited on submission" };
+    }
+
+    if (isModerationFlagged) {
+      addLog("warning", `CoinMarketCap content moderation filter flagged comment: "${moderationMsg.slice(0, 80)}"`);
+      await saveDebugScreenshot(page, "moderation_flagged_submission");
+      return { status: "failed", message: `Moderation filter triggered: ${moderationMsg.slice(0, 80)}` };
     }
     
     addLog("success", "Successfully submitted post via Playwright browser context!");
@@ -3945,6 +4249,12 @@ app.get("/api/status", async (req, res) => {
       imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
       activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
       availableImagesCount: getAvailableMarketingImages().length,
+      dataRetention: {
+        autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
+        dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,
+        maxResultsHistoryCount: getLocalBotSettings().maxResultsHistoryCount || 300,
+        autoPruneCompletedBatches: getLocalBotSettings().autoPruneCompletedBatches !== false,
+      },
     });
   }
 
@@ -4033,6 +4343,12 @@ app.get("/api/status", async (req, res) => {
     imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
     activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
     availableImagesCount: getAvailableMarketingImages().length,
+    dataRetention: {
+      autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
+      dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,
+      maxResultsHistoryCount: getLocalBotSettings().maxResultsHistoryCount || 300,
+      autoPruneCompletedBatches: getLocalBotSettings().autoPruneCompletedBatches !== false,
+    },
   });
 });
 
@@ -4594,8 +4910,11 @@ app.post("/api/set-continuous-loop", (req, res) => {
 
   if (active && !isContinuousLoopActive) {
     const activeId = getActiveProfileId();
+    const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const activeProfile = rawProfiles.find(p => p.id === activeId);
     const sessionExists = fs.existsSync(AUTH_STATE_FILE);
-    if (!activeId || !sessionExists) {
+    const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
+    if (!activeId || !hasValidAuth) {
       addLog("error", "Cannot enable Continuous Automation Loop without an active, authenticated account session.");
       return res.status(400).json({ success: false, error: "Cannot enable Continuous Automation Loop without an active, authenticated account session. Please import or log into an account profile first." });
     }
@@ -5065,9 +5384,10 @@ app.post("/api/retry-single", async (req, res) => {
       status: outcome,
       message: messageText,
       timestamp: new Date().toLocaleTimeString(),
+      createdAt: Date.now(),
       sentiment: item.sentiment || "bullish",
       profileId: getActiveProfileId() || undefined,
-    };
+    } as any;
 
     if (existingIdx !== -1) {
       results[existingIdx] = newResultEntry;
@@ -5432,11 +5752,14 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
   }
 
   const generatedMessages: GeneratedMessage[] = [];
+  const getCoinKey = (c: { symbol: string; url?: string; name?: string }): string => {
+    return (c.url || `${c.name || ''}_${c.symbol}`).trim().toLowerCase();
+  };
 
-  // Helper to check which coins are still missing generated comments
+  // Helper to check which coins are still missing generated comments (1-to-1 match for every coin)
   const getMissingCoins = (): Coin[] => {
-    const existingSymbols = new Set(generatedMessages.map(m => m.symbol.toLowerCase()));
-    return coins.filter(c => !existingSymbols.has(c.symbol.toLowerCase()));
+    const existingKeys = new Set(generatedMessages.map(m => getCoinKey(m)));
+    return coins.filter(c => !existingKeys.has(getCoinKey(c)));
   };
 
   // 1. Primary Model: OpenAI gpt-4o-mini
@@ -5462,7 +5785,9 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         const prompt = `
           Generate ONE unique, insightful, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          CRITICAL Anti-Spam & Authenticity Rules:
+          CRITICAL Anti-Spam & Moderation Rules (Preventing Comment Removal & Account Bans):
+          - ANTI-REMOVAL DIRECTIVE: CoinMarketCap automated moderation flags and removes repetitive comments, promotional hype, or generic bot spam. Write authentic, analytical commentary as an experienced crypto trader analyzing the chart and order book.
+          - STRICTLY FORBIDDEN: NEVER use spam words like "100x", "moon", "pump", "dump", "presale", "airdrop", "telegram", "whatsapp", "dm me", or links.
           - DO NOT write any cashtag prefix like "$BTC", "$ETH", "$DGAI" or "#SYMBOL". CoinMarketCap already attaches and displays the official coin cashtag chip automatically on the comment. Writing "$SYMBOL" causes duplicate tags and glued text.
           - STRICTLY FORBIDDEN REPETITIVE PHRASES: Do NOT use phrases like "struggling to find its footing", "anyone else worried about this recent dip", "could this be the start of something bigger", "making small gains today", "is a bummer", "showing signs of weakness", "turnaround on the horizon".
           - Rotate dynamically across these 5 authentic trader archetypes:
@@ -5471,7 +5796,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
             3. Relative Strength & Accumulation (e.g. "Showing solid relative strength while broader markets remain choppy. Steady accumulation taking place.")
             4. Community & Market Debate (e.g. "Testing the upper bounds of the range on expanding volume. Are you holding spot or scaling out here?")
             5. Short & Punchy Reaction (e.g. "Chart structure looking very constructive into the daily close. Watching key levels.")
-          - 1 to 2 natural sentences. Varied lengths (some 8-12 words, some 15-22 words).
+          - 1 to 2 natural sentences. Varied lengths (some 10-14 words, some 16-24 words).
           - No emojis. No hashtags (#). No disclaimers ("not financial advice").
           - No two comments should share the same opening words or sentence structure!
 
@@ -5494,17 +5819,17 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
           model: "gpt-4o-mini",
           messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" },
-          temperature: 0.8,
+          temperature: 0.85,
           max_tokens: 4000,
         });
 
         const rawText = response.choices[0].message.content || "{}";
         const parsed = JSON.parse(rawText.trim());
         if (parsed.messages && Array.isArray(parsed.messages)) {
-          parsed.messages.forEach((msg: any) => {
-            const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
-            if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
-              const formattedComment = cleanCommentForCmc(msg.message, matchCoin.symbol);
+          parsed.messages.forEach((msg: any, msgIdx: number) => {
+            const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase() && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(c))) || (chunk[msgIdx] && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(chunk[msgIdx])) ? chunk[msgIdx] : null);
+            if (matchCoin && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(matchCoin))) {
+              const formattedComment = sanitizeCommentForAntiSpam(msg.message, matchCoin.symbol);
               generatedMessages.push({
                 name: matchCoin.name,
                 symbol: matchCoin.symbol,
@@ -5552,7 +5877,9 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
         const prompt = `
           Generate ONE unique, insightful, human-sounding crypto community comment for EACH of the following coins, AND classify the sentiment as either "bullish" or "bearish".
 
-          CRITICAL Anti-Spam & Authenticity Rules:
+          CRITICAL Anti-Spam & Moderation Rules (Preventing Comment Removal & Account Bans):
+          - ANTI-REMOVAL DIRECTIVE: CoinMarketCap automated moderation flags and removes repetitive comments, promotional hype, or generic bot spam. Write authentic, analytical commentary as an experienced crypto trader analyzing the chart and order book.
+          - STRICTLY FORBIDDEN: NEVER use spam words like "100x", "moon", "pump", "dump", "presale", "airdrop", "telegram", "whatsapp", "dm me", or links.
           - DO NOT write any cashtag prefix like "$BTC", "$ETH", "$DGAI" or "#SYMBOL". CoinMarketCap already attaches and displays the official coin cashtag chip automatically on the comment. Writing "$SYMBOL" causes duplicate tags and glued text.
           - STRICTLY FORBIDDEN REPETITIVE PHRASES: Do NOT use phrases like "struggling to find its footing", "anyone else worried about this recent dip", "could this be the start of something bigger", "making small gains today", "is a bummer", "showing signs of weakness", "turnaround on the horizon".
           - Rotate dynamically across these 5 authentic trader archetypes:
@@ -5561,7 +5888,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
             3. Relative Strength & Accumulation (e.g. "Showing solid relative strength while broader markets remain choppy. Steady accumulation taking place.")
             4. Community & Market Debate (e.g. "Testing the upper bounds of the range on expanding volume. Are you holding spot or scaling out here?")
             5. Short & Punchy Reaction (e.g. "Chart structure looking very constructive into the daily close. Watching key levels.")
-          - 1 to 2 natural sentences. Varied lengths (some 8-12 words, some 15-22 words).
+          - 1 to 2 natural sentences. Varied lengths (some 10-14 words, some 16-24 words).
           - No emojis. No hashtags (#). No disclaimers ("not financial advice").
           - No two comments should share the same opening words or sentence structure!
 
@@ -5625,10 +5952,10 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
           const rawText = response.text || "{}";
           const parsed = JSON.parse(rawText.trim());
           if (parsed.messages && Array.isArray(parsed.messages)) {
-            parsed.messages.forEach((msg: any) => {
-              const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase());
-              if (matchCoin && !generatedMessages.some(m => m.symbol.toLowerCase() === matchCoin.symbol.toLowerCase())) {
-                const formattedComment = cleanCommentForCmc(msg.message, matchCoin.symbol);
+            parsed.messages.forEach((msg: any, msgIdx: number) => {
+              const matchCoin = chunk.find(c => c.symbol.toLowerCase() === msg.symbol?.toLowerCase() && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(c))) || (chunk[msgIdx] && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(chunk[msgIdx])) ? chunk[msgIdx] : null);
+              if (matchCoin && !generatedMessages.some(m => getCoinKey(m) === getCoinKey(matchCoin))) {
+                const formattedComment = sanitizeCommentForAntiSpam(msg.message, matchCoin.symbol);
                 generatedMessages.push({
                   name: matchCoin.name,
                   symbol: matchCoin.symbol,
@@ -5648,44 +5975,24 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     }
   }
 
-  // 3. Fill ANY remaining missing coins from templates (Item 6)
+  // 3. Fill ANY remaining missing coins using high-diversity dynamic anti-spam generator (Item 6)
   const remainingMissing = getMissingCoins();
   if (remainingMissing.length > 0) {
-    addLog("warning", `Filling ${remainingMissing.length} remaining comments using rule-based templates...`);
+    addLog("warning", `Filling ${remainingMissing.length} remaining comments using dynamic anti-spam generator (100% lexical diversity)...`);
     
-    const templates = {
-      bullish: [
-        (c: Coin) => `Showing solid price action and defending key levels on the 4H chart. Watch for volume confirmation on the next push.`,
-        (c: Coin) => `Volume structure continues to build steady support here. Healthy accumulation taking place across recent trading sessions.`,
-        (c: Coin) => `Clean consolidation above local structure with solid bid interest. Looking for continuation if local resistance gets tested.`,
-        (c: Coin) => `Order flow looks constructive around this zone. Accumulation holding up nicely despite broader market chop.`,
-        (c: Coin) => `Testing key resistance on expanding buyer interest. Let's see if follow-through volume sustains into the daily close.`,
-        (c: Coin) => `Consolidating in a tight range after the recent impulse. Decisive breakout could open up higher targets.`,
-        (c: Coin) => `Chart structure remains constructive above key moving averages. Watching closely for momentum continuation.`,
-        (c: Coin) => `Steady bid support stepping in on every minor dip. Accumulation phase looking very healthy on the higher timeframe.`,
-      ],
-      bearish: [
-        (c: Coin) => `Healthy pullback into key support with seller exhaustion showing. Dip buyers could step in if price holds this range.`,
-        (c: Coin) => `Momentum taking a breather here while volume cools off near support. Watching the daily close for clear direction.`,
-        (c: Coin) => `Short-term cooling off phase after the recent surge. Clean structure to monitor for any trend reversal confirmation.`,
-        (c: Coin) => `Price testing lower boundary of the range with cautious volume. Watching key levels closely before the next directional move.`,
-        (c: Coin) => `Consolidating lower while absorbing overhead supply. A decisive reclaim of local support would flip momentum back.`,
-        (c: Coin) => `Cooling down after hitting local resistance. Looking for buyers to establish a firm base before the next leg.`,
-        (c: Coin) => `Market taking profits at upper levels, leading to healthy retracement. Keeping an eye on buy orders near support.`,
-        (c: Coin) => `Patience warranted here while the price consolidates near range lows. Let's see if demand steps in over the next 4H candle.`,
-      ]
-    };
+    const usedCommentsCache = new Set<string>(generatedMessages.map(m => m.message));
 
-    remainingMissing.forEach((coin, index) => {
+    remainingMissing.forEach((coin) => {
       const isBullish = coin.change_24h >= 0;
-      const list = isBullish ? templates.bullish : templates.bearish;
-      const fn = list[index % list.length];
-      const formattedComment = fn(coin);
+      const rawComment = generateDynamicUniqueComment(isBullish, usedCommentsCache);
+      const sanitized = sanitizeCommentForAntiSpam(rawComment, coin.symbol);
+      usedCommentsCache.add(sanitized);
+
       generatedMessages.push({
         name: coin.name,
         symbol: coin.symbol,
         url: coin.url,
-        message: formattedComment,
+        message: sanitized,
         sentiment: isBullish ? "bullish" : "bearish",
       });
     });
@@ -5695,9 +6002,15 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
 }
 
 async function executeGenerateMessages(coinsInput?: Coin[]): Promise<number> {
-  const coins = coinsInput || readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  let coins = coinsInput || readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
     throw new Error("No trending coins found in output/last_trending.json. Please fetch trending coins first.");
+  }
+  const settings = getLocalBotSettings();
+  const targetCount = typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0;
+  if (targetCount > 0 && coins.length > targetCount) {
+    addLog("info", `[TARGET CAP] Limiting comment generation to top ${targetCount} coins as specified by targetCoinsCount setting.`);
+    coins = coins.slice(0, targetCount);
   }
   const generatedMessages = await generateMessagesForCoins(coins);
   await writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
@@ -5732,7 +6045,7 @@ app.post("/api/fetch-trending", async (req, res) => {
     addLog("success", `Successfully fetched ${coins.length} coins. (Credits consumed: ${creditCount})`);
     botStatus = "Idle";
     const ts = getRealTimestamps();
-    res.json({ status: "success", coins, credit_count: creditCount, coinsFetchedAt: ts.coinsFetchedAt, coinsFetchedTime: ts.coinsFetchedTime });
+    res.json({ status: "success", coins, totalCoins: coins.length, credit_count: creditCount, coinsFetchedAt: ts.coinsFetchedAt, coinsFetchedTime: ts.coinsFetchedTime });
   } catch (error) {
     addLog("error", `Failed fetching coins: ${(error as Error).message}`);
     botStatus = "Idle";
@@ -5785,7 +6098,7 @@ app.post("/api/generate-messages", async (req, res) => {
     addLog("success", `Successfully generated community comments for all ${count} coins! Saved to generated_messages.json.`);
     botStatus = "Idle";
     const ts = getRealTimestamps();
-    res.json({ status: "success", count, commentsGeneratedAt: ts.commentsGeneratedAt, commentsGeneratedTime: ts.commentsGeneratedTime });
+    res.json({ status: "success", count, totalGenerated: count, commentsGeneratedAt: ts.commentsGeneratedAt, commentsGeneratedTime: ts.commentsGeneratedTime });
   } catch (error) {
     addLog("error", `Failed message generation: ${(error as Error).message}`);
     botStatus = "Idle";
@@ -5976,12 +6289,27 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     try {
       const loginCheck = await checkLoginReal();
       if (loginCheck.status !== "success") {
-        logWithPrefix("warning", `[SESSION WARNING] Session check returned: ${loginCheck.status} (${loginCheck.message}). Trying to proceed anyway, but posts may fail if cookies are expired.`);
+        const haltReason = loginCheck.status === "expired" ? "skipped_expired" : loginCheck.status === "captcha" ? "stopped_captcha" : "failed";
+        logWithPrefix("error", `[SESSION HALT] Automated session check failed: ${loginCheck.status} (${loginCheck.message}). Halting posting sequence to protect account.`);
+        isPostingRunning = false;
+        if (!isSchedulerCall) isSinglePostingRunning = false;
+        botStatus = "Idle";
+        currentCoinName = "N/A";
+        if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
+          cancelNextAutomationCycle();
+          logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to unauthenticated / ${loginCheck.status} session.`);
+        }
+        return { posted: 0, failed: 0, stopReason: haltReason };
       } else {
         logWithPrefix("success", "[SESSION SUCCESS] Session verified as ACTIVE!");
       }
     } catch (err) {
       logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
+      isPostingRunning = false;
+      if (!isSchedulerCall) isSinglePostingRunning = false;
+      botStatus = "Idle";
+      currentCoinName = "N/A";
+      return { posted: 0, failed: 0, stopReason: "failed" };
     }
 
     if (isHaltRequested()) {
@@ -5994,6 +6322,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     activeId = getActiveProfileId();
     messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
     results = getIsolatedResults(activeId);
+
+    const botSettings = getLocalBotSettings();
+    const targetCount = typeof botSettings.targetCoinsCount === "number" ? botSettings.targetCoinsCount : 0;
+    if (targetCount > 0 && messages.length > targetCount) {
+      logWithPrefix("info", `[TARGET CAP] Limiting queue to top ${targetCount} coins as specified by targetCoinsCount setting.`);
+      messages = messages.slice(0, targetCount);
+    }
 
     if (messages.length === 0) {
       logWithPrefix("error", "Data inconsistency: Generated comments queue is empty for this account. Please generate comments before posting.");
@@ -6010,10 +6345,41 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       return sa.length > 0 && sa === sb;
     };
 
-    // Find truly pending coins safely
-    const pendingList = messages.filter(msgItem => !results.some(r => matchSymbol(r.symbol, msgItem.symbol)));
+    // Get current batch timestamp so we do NOT falsely skip coins using historical posts from old cycles/days
+    const profileTimestamps = getRealTimestamps(activeId);
+    // Any successful post since comments were generated is part of this batch.
+    // If commentsGeneratedAt is missing or 0, fallback to in-memory session only (never lock out coins based on old history).
+    const batchGeneratedTimestamp = profileTimestamps.commentsGeneratedAt || 0;
+    const inMemoryProcessedSymbols = new Set<string>();
+
+    const isProcessedInCurrentBatch = (sym?: string, checkResultsList: PostResult[] = results): { processed: boolean; status?: string } => {
+      if (!sym) return { processed: false };
+      const s = sym.trim().toLowerCase();
+      if (inMemoryProcessedSymbols.has(s)) {
+        return { processed: true, status: "success" };
+      }
+      if (batchGeneratedTimestamp > 0) {
+        const found = checkResultsList.find(r => {
+          if (!matchSymbol(r.symbol, sym)) return false;
+          // Only count SUCCESSFUL posts as processed. If a post failed or timed out, allow retry!
+          if (r.status !== "success") return false;
+          // CRITICAL BUG FIX: Only count posts that occurred during the CURRENT comment batch.
+          // Never allow historical posts from previous cycles/days to permanently skip coins in new cycles!
+          const rTime = (r as any).createdAt ? Number((r as any).createdAt) : new Date(r.timestamp).getTime();
+          // Buffer by 2 minutes to prevent slight clock skew
+          return !isNaN(rTime) && rTime >= (batchGeneratedTimestamp - 120000);
+        });
+        if (found) {
+          return { processed: true, status: found.status };
+        }
+      }
+      return { processed: false };
+    };
+
+    // Find truly pending coins for the current batch
+    const pendingList = messages.filter(msgItem => !isProcessedInCurrentBatch(msgItem.symbol, results).processed);
     if (pendingList.length === 0) {
-      logWithPrefix("success", `All ${messages.length} coins in the queue have already been processed (either successfully posted or failed). No pending coins left to post.`);
+      logWithPrefix("success", `All ${messages.length} coins in the queue have already been processed in this cycle. No pending coins left to post.`);
       isPostingRunning = false;
       if (!isSchedulerCall) isSinglePostingRunning = false;
       botStatus = "Completed";
@@ -6025,7 +6391,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       return { posted: 0, failed: 0, stopReason: "completed" };
     }
 
-    const firstPendingIdx = messages.findIndex(msgItem => !results.some(r => matchSymbol(r.symbol, msgItem.symbol)));
+    const firstPendingIdx = messages.findIndex(msgItem => !isProcessedInCurrentBatch(msgItem.symbol, results).processed);
     currentPostingIndex = firstPendingIdx !== -1 ? firstPendingIdx : 0;
     const initialPendingCount = pendingList.length;
     let activeQueueNum = 0;
@@ -6090,11 +6456,11 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         break;
       }
 
-      // Check if this coin has already been posted or recorded
+      // Check if this coin has already been posted in the current batch
       const currentResults = getIsolatedResults(activeId);
-      const existingResult = currentResults.find(r => matchSymbol(r.symbol, item?.symbol));
-      if (existingResult) {
-        logWithPrefix("info", `[SKIP] Coin ${item.symbol} was already processed (${existingResult.status}). Moving to next.`);
+      const batchCheck = isProcessedInCurrentBatch(item?.symbol, currentResults);
+      if (batchCheck.processed) {
+        logWithPrefix("info", `[SKIP] Coin ${item.symbol} was already posted in this cycle/batch (${batchCheck.status}). Moving to next.`);
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
         continue;
@@ -6129,10 +6495,18 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         logWithPrefix("error", `CRITICAL Error during automation: ${messageText}`);
       }
 
+      // Check if user requested stop during or before this post action (CRITICAL: Do NOT mark as failure!)
+      if (!isPostingRunning || isHaltRequested() || isStopping || isSingleStopping || messageText.toLowerCase().includes("closed") || messageText.toLowerCase().includes("destroyed") || messageText.toLowerCase().includes("disconnected") || messageText.toLowerCase().includes("interrupted")) {
+        stopReason = "stopped_by_user";
+        logWithPrefix("warning", `[HALTED BY OPERATOR] Posting gracefully paused for ${item.symbol}. Queue position safely preserved at #${currentPostingIndex + 1} with no failure logged.`);
+        break;
+      }
+
       if (outcome === "success") {
         consecutiveFailures = 0;
         dailyPostCount++;
         runPosted++;
+        inMemoryProcessedSymbols.add(item.symbol.trim().toLowerCase());
         logWithPrefix("success", `SUCCESS: Completed comment posted for ${item.symbol}! (Account daily count: ${dailyPostCount}/${MAX_DAILY_POSTS})`);
         
         results.push({
@@ -6142,14 +6516,23 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           status: outcome,
           message: messageText,
           timestamp: new Date().toLocaleTimeString(),
+          createdAt: Date.now(),
           sentiment: item.sentiment || "bullish",
           profileId: activeId || undefined,
-        });
+        } as any);
+        if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
         if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+
+        // [ANTI-BAN SAFEGUARD] Organic Trader Simulation: Every 6 posts, take a natural browsing/reading pause (60-90s)
+        if (runPosted > 0 && runPosted % 6 === 0) {
+          const breakSec = 60 + Math.floor(Math.random() * 35);
+          logWithPrefix("info", `[ANTI-BAN SAFEGUARD] Organic Trader Simulation: Taking a ${breakSec}s browsing/reading pause after batch of 6 posts to break automated patterns and protect account...`);
+          await interruptibleSleep(breakSec * 1000);
+        }
       } else if (outcome === "skipped") {
         logWithPrefix("warning", `SKIPPED: Skipped posting for ${item.symbol} (${messageText}).`);
         
@@ -6160,14 +6543,42 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           status: outcome,
           message: messageText,
           timestamp: new Date().toLocaleTimeString(),
+          createdAt: Date.now(),
           sentiment: item.sentiment || "bullish",
           profileId: activeId || undefined,
-        });
+        } as any);
+        if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
         if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+      } else if (outcome === "retry") {
+        // [ANTI-BAN PROTECTION] Rate limited by CoinMarketCap: DO NOT immediately hammer the next coin!
+        logWithPrefix("warning", `[ANTI-BAN PROTECTION] CoinMarketCap temporary rate-limit detected for ${item.symbol}: "${messageText}".`);
+        logWithPrefix("warning", `Initiating anti-ban backoff: cooling down for 180s (3 minutes) before continuing to protect account from suspension...`);
+        
+        results.push({
+          name: item.name,
+          symbol: item.symbol,
+          url: item.url,
+          status: "failed",
+          message: `Temporary rate limit by CMC: ${messageText}`,
+          timestamp: new Date().toLocaleTimeString(),
+          createdAt: Date.now(),
+          sentiment: item.sentiment || "bullish",
+          profileId: activeId || undefined,
+        } as any);
+        if (results.length > 500) results = results.slice(-500);
+        writeJsonFile(RESULTS_FILE, results);
+        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
+        
+        currentPostingIndex++;
+        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        
+        // Deep cooling period to allow CMC rate limit window to completely expire
+        await interruptibleSleep(180000);
+        continue;
       } else {
         // Captcha, expired or failed
         consecutiveFailures++;
@@ -6181,9 +6592,11 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           status: outcome,
           message: messageText,
           timestamp: new Date().toLocaleTimeString(),
+          createdAt: Date.now(),
           sentiment: item.sentiment || "bullish",
           profileId: activeId || undefined,
-        });
+        } as any);
+        if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
         if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
@@ -6240,13 +6653,25 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       }
 
       // Interval spacing between posts:
-      // Production: 35-45 seconds (safe human pacing, protects account from WAF rate limits & spam bans)
-      // Development: 4-7 seconds (fast for developer testing & verification)
+      // Configurable via POST_COOLDOWN_SECONDS env variable, or defaults:
+      // Production Default: 35-45 seconds (safe human pacing, protects account from WAF rate limits & spam bans)
+      // Development Default: 4-7 seconds (fast for developer testing & verification)
       const isProd = process.env.NODE_ENV === "production";
-      const spacing = isProd ? (35000 + Math.random() * 10000) : (4000 + Math.random() * 3000);
-      logWithPrefix("info", isProd 
-        ? `Cooling down for ${(spacing / 1000).toFixed(1)}s (Safe Production Cadence: 35-45s, 0% CPU kernel sleep)...` 
-        : `Cooling down for ${(spacing / 1000).toFixed(1)}s (Development Mode Testing)...`);
+      const customCooldownSec = Number(process.env.POST_COOLDOWN_SECONDS);
+      let spacing: number;
+      let cadenceLabel = "";
+
+      if (!isNaN(customCooldownSec) && customCooldownSec >= 5) {
+        // Natural human jitter (±15%) so intervals look organic to anti-bot WAFs
+        const jitter = (Math.random() * 0.3 - 0.15) * customCooldownSec;
+        spacing = Math.max(5000, Math.round((customCooldownSec + jitter) * 1000));
+        cadenceLabel = `Custom Pacing: ${customCooldownSec}s`;
+      } else {
+        spacing = isProd ? (35000 + Math.random() * 10000) : (4000 + Math.random() * 3000);
+        cadenceLabel = isProd ? "Safe Production Cadence: 35-45s" : "Development Mode Testing";
+      }
+
+      logWithPrefix("info", `Cooling down for ${(spacing / 1000).toFixed(1)}s (${cadenceLabel}, 0% CPU kernel sleep)...`);
       await interruptibleSleep(spacing);
     }
 
@@ -6259,6 +6684,22 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       botStatus = "Completed";
       isPostingRunning = false;
       if (!isSchedulerCall) isSinglePostingRunning = false;
+
+      // Auto-prune old data and clean completed batch pointers
+      try {
+        const botSettings = getLocalBotSettings();
+        if (botSettings.autoPruneCompletedBatches !== false) {
+          saveBotProgress({ next_index: 0 });
+          currentPostingIndex = 0;
+          logWithPrefix("info", `[BATCH COMPLETED] All assigned comments finished in this cycle. Ephemeral queue pointer reset to 0.`);
+        }
+        if (botSettings.autoPruneOldDataEnabled !== false) {
+          pruneOldAndCompletedData(getActiveProfileId());
+        }
+      } catch (cleanErr) {
+        console.error("[BATCH COMPLETED] Cleanup error:", cleanErr);
+      }
+
       if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
         logWithPrefix("info", `[AUTOMATION] Continuous automation mode is enabled. Triggering ${continuousLoopIntervalMinutes}-minute gap interval...`);
         scheduleNextAutomationCycle();
@@ -6319,9 +6760,16 @@ app.post("/api/stop-posting", async (req, res) => {
   isFullFlowAborted = true;
   isContinuousLoopActive = false;
   cancelNextAutomationCycle();
+  cancelNextSchedulerCycle();
+  stopSchedulerRequested = true;
+
+  const currentBotSettings = getLocalBotSettings();
+  if (currentBotSettings.schedulerEnabled) {
+    saveLocalBotSettings({ ...currentBotSettings, schedulerEnabled: false });
+    addLog("warning", "[SCHEDULER] 24-hour continuous scheduler halted and disabled by stop command.");
+  }
 
   if (isSchedulerCycleRunning) {
-    stopSchedulerRequested = true;
     addLog("warning", "[SCHEDULER] Stop requested during scheduled multi-account cycle. Halting current account cleanly and skipping remaining queue.");
   }
 
@@ -6364,6 +6812,18 @@ app.post("/api/full-flow", async (req, res) => {
   const lock = acquireProcessLock("continuous_loop", "Full bot flow cycle");
   if (!lock.success) {
     return res.status(409).json({ error: lock.reason });
+  }
+
+  const activeId = getActiveProfileId();
+  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const activeProfile = rawProfiles.find(p => p.id === activeId);
+  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
+
+  if (!activeId || !hasValidAuth) {
+    releaseProcessLock("continuous_loop");
+    addLog("error", "Cannot start full cycle: No active account with valid authentication session. Please log in or import cookies in Profiles first.");
+    return res.status(400).json({ error: "Cannot start full cycle without an active, authenticated account session. Please log in or import cookies in Profiles first." });
   }
 
   addLog("info", "========================================");
@@ -6483,10 +6943,26 @@ app.post("/api/clear-all", async (req, res) => {
   try {
     updateActiveProfilePaths();
     logs = [];
+    const activeId = getActiveProfileId();
+
+    // Safely archive any current results into the 7-day retention archive before clearing active display
+    try {
+      const activeResults = getIsolatedResults(activeId);
+      if (activeResults.length > 0) {
+        const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+        const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
+        const mergedArchive = [...existingArchive, ...activeResults];
+        writeJsonFile(arcFile, mergedArchive.slice(-3000));
+        addLog("info", `[RETENTION ARCHIVE] Safely preserved ${activeResults.length} post records in 7-day archive.`);
+      }
+    } catch (_) {}
+
     writeJsonFile(LAST_TRENDING_FILE, []);
     writeJsonFile(GENERATED_MESSAGES_FILE, []);
     writeJsonFile(RESULTS_FILE, []);
-    saveBotProgress({ next_index: 0, daily_post_count: 0 });
+    
+    // Preserve daily limit count unless explicitly requested
+    saveBotProgress({ next_index: 0 });
     clearRealTimestamps();
     currentPostingIndex = 0;
     currentCoinName = "N/A";
@@ -6495,7 +6971,6 @@ app.post("/api/clear-all", async (req, res) => {
     isSingleStopping = false;
 
     // Dynamic Cloud Firestore synchronization for active profile
-    const activeId = getActiveProfileId();
     try {
       await saveTrendingCoinsCloud([], activeId || undefined);
       await saveGeneratedMessagesCloud([], activeId || undefined);
@@ -6505,7 +6980,7 @@ app.post("/api/clear-all", async (req, res) => {
       console.error("[FIREBASE] Error syncing cleared state to cloud for active profile:", (err as Error).message);
     }
 
-    addLog("success", "Console cleared. Reset trending data, comments, and results for the active account only.");
+    addLog("success", "Console cleared. Reset active trending data and queue for active account. (All prior submissions safely retained in 7-day archive; profiles and logins untouched).");
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -6514,20 +6989,257 @@ app.post("/api/clear-all", async (req, res) => {
   }
 });
 
-// 11b. Safe Reset Today's Queue & Submissions (Preserves logins, cookies, and profiles)
+// 11b. Safe Reset Today's Queue & Submissions (Safely archives submissions to 7-day retention; preserves logins, cookies, and profiles)
 app.post("/api/queue/reset-daily", async (req, res) => {
   try {
     const activeId = getActiveProfileId();
+    const { resetDailyCap } = req.body || {};
+
+    // 1. Safely archive all current post results into 7-day retention archive before clearing
+    try {
+      const currentResults = getIsolatedResults(activeId);
+      if (currentResults.length > 0) {
+        const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+        const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
+        const mergedArchive = [...existingArchive, ...currentResults];
+        writeJsonFile(arcFile, mergedArchive.slice(-3000));
+        addLog("info", `[RETENTION] Archived ${currentResults.length} submission records to 7-day historical database.`);
+      }
+    } catch (arcErr) {
+      console.warn("Could not archive existing results prior to reset:", (arcErr as Error).message);
+    }
+
     writeJsonFile(RESULTS_FILE, []);
-    saveBotProgress({ next_index: 0, daily_post_count: 0 });
+    
+    // 2. Reset queue pointer back to 0; only reset daily post count if explicitly requested
+    const progressUpdate: Partial<BotProgressData> = { next_index: 0 };
+    if (resetDailyCap === true) {
+      progressUpdate.daily_post_count = 0;
+    }
+    saveBotProgress(progressUpdate);
     currentPostingIndex = 0;
     currentCoinName = "N/A";
+    
     if (activeId) {
       await savePostResultsCloud([], activeId).catch(() => {});
       await saveBotProgressCloud(readBotProgress(), activeId).catch(() => {});
     }
-    addLog("success", "[QUEUE] Reset today's posting results and queue index back to 0. Logins and profiles preserved.");
-    res.json({ success: true, message: "Today's queue and posting results reset successfully." });
+    
+    addLog("success", `[QUEUE] Reset queue pointer back to Coin #1. Prior submissions safely preserved in 7-day archive. Logins, cookies, and accounts 100% intact.`);
+    res.json({ success: true, message: "Queue safely reset to Coin #1. Previous submissions archived in 7-day storage." });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+// 11b.2. Data Retention & Completed Batch Auto-Pruning
+app.post("/api/data/prune", async (req, res) => {
+  try {
+    const profileId = (req.body.profileId as string)?.trim() || null;
+    const result = pruneOldAndCompletedData(profileId);
+    res.json({
+      success: true,
+      prunedCount: result.prunedCount,
+      remainingCount: result.remainingCount,
+      archivedCount: result.archivedCount,
+      details: result.details,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.get("/api/data/retention-stats", (req, res) => {
+  try {
+    const activeId = getActiveProfileId();
+    const settings = getLocalBotSettings();
+    const activeResults = getIsolatedResults(activeId);
+    
+    // Check archive count
+    const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+    const archivedResults = readJsonFile<PostResult[]>(arcFile, []);
+
+    res.json({
+      success: true,
+      activeCount: activeResults.length,
+      archivedCount: archivedResults.length,
+      retentionDays: settings.dataRetentionDays || 7,
+      autoPruneEnabled: settings.autoPruneOldDataEnabled !== false,
+      maxKeep: settings.maxResultsHistoryCount || 300,
+      autoPruneCompletedBatches: settings.autoPruneCompletedBatches !== false,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/settings/data-retention", (req, res) => {
+  try {
+    const { autoPruneOldDataEnabled, dataRetentionDays, maxResultsHistoryCount, autoPruneCompletedBatches } = req.body;
+    const settings = getLocalBotSettings();
+
+    if (typeof autoPruneOldDataEnabled === "boolean") {
+      settings.autoPruneOldDataEnabled = autoPruneOldDataEnabled;
+    }
+    if (typeof dataRetentionDays === "number" && dataRetentionDays > 0) {
+      settings.dataRetentionDays = Math.min(30, Math.max(1, dataRetentionDays));
+    }
+    if (typeof maxResultsHistoryCount === "number" && maxResultsHistoryCount > 0) {
+      settings.maxResultsHistoryCount = Math.min(2000, Math.max(50, maxResultsHistoryCount));
+    }
+    if (typeof autoPruneCompletedBatches === "boolean") {
+      settings.autoPruneCompletedBatches = autoPruneCompletedBatches;
+    }
+
+    saveLocalBotSettings(settings);
+    addLog("info", `[SETTINGS] Data retention policy updated: ${settings.dataRetentionDays} days retention, max ${settings.maxResultsHistoryCount} records, autoPruneCompletedBatches: ${settings.autoPruneCompletedBatches}.`);
+    
+    // Run an immediate prune with new settings
+    pruneOldAndCompletedData();
+
+    res.json({ success: true, settings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.get("/api/download/archived_submissions.csv", (req, res) => {
+  try {
+    updateActiveProfilePaths();
+    const activeId = getActiveProfileId();
+    const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+    const archived = readJsonFile<PostResult[]>(arcFile, []);
+
+    let csv = "Timestamp,Asset Name,Symbol,Sentiment,Post Status,Log Message,Target URL\n";
+    archived.forEach(r => {
+      csv += `${escapeCsvField(r.timestamp || "N/A")},${escapeCsvField(r.name)},${escapeCsvField(r.symbol)},${escapeCsvField(r.sentiment || "bullish")},${escapeCsvField(r.status)},${escapeCsvField(r.message || "")},${escapeCsvField(r.url)}\n`;
+    });
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=archived_submissions.csv");
+    res.send(csv);
+  } catch (err) {
+    res.status(500).send((err as Error).message);
+  }
+});
+
+// ==========================================
+// 11b.3. Company Admin Authentication & Sharing Gate
+// ==========================================
+const activeAdminSessions = new Set<string>();
+
+function generateAdminToken(): string {
+  const token = "admin_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+  activeAdminSessions.add(token);
+  return token;
+}
+
+function verifyAdminRequest(req: express.Request): boolean {
+  const settings = getLocalBotSettings();
+  if (settings.adminAuthEnabled === false) return true; // Disabled by admin
+
+  const authHeader = req.headers.authorization;
+  const tokenFromHeader = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  const tokenFromQuery = (req.query.token || req.query.access_token || req.query.key || req.query.pass) as string;
+  const customHeader = req.headers["x-admin-token"] as string;
+  const token = tokenFromHeader || customHeader || tokenFromQuery;
+
+  if (!token) return false;
+
+  const currentPassword = settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+  if (token === currentPassword) {
+    return true;
+  }
+
+  return activeAdminSessions.has(token);
+}
+
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const { password } = req.body;
+    const settings = getLocalBotSettings();
+    const currentPassword = settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ success: false, error: "Password is required" });
+    }
+
+    if (password.trim() === currentPassword.trim()) {
+      const token = generateAdminToken();
+      addLog("info", "[SECURITY] Company admin logged in successfully.");
+      return res.json({
+        success: true,
+        token,
+        role: "admin",
+        message: "Company admin authentication successful."
+      });
+    } else {
+      addLog("warning", "[SECURITY] Failed company admin login attempt.");
+      return res.status(401).json({ success: false, error: "Incorrect admin password. Please try again or use the 1-click team link." });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.get("/api/auth/status", (req, res) => {
+  try {
+    const settings = getLocalBotSettings();
+    const authRequired = settings.adminAuthEnabled !== false;
+    const currentPassword = settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+    const authenticated = !authRequired || verifyAdminRequest(req);
+    const schedulerState = {
+      enabled: !!settings.schedulerEnabled,
+      cycleRunning: isSchedulerCycleRunning,
+      postingRunning: isPostingRunning || isSinglePostingRunning,
+      botStatus,
+      nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
+      isContinuousLoopActive,
+    };
+
+    res.json({
+      success: true,
+      authRequired,
+      authenticated,
+      currentPassword: authenticated ? currentPassword : (authRequired ? undefined : currentPassword),
+      scheduler: schedulerState,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+
+app.post("/api/auth/update-password", (req, res) => {
+  try {
+    if (!verifyAdminRequest(req)) {
+      return res.status(401).json({ success: false, error: "Unauthorized. Admin session required." });
+    }
+    const { newPassword } = req.body;
+    if (!newPassword || typeof newPassword !== "string" || newPassword.trim().length < 3) {
+      return res.status(400).json({ success: false, error: "New password must be at least 3 characters." });
+    }
+    const settings = getLocalBotSettings();
+    settings.adminPassword = newPassword.trim();
+    saveLocalBotSettings(settings);
+    addLog("success", `[SECURITY] Company admin password updated successfully.`);
+    const newToken = generateAdminToken();
+    res.json({ success: true, message: "Admin password updated successfully.", token: newToken, newPassword: settings.adminPassword });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/auth/toggle-auth", (req, res) => {
+  try {
+    if (!verifyAdminRequest(req)) {
+      return res.status(401).json({ success: false, error: "Unauthorized. Admin session required." });
+    }
+    const { enabled } = req.body;
+    const settings = getLocalBotSettings();
+    settings.adminAuthEnabled = typeof enabled === "boolean" ? enabled : true;
+    saveLocalBotSettings(settings);
+    addLog("info", `[SECURITY] Company admin password requirement set to: ${settings.adminAuthEnabled}`);
+    res.json({ success: true, authRequired: settings.adminAuthEnabled });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
   }
@@ -6806,6 +7518,15 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled) return;
 
+  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const profiles = normalizeProfilesWithSchedule(rawProfiles);
+  const hasAnyAuth = profiles.some(p => p.stateJson && sessionHasValidCookies(p.stateJson));
+  if (!hasAnyAuth) {
+    addLog("warning", "[SCHEDULER] 24-hr multi-account scheduler stopped: No active profiles with valid authentication sessions found. Please log in or import cookies to enable scheduling.");
+    saveLocalBotSettings({ ...settings, schedulerEnabled: false });
+    return;
+  }
+
   const todayStr = getTodayDateString();
   let dailyCycles = settings.dailyCycleCount || 0;
   if (settings.lastCycleDate !== todayStr) {
@@ -6902,6 +7623,20 @@ async function runScheduledCycle(): Promise<void> {
     return;
   }
 
+  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const profiles = normalizeProfilesWithSchedule(rawProfiles);
+  const hasAnyAuth = profiles.some(p => p.stateJson && sessionHasValidCookies(p.stateJson));
+  if (!hasAnyAuth) {
+    addLog("error", "[SCHEDULER] Cannot execute scheduled cycle: No accounts have valid authenticated sessions. Stopping 24-hr scheduler.");
+    releaseProcessLock("scheduler_cycle");
+    isSchedulerCycleRunning = false;
+    const currentSettings = getLocalBotSettings();
+    saveLocalBotSettings({ ...currentSettings, schedulerEnabled: false });
+    cancelNextSchedulerCycle();
+    botStatus = "Idle";
+    return;
+  }
+
   // Preserve user's current active profile so their manual view & work are NEVER displaced!
   const initialActiveProfileId = getActiveProfileId();
 
@@ -6915,6 +7650,11 @@ async function runScheduledCycle(): Promise<void> {
     addLog("info", "==================================================");
     addLog("info", "[SCHEDULER] Starting sequential multi-account cycle...");
     addLog("info", "==================================================");
+
+    // 0. Auto-prune old submission records before cycle begins
+    try {
+      pruneOldAndCompletedData();
+    } catch (_) {}
 
     // 1. Fetch trending coins ONCE
     let coins: Coin[] = [];
@@ -7042,8 +7782,8 @@ async function runScheduledCycle(): Promise<void> {
             addLog("warning", `[${account.name}] Session check expired (${loginCheck.message}). Status: skipped_expired.`);
             skipStatus = "skipped_expired";
           } else {
-            const maxDaily = getAccountDailyPostLimit();
-            const progressData = readBotProgress();
+            const maxDaily = getAccountDailyPostLimit(account.id);
+            const progressData = readBotProgress(account.id);
             const dailyCount = progressData.daily_post_count || 0;
             if (dailyCount >= maxDaily) {
               addLog("warning", `[${account.name}] Account reached daily limit of ${maxDaily} posts for ${getTodayDateString()}. Status: stopped_daily_limit.`);
@@ -7087,8 +7827,8 @@ async function runScheduledCycle(): Promise<void> {
               });
               continue;
             }
-            const sLimit = getAccountDailyPostLimit();
-            const sProg = readBotProgress();
+            const sLimit = getAccountDailyPostLimit(account.id);
+            const sProg = readBotProgress(account.id);
             if ((sProg.daily_post_count || 0) >= sLimit) {
               addLog("warning", `[${account.name}] Standby account reached daily limit. Single-hop limit reached; proceeding to next slot.`);
               updateProfileLastRun(account.id, {
@@ -7135,11 +7875,21 @@ async function runScheduledCycle(): Promise<void> {
         last_post_date: todayStr,
       });
 
+      // Synchronize batch timestamp so the account knows this cycle has a fresh generation timestamp
+      const cycleTs: ProfileTimestamps = {
+        coinsFetchedAt: lastSchedulerCycleStartTime,
+        coinsFetchedTime: new Date(lastSchedulerCycleStartTime).toISOString(),
+        commentsGeneratedAt: lastSchedulerCycleStartTime,
+        commentsGeneratedTime: new Date(lastSchedulerCycleStartTime).toISOString(),
+      };
+      writeJsonFile(path.join(accountDir, "timestamps.json"), cycleTs);
+
       // Synchronize in-memory paths & pointers
       updateActiveProfilePaths();
       writeJsonFile(LAST_TRENDING_FILE, accountCoins);
       writeJsonFile(GENERATED_MESSAGES_FILE, accountMessages);
       writeJsonFile(RESULTS_FILE, existingAccountResults);
+      writeJsonFile(TIMESTAMPS_FILE, cycleTs);
       currentPostingIndex = 0;
 
       // Run posting loop for this account awaiting it fully
@@ -7197,6 +7947,11 @@ async function runScheduledCycle(): Promise<void> {
       dailyCycleCount: updatedDailyCycles,
       lastCycleDate: todayStr,
     });
+
+    // Auto-prune old completed records and archive
+    try {
+      pruneOldAndCompletedData();
+    } catch (_) {}
 
     addLog("info", "==================================================");
     addLog("success", `[SCHEDULER] Sequential multi-account scheduled cycle finished. (Cycle ${updatedDailyCycles}/${maxCycles} completed for today).`);
@@ -7548,14 +8303,40 @@ app.post("/api/scheduler/run-now", (req, res) => {
   res.json({ success: true, message: "Sequential scheduled cycle started." });
 });
 
-app.post("/api/scheduler/stop", (req, res) => {
-  if (!isSchedulerCycleRunning) {
-    return res.json({ success: true, message: "No scheduler cycle is currently running." });
-  }
+app.post("/api/scheduler/stop", async (req, res) => {
   stopSchedulerRequested = true;
   isPostingRunning = false;
-  addLog("warning", "[SCHEDULER] Stop requested by user for running sequential cycle.");
-  res.json({ success: true, message: "Stopping scheduled cycle..." });
+  isSinglePostingRunning = false;
+  cancelNextSchedulerCycle();
+  cancelNextAutomationCycle();
+
+  const settings = getLocalBotSettings();
+  if (settings.schedulerEnabled) {
+    saveLocalBotSettings({ ...settings, schedulerEnabled: false });
+    addLog("warning", "[SCHEDULER] 24-hour continuous scheduler disabled and background cycle cancelled by stop command.");
+  }
+
+  if (activePostingPage) {
+    try {
+      await activePostingPage.close().catch(() => {});
+    } catch (_) {}
+    activePostingPage = null;
+  }
+  if (activePostingBrowser) {
+    try {
+      await activePostingBrowser.close().catch(() => {});
+    } catch (_) {}
+    activePostingBrowser = null;
+  }
+
+  releaseProcessLock("scheduler_cycle");
+  releaseProcessLock("all" as any);
+  botStatus = "Idle";
+  currentCoinName = "N/A";
+  isSchedulerCycleRunning = false;
+
+  addLog("warning", "[SCHEDULER] 24-hour scheduler stopped cleanly. Background cycle cancelled and state settled.");
+  res.json({ success: true, message: "24-hour scheduler stopped and disabled cleanly. All timers and background cycles cancelled." });
 });
 
 // ============================================================================
@@ -7893,6 +8674,10 @@ async function startServer() {
     try {
       if (activeLoginSession && activeLoginSession.browser) {
         await activeLoginSession.browser.close().catch(() => {});
+      }
+      if (activePostingBrowser) {
+        await activePostingBrowser.close().catch(() => {});
+        activePostingBrowser = null;
       }
       releaseProcessLock("all" as any);
     } catch (_) {}

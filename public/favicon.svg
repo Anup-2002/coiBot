@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0e1322"/>
+      <stop offset="50%" stop-color="#16203c"/>
+      <stop offset="100%" stop-color="#0b1120"/>
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="20" y1="20" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3861FB"/>
+      <stop offset="50%" stop-color="#00D2D3"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="accentGlow" x1="30" y1="30" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Outer rounded shield / coin base -->
+  <rect x="4" y="4" width="120" height="120" rx="32" fill="url(#bgGrad)" stroke="url(#primaryGrad)" stroke-width="4"/>
+  
+  <!-- Subtle inner background grid lines -->
+  <circle cx="64" cy="64" r="44" stroke="#1E293B" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="64" cy="64" r="32" stroke="#1E293B" stroke-width="1.5"/>
+
+  <!-- Glowing Ascending Trend Waveform & Coin Token 'C' / 'M' mark -->
+  <path d="M34 76 L48 58 L62 70 L80 44 L94 56" stroke="url(#accentGlow)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  
+  <!-- Trending indicator points -->
+  <circle cx="34" cy="76" r="4" fill="#3861FB"/>
+  <circle cx="48" cy="58" r="4" fill="#00D2D3"/>
+  <circle cx="62" cy="70" r="4" fill="#3861FB"/>
+  <circle cx="80" cy="44" r="4" fill="#10B981"/>
+  
+  <!-- High point beacon star / bull flare -->
+  <circle cx="94" cy="56" r="5" fill="#34D399" filter="url(#glow)"/>
+  <circle cx="94" cy="56" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Bot automation lightning node badge at bottom-right -->
+  <circle cx="96" cy="96" r="14" fill="#111827" stroke="#3861FB" stroke-width="2.5"/>
+  <path d="M97 88 L92 96 L96 96 L95 104 L101 95 L97 95 Z" fill="#FBBF24"/>
+</svg>

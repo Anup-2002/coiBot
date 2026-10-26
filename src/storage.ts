@@ -1,5 +1,5 @@
-import * as firebaseStorage from "./firebase-db";
-import * as mongoStorage from "./mongo-db";
+import * as firebaseStorage from "./firebase-db.ts";
+import * as mongoStorage from "./mongo-db.ts";
 
 export function isCloudSyncDisabled(): boolean {
   return process.env.DISABLE_CLOUD_SYNC === "true";
