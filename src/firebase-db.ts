@@ -289,8 +289,8 @@ export async function getPostResultsCloud(profileId?: string): Promise<any[]> {
 
 export async function savePostResultsCloud(results: any[], profileId?: string): Promise<void> {
   if (!profileId) return;
-  // Keep rolling buffer of latest 500 records to prevent unbounded size and protect 1MB Firestore limit
-  const boundedList = Array.isArray(results) ? results.slice(-500) : [];
+  // Keep rolling buffer of latest 100 records to prevent unbounded size and strictly protect 1MB Firestore limit
+  const boundedList = Array.isArray(results) ? results.slice(-100) : [];
   const docPath = `results/all_${profileId}`;
   await writeDoc(docPath, {
     list: boundedList,

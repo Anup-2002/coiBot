@@ -648,7 +648,11 @@ interface BotProgressData {
 }
 
 function getTodayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getActiveProfile(): any | null {
@@ -989,6 +993,31 @@ async function launchBrowserResilient(options: any = {}): Promise<any> {
   }
   if (options.headless === undefined) {
     options.headless = true;
+  }
+
+  // Support optional per-profile or environment proxy (native Playwright)
+  if (!options.proxy) {
+    const activeProf = getActiveProfile();
+    const proxyStr = activeProf?.proxy || process.env.DEFAULT_PROXY;
+    if (proxyStr && typeof proxyStr === "string" && proxyStr.trim()) {
+      try {
+        const trimmed = proxyStr.trim();
+        const hasProto = trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("socks5://") || trimmed.startsWith("socks4://");
+        const url = new URL(hasProto ? trimmed : `http://${trimmed}`);
+        options.proxy = {
+          server: `${url.protocol}//${url.host}`,
+        };
+        if (url.username) {
+          options.proxy.username = decodeURIComponent(url.username);
+        }
+        if (url.password) {
+          options.proxy.password = decodeURIComponent(url.password);
+        }
+        console.log(`[PLAYWRIGHT] Using proxy for account "${activeProf?.name || activeProf?.id || "active"}": ${options.proxy.server}`);
+      } catch (proxyErr) {
+        console.warn(`[PLAYWRIGHT] Could not parse proxy string "${proxyStr}": ${(proxyErr as Error).message}`);
+      }
+    }
   }
 
   try {
@@ -1796,6 +1825,19 @@ async function isEditorPostButtonRequiringLogin(page: any): Promise<boolean> {
 }
 
 async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
+  // Pre-flight check: If auth/state.json doesn't exist or has no valid session cookies, return immediately without launching browser
+  if (!fs.existsSync(AUTH_STATE_FILE)) {
+    return { status: "expired", message: "No session state file found" };
+  }
+  try {
+    const rawContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+    if (!sessionHasValidCookies(rawContent)) {
+      return { status: "expired", message: "Session cookies missing or expired in auth state" };
+    }
+  } catch (_) {
+    return { status: "expired", message: "Malformed session state file" };
+  }
+
   addLog("info", "Playwright launching headlessly with stealth configurations...");
   let browser: any = null;
   try {
@@ -2893,6 +2935,13 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     
     // Wait for the page to settle
     await page.waitForTimeout(2000);
+
+    // Fast Cloudflare challenge check right after page settles
+    const initialTitle = await page.title().catch(() => "");
+    if (initialTitle.includes("Cloudflare") || initialTitle.includes("Just a moment") || initialTitle.includes("Attention Required")) {
+      addLog("error", "CRITICAL: Cloudflare challenge detected upon loading coin page!");
+      return { status: "captcha", message: "Cloudflare Turnstile challenge block" };
+    }
     
     // Scan page for the comment editor
     const editor = await locateAndPrepareCommentEditor(page);
@@ -3531,11 +3580,31 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
   }
 }
 
-async function writeJsonFile<T>(filePath: string, data: T) {
-  const tempPath = `${filePath}.tmp`;
+function writeJsonFileSyncAtomic(filePath: string, data: any): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  }
+  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf-8");
+    const content = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    fs.writeFileSync(tempPath, content, "utf-8");
     fs.renameSync(tempPath, filePath);
+  } catch (err) {
+    console.error(`[FS] Error atomic writing ${filePath}:`, (err as Error).message);
+    try {
+      const content = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      fs.writeFileSync(filePath, content, "utf-8");
+    } catch (_) {}
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch (_) {}
+    }
+  }
+}
+
+async function writeJsonFile<T>(filePath: string, data: T) {
+  try {
+    writeJsonFileSyncAtomic(filePath, data);
 
     const activeId = getActiveProfileId();
 
@@ -3586,9 +3655,6 @@ async function writeJsonFile<T>(filePath: string, data: T) {
     }
   } catch (error) {
     addLog("error", `Failed to write atomically to ${path.basename(filePath)}: ${(error as Error).message}`);
-    if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch (_) {}
-    }
   }
 }
 
@@ -3946,6 +4012,10 @@ app.post("/api/save-profile", async (req, res) => {
       ? rawLimit
       : (existingIndex >= 0 && profiles[existingIndex].dailyPostLimit ? profiles[existingIndex].dailyPostLimit : 300);
 
+    const proxyVal = typeof req.body.proxy === "string" 
+      ? req.body.proxy.trim() 
+      : (existingIndex >= 0 ? (profiles[existingIndex].proxy || "") : "");
+
     const profileData = {
       id: profileId,
       name,
@@ -3953,6 +4023,7 @@ app.post("/api/save-profile", async (req, res) => {
       isActive: existingIndex >= 0 ? profiles[existingIndex].isActive : false,
       loginStatus: existingIndex >= 0 ? (profiles[existingIndex].loginStatus || "unknown") : "unknown",
       dailyPostLimit: dailyLimit,
+      proxy: proxyVal,
       updatedAt: new Date().toISOString()
     };
 
@@ -3963,8 +4034,8 @@ app.post("/api/save-profile", async (req, res) => {
       profiles.push(profileData);
     }
 
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-    addLog("success", `Saved account profile: "${name}" (Daily limit: ${dailyLimit} posts/day)`);
+    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
+    addLog("success", `Saved account profile: "${name}" (Daily limit: ${dailyLimit} posts/day${proxyVal ? `, Proxy: ${proxyVal}` : ""})`);
 
     // Sync to Cloud
     try {
@@ -4002,7 +4073,7 @@ app.post("/api/update-profile-limit", async (req, res) => {
     }
     profiles[idx].dailyPostLimit = limitNum;
     profiles[idx].updatedAt = new Date().toISOString();
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
     await saveProfilesCloud(profiles).catch(() => {});
 
     const activeId = getActiveProfileId();
@@ -4011,6 +4082,31 @@ app.post("/api/update-profile-limit", async (req, res) => {
     }
     addLog("info", `Updated daily post limit for account "${profiles[idx].name}" to ${limitNum} posts/day.`);
     res.json({ success: true, profile: profiles[idx], dailyPostLimit: limitNum });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// 3bc. Update Account Proxy
+app.post("/api/update-profile-proxy", async (req, res) => {
+  try {
+    const { id, proxy } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Missing profile id." });
+    }
+    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const idx = profiles.findIndex(p => p.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Profile not found." });
+    }
+    profiles[idx].proxy = typeof proxy === "string" ? proxy.trim() : "";
+    profiles[idx].updatedAt = new Date().toISOString();
+    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
+    await saveProfilesCloud(profiles).catch(() => {});
+
+    const proxyMsg = profiles[idx].proxy ? profiles[idx].proxy : "Direct Connection (No proxy)";
+    addLog("info", `Updated proxy for account "${profiles[idx].name}": ${proxyMsg}`);
+    res.json({ success: true, profile: profiles[idx] });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -4307,7 +4403,7 @@ app.get("/api/status", async (req, res) => {
     postedCount: results.filter(r => r.status === "success").length,
     failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
     results,
-    progressIndex: Math.max(0, Math.min(progress.next_index || 0, Math.max(coins.length, messages.length))),
+    progressIndex: Math.max(0, Math.min(isPostingRunning ? currentPostingIndex : (progress.next_index || 0), Math.max(coins.length, messages.length))),
     dailyPostCount: progress.daily_post_count || 0,
     dailyPostLimit,
     lastPostDate: progress.last_post_date || getTodayDateString(),
@@ -5097,9 +5193,9 @@ app.get("/api/verify-env", (req, res) => {
       gemini: {
         configured: hasGemini,
         maskedKey: hasGemini ? `${(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!.slice(0, 6)}...` : null,
-        model: "gemini-3.8-flash"
+        model: "gemini-2.5-flash"
       },
-      activeAiModel: hasOpenAi ? "OpenAI (gpt-4o-mini)" : hasGemini ? "Gemini (gemini-3.8-flash)" : "Rule-based templates (No AI Key)"
+      activeAiModel: hasOpenAi ? "OpenAI (gpt-4o-mini)" : hasGemini ? "Gemini (gemini-2.5-flash)" : "Rule-based templates (No AI Key)"
     },
     dataSources: {
       coinMarketCapApi: {
@@ -6244,6 +6340,8 @@ export interface PostingLoopSummary {
   stopReason: "completed" | "stopped_daily_limit" | "stopped_captcha" | "skipped_expired" | "stopped_by_user" | "failed";
 }
 
+const activeProfileRunLocks = new Set<string>();
+
 // Asynchronous Posting Loop
 async function runPostingLoop(options: PostingLoopOptions = {}): Promise<PostingLoopSummary> {
   const isSchedulerCall = Boolean(options.accountLogPrefix);
@@ -6273,6 +6371,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
   };
 
   let activeId = getActiveProfileId();
+  const runProfileKey = activeId || "active_default";
+  if (activeProfileRunLocks.has(runProfileKey)) {
+    logWithPrefix("warning", `[MUTEX LOCK] Posting run is already active for account profile "${runProfileKey}". Rejecting concurrent trigger to prevent race condition.`);
+    return { posted: 0, failed: 0, stopReason: "failed" };
+  }
+  activeProfileRunLocks.add(runProfileKey);
+
   updateActiveProfilePaths();
   let messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
   let results = getIsolatedResults(activeId);
@@ -6716,6 +6821,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     stopReason = "failed";
     logWithPrefix("error", `Critical error in automated posting loop: ${(loopErr as Error).message}`);
   } finally {
+    activeProfileRunLocks.delete(runProfileKey);
     if (sharedBrowser) {
       logWithPrefix("info", "Closing shared Playwright browser instance...");
       await sharedBrowser.close().catch(() => {});
@@ -7379,7 +7485,11 @@ app.get("/api/logs", (req, res) => {
 // ============================================================================
 function escapeCsvField(val: any): string {
   if (val === null || val === undefined) return '""';
-  const str = String(val);
+  let str = String(val);
+  // Neutralize CSV Formula Injection (=, +, -, @, \t, \r)
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
   return `"${str.replace(/"/g, '""')}"`;
 }
 

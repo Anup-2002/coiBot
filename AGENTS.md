@@ -62,7 +62,20 @@ The frontend features a dedicated **Secrets Directory Grid** that provides direc
 
 ---
 
-## 📜 5. Technical Requirements for Future Edits
+## 🌐 6. Per-Account Proxy Architecture (Anti-Ban & IP Isolation)
+
+To eliminate cross-account ban cascades caused by shared server IP addresses, the bot features native Playwright proxy routing:
+- **Profile-Bound**: Each profile object in `PROFILES_FILE` and Firestore supports an optional `proxy` string (`http://user:pass@ip:port` or `socks5://ip:port`).
+- **Native Browser Routing**: When `launchBrowserResilient()` spins up a Chromium instance, it checks the active profile's `proxy` property (or `process.env.DEFAULT_PROXY`). If present, it passes `options.proxy = { server, username, password }` directly to Playwright without requiring external plugins.
+- **Direct Connection Fallback**: If `proxy` is empty or omitted, Playwright connects directly using the standard network interface.
+- **API & UI Controls**: 
+  - `POST /api/save-profile` accepts `proxy`.
+  - `POST /api/update-profile-proxy` allows instantaneous updating or clearing of an account's proxy from the UI without modifying session cookies.
+  - The Control Panel displays a purple `🌐 ip:port` badge on each account card and offers an inline `Edit Proxy` / `+ Set Proxy` modal.
+
+---
+
+## 📜 7. Technical Requirements for Future Edits
 - **Do NOT bypass Express static route overrides**: Static assets inside `/output/*` are intercepted server-side to apply profile-level permissions and security filters. Do not change this routing layer.
 - **Never expose private credentials to the client**: Always handle model configurations, API keys, and Chromium tasks server-side inside `server.ts`.
 - **Compile & Lint Verification**: Always run `npm run lint` and `npm run build` after making modifications to ensure full compliance with the Vite + Node + CJS production bundle workflow.

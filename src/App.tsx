@@ -109,6 +109,7 @@ interface Profile {
   isActive: boolean;
   loginStatus?: string;
   dailyPostLimit?: number;
+  proxy?: string;
   updatedAt: string;
 }
 
@@ -430,8 +431,11 @@ export default function App() {
   const [newProfileName, setNewProfileName] = useState<string>("");
   const [newProfileJson, setNewProfileJson] = useState<string>("");
   const [newProfileLimit, setNewProfileLimit] = useState<number>(300);
+  const [newProfileProxy, setNewProfileProxy] = useState<string>("");
   const [editingLimitProfileId, setEditingLimitProfileId] = useState<string | null>(null);
   const [editingLimitValue, setEditingLimitValue] = useState<number>(300);
+  const [editingProxyProfileId, setEditingProxyProfileId] = useState<string | null>(null);
+  const [editingProxyValue, setEditingProxyValue] = useState<string>("");
   const [dailyPostCount, setDailyPostCount] = useState<number>(0);
   const [dailyPostLimit, setDailyPostLimit] = useState<number>(300);
   const [lastPostDate, setLastPostDate] = useState<string>("");
@@ -1754,7 +1758,7 @@ export default function App() {
     }
   };
 
-  const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 300) => {
+  const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 300, proxy: string = "") => {
     if (!name.trim() || !stateJson.trim()) {
       showToast("Please provide both profile name and cookies JSON.", "error");
       return;
@@ -1763,16 +1767,17 @@ export default function App() {
       const res = await fetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 300) })
+        body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 300), proxy: proxy.trim() })
       });
       if (res.ok) {
         setNewProfileName("");
         setNewProfileJson("");
         setNewProfileLimit(300);
+        setNewProfileProxy("");
         setShowProfileAddForm(false);
         fetchProfiles();
         fetchSessionDetails();
-        showToast(`Account profile for "${name}" saved successfully with ${dailyPostLimit || 300} posts/day limit!`, "success");
+        showToast(`Account profile for "${name}" saved successfully!`, "success");
       } else {
         const data = await parseResponseJson(res, { error: "Failed to save profile." });
         showToast(data.error || "Failed to save profile.", "error");
@@ -1800,6 +1805,26 @@ export default function App() {
       }
     } catch (err) {
       showToast("Error updating limit: " + (err as Error).message, "error");
+    }
+  };
+
+  const handleUpdateProfileProxy = async (id: string, proxy: string) => {
+    try {
+      const res = await fetch(resolveUrl("/api/update-profile-proxy"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, proxy: proxy.trim() })
+      });
+      const data = await parseResponseJson(res, {});
+      if (res.ok) {
+        setEditingProxyProfileId(null);
+        fetchProfiles();
+        showToast(proxy.trim() ? `Proxy updated for account!` : `Proxy cleared (using direct connection)`, "success");
+      } else {
+        showToast(data.error || "Failed to update proxy.", "error");
+      }
+    } catch (err) {
+      showToast("Error updating proxy: " + (err as Error).message, "error");
     }
   };
 
@@ -7994,8 +8019,22 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-xs font-mono disabled:opacity-40"
                         />
                       </div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Proxy (Optional)</label>
+                          <span className="text-[9px] font-mono text-slate-500">HTTP/SOCKS5</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={newProfileProxy}
+                          disabled={isBusy || isContinuousLoopActive}
+                          onChange={(e) => setNewProfileProxy(e.target.value)}
+                          placeholder="http://user:pass@proxy-ip:port (optional)"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-xs font-mono disabled:opacity-40 placeholder-slate-700"
+                        />
+                      </div>
                       <button
-                        onClick={() => handleSaveProfile(newProfileName, newProfileJson, newProfileLimit)}
+                        onClick={() => handleSaveProfile(newProfileName, newProfileJson, newProfileLimit, newProfileProxy)}
                         disabled={isBusy || isContinuousLoopActive}
                         className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -8032,6 +8071,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
                                   ⚡ Limit: {p.dailyPostLimit || 300}/day
                                 </span>
+                                {p.proxy && (
+                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold truncate max-w-[130px]" title={`Proxy: ${p.proxy}`}>
+                                    🌐 {p.proxy.replace(/^https?:\/\//, "")}
+                                  </span>
+                                )}
                                 {p.loginStatus === "logged_in" ? (
                                   <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -8086,6 +8130,41 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                     className="text-[9px] text-emerald-400/80 hover:text-emerald-400 underline font-mono cursor-pointer"
                                   >
                                     Edit Limit
+                                  </button>
+                                )}
+
+                                {editingProxyProfileId === p.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="text"
+                                      placeholder="http://user:pass@ip:port or empty"
+                                      value={editingProxyValue}
+                                      onChange={(e) => setEditingProxyValue(e.target.value)}
+                                      className="w-40 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white font-mono"
+                                    />
+                                    <button
+                                      onClick={() => handleUpdateProfileProxy(p.id, editingProxyValue)}
+                                      className="px-1.5 py-0.5 bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold text-[9px] rounded"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingProxyProfileId(null)}
+                                      className="px-1 py-0.5 bg-slate-800 text-slate-400 text-[9px] rounded hover:text-white"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditingProxyProfileId(p.id);
+                                      setEditingProxyValue(p.proxy || "");
+                                    }}
+                                    disabled={isBusy || isPostingActive || isContinuousLoopActive}
+                                    className="text-[9px] text-purple-400/80 hover:text-purple-400 underline font-mono cursor-pointer"
+                                  >
+                                    {p.proxy ? "Edit Proxy" : "+ Set Proxy"}
                                   </button>
                                 )}
                               </div>

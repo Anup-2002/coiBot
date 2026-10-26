@@ -14,6 +14,7 @@ A highly optimized, production-ready full-stack application designed to automate
 7. [Running in Production with PM2](#7-running-in-production-with-pm2)
 8. [API Reference & Data Exporters](#8-api-reference--data-exporters)
 9. [Troubleshooting & Environment Tuning](#9-troubleshooting--environment-tuning)
+10. [Proxy Configuration Guide (Per-Account IP Isolation)](#10-proxy-configuration-guide-per-account-ip-isolation)
 
 ---
 
@@ -247,3 +248,68 @@ All dynamic API communications occur through highly responsive, JSON-compliant E
 
 ### Problem: Playwright fails with "Executable not found" on Linux
 * **Resolution**: Run `npx playwright install-deps` on your EC2 instance. This installs required native system dependencies (X11, fontconfig, etc.) needed for Chromium to run under headless environments.
+
+---
+
+## 10. Proxy Configuration Guide (Per-Account IP Isolation)
+
+To protect your CoinMarketCap accounts from simultaneous IP rate-limits, shadowbans, or Cloudflare challenges, the bot supports **per-profile native proxy routing**.
+
+### 10.1 Why Use Proxies?
+By default, all accounts run through the server's main IP. If one account posts too quickly and CoinMarketCap blocks or throttles that IP, all other accounts on that server are affected. Setting a unique proxy per profile gives each account its own dedicated residential/datacenter IP address.
+
+### 10.2 Where to Get Proxies
+You can purchase or test proxies from reputable proxy providers:
+* **Webshare** ([webshare.io](https://www.webshare.io)) — Offers 10 free proxies to test immediately.
+* **IPRoyal** ([iproyal.com](https://iproyal.com)) — Inexpensive residential and datacenter proxies with custom credentials.
+* **Proxy-Seller** ([proxy-seller.com](https://proxy-seller.com)) — Dedicated private IPv4/IPv6 and SOCKS5 proxies.
+* **BrightData** or **Smartproxy** — High-end rotating residential proxies.
+
+### 10.3 Proxy URL Format
+Combine your provider's credentials into a standard URL string:
+
+* **Authenticated HTTP Proxy (Standard)**:
+  ```text
+  http://username:password@ip-address:port
+  ```
+  *Example:* `http://user123:secret456@185.199.229.15:8080`
+
+* **IP-Whitelisted Proxy (No credentials needed)**:
+  ```text
+  http://ip-address:port
+  ```
+  *Example:* `http://185.199.229.15:8080`
+
+* **SOCKS5 Proxy**:
+  ```text
+  socks5://username:password@ip-address:port
+  ```
+  *Example:* `socks5://user123:secret456@185.199.229.15:1080`
+
+### 10.4 How to Add a Proxy in the Dashboard
+
+#### Option A: For an Existing Account
+1. Open the dashboard and click the **Profiles** tab.
+2. Locate your account card.
+3. Next to the daily limit badge, click the purple **`+ Set Proxy`** button (or **`Edit Proxy`**).
+4. Paste your proxy string (e.g., `http://user:pass@ip:port`).
+5. Click **Save**. A purple `🌐 ip:port` badge will appear on the card.
+
+#### Option B: When Creating a New Account
+1. In the **Profiles** tab, click **`+ Add Profile`**.
+2. Enter the profile name, cookies JSON (`state.json`), and daily limit.
+3. In the **`Proxy (Optional)`** field, paste your proxy URL.
+4. Click **`Save Account Profile`**.
+
+#### Option C: Global Fallback (.env)
+You can set a default fallback proxy for all accounts that don't have an individual proxy by adding this to your `.env` file:
+```env
+DEFAULT_PROXY=http://username:password@ip-address:port
+```
+
+### 10.5 How to Remove or Clear a Proxy
+To revert an account back to standard direct connection:
+1. Click **`Edit Proxy`** on the account card.
+2. Clear the text input box completely.
+3. Click **`Save`**. The account immediately switches back to the direct server connection.
+
