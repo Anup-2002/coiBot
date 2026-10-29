@@ -151,6 +151,7 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Implemented balanced coin partitioning across due accounts (`basePerAccount + remainder`, e.g., 85 coins across 3 accounts → `29`, `28`, `28` coins sequentially) with detailed partition logs (`[SCHEDULER] Partitioned X coins across Y accounts...`) and avoided double-slicing inside `runPostingLoop` when `isSchedulerCall` is `true`.
       - Added a dedicated `schedulerLogsBuffer` (backed by `output/scheduler.log`) so `GET /api/scheduler/logs` retains all scheduler cycle, turn, partition, and coin submission logs even when Playwright logs hundreds of browser lines.
       - Enabled automatic background verification for **System Environment Diagnostics** (`/api/check-system`) on both server startup warm-up (`runSystemDiagnosticsCheck`) and frontend mount / `/admin` navigation (`checkSystemHealth`), eliminating the need to manually click `Re-Run Diagnostics` on first load.
+      - Placed convenient 1-click **`Alerts: ON` / `Alerts: OFF`** (`toggleNotifications`) buttons directly in the Dashboard `Control Center` header bar, `/scheduler` header bar, `/health` Card #5 (alongside a 1-click `Telegram: ON / OFF` button), and `/admin` → `3. Emergency Alerts` (alongside a prominent `Telegram Alerts: ON / OFF` action button), plus an upgraded `Mute Alerts` pill on active toast notifications.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
