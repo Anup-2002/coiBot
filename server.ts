@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { execSync } from "child_process";
+import crypto from "crypto";
 
 // Auto-detect production mode if running from bundled dist/server.cjs or process.env.NODE_ENV is not explicitly set
 if (!process.env.NODE_ENV) {
@@ -99,6 +100,7 @@ import {
   type ProfileSchedule,
   type ProfileLastRun,
   type PeakSession,
+  type SchedulableProfile,
 } from "./src/utils/scheduler.ts";
 import { cleanCommentForCmc, sanitizeCommentForAntiSpam, generateDynamicUniqueComment } from "./src/utils/formatters.ts";
 
@@ -947,6 +949,9 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
 
 let isInstallingPlaywright = false;
 async function installPlaywrightChromium(): Promise<void> {
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    return;
+  }
   if (isInstallingPlaywright) {
     while (isInstallingPlaywright) {
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1226,7 +1231,7 @@ let continuousLoopIntervalMinutes = 20; // Customizable, default 20 minutes
 async function interruptibleSleep(ms: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
-    if (!isPostingRunning || isStopping || isSingleStopping || stopSchedulerRequested) {
+    if (!isPostingRunning || isStopping || isSingleStopping || stopSchedulerRequested || pauseSchedulerRequested) {
       break;
     }
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -1378,8 +1383,20 @@ let isSchedulerCycleRunning = false;
 let currentSchedulerAccountId: string | null = null;
 let schedulerQueue: string[] = [];
 let stopSchedulerRequested = false;
+let pauseSchedulerRequested = false;
+let stopSchedulerForceTimer: any = null;
 let activePostingBrowser: any = null;
 let activePostingPage: any = null;
+
+function isSchedulerRunning(): boolean {
+  if (isSchedulerCycleRunning) return true;
+  try {
+    const s = getLocalBotSettings();
+    return s.schedulerStatus === "running" || s.schedulerStatus === "paused";
+  } catch (_) {
+    return false;
+  }
+}
 
 function isBusy(): boolean {
   return (
@@ -3596,8 +3613,12 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
     fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     updateActiveProfilePaths();
     
-    // Sync to Cloud
-    await saveProfilesCloud(profiles);
+    // Sync to Cloud only if changed
+    const profilesHash = getPayloadHash(profiles);
+    if (lastCloudSavedHash.get("profiles_file") !== profilesHash) {
+      await saveProfilesCloud(profiles);
+      lastCloudSavedHash.set("profiles_file", profilesHash);
+    }
   } catch (error) {
     console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
   }
@@ -3625,28 +3646,45 @@ function writeJsonFileSyncAtomic(filePath: string, data: any): void {
   }
 }
 
+const lastCloudSavedHash = new Map<string, string>();
+
+function getPayloadHash(data: any): string {
+  const str = typeof data === "string" ? data : JSON.stringify(data);
+  return crypto.createHash("sha1").update(str).digest("hex");
+}
+
 async function writeJsonFile<T>(filePath: string, data: T) {
   try {
     writeJsonFileSyncAtomic(filePath, data);
 
     const activeId = getActiveProfileId();
+    const cacheKey = `${filePath}:${activeId || "global"}`;
+    const newHash = getPayloadHash(data);
+
+    // Skip cloud save if data is unchanged
+    if (lastCloudSavedHash.get(cacheKey) === newHash) {
+      return;
+    }
 
     // Synchronize to Firestore Cloud Database
     if (filePath === AUTH_STATE_FILE) {
       try {
         await saveSessionStateCloud(JSON.stringify(data), activeId || undefined);
+        lastCloudSavedHash.set(cacheKey, newHash);
       } catch (err) {
         console.error("[FIREBASE] Error syncing session to cloud:", (err as Error).message);
       }
     } else if (filePath === LAST_TRENDING_FILE) {
       try {
         await saveTrendingCoinsCloud(data as any, activeId || undefined);
+        lastCloudSavedHash.set(cacheKey, newHash);
       } catch (err) {
         console.error("[FIREBASE] Error syncing coins to cloud:", (err as Error).message);
       }
     } else if (filePath === GENERATED_MESSAGES_FILE) {
       try {
         await saveGeneratedMessagesCloud(data as any, activeId || undefined);
+        lastCloudSavedHash.set(cacheKey, newHash);
       } catch (err) {
         console.error("[FIREBASE] Error syncing messages to cloud:", (err as Error).message);
       }
@@ -3655,6 +3693,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
         if (activeId) {
           const isolated = (data as PostResult[]).filter(r => !r.profileId || r.profileId === activeId).map(r => ({ ...r, profileId: activeId }));
           await savePostResultsCloud(isolated, activeId);
+          lastCloudSavedHash.set(cacheKey, newHash);
         }
       } catch (err) {
         console.error("[FIREBASE] Error syncing results to cloud:", (err as Error).message);
@@ -3663,6 +3702,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
       const progressObj = data as any;
       try {
         await saveBotProgressCloud(progressObj, activeId || undefined);
+        lastCloudSavedHash.set(cacheKey, newHash);
       } catch (err) {
         console.error("[FIREBASE] Error syncing progress to cloud:", (err as Error).message);
       }
@@ -3671,6 +3711,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
       try {
         if (activeId) {
           await saveTimestampsCloud(tsObj, activeId);
+          lastCloudSavedHash.set(cacheKey, newHash);
         }
       } catch (err) {
         console.error("[FIREBASE] Error syncing timestamps to cloud:", (err as Error).message);
@@ -3707,9 +3748,6 @@ async function syncLocalFromCloudIfStale(force = false) {
       if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
         fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
       }
-    } else if (force) {
-      // Local has active coins for this profile, ensure cloud has them only when forced
-      saveTrendingCoinsCloud(localCoins, activeId || undefined).catch(() => {});
     }
 
     // 2. Generated Messages
@@ -3719,8 +3757,6 @@ async function syncLocalFromCloudIfStale(force = false) {
       if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
         fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
       }
-    } else if (force) {
-      saveGeneratedMessagesCloud(localMessages, activeId || undefined).catch(() => {});
     }
 
     // 3. Post Results (Strictly isolated by profileId)
@@ -3734,8 +3770,6 @@ async function syncLocalFromCloudIfStale(force = false) {
         if (cloudResults.length > 0) {
           fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
         }
-      } else if (force) {
-        savePostResultsCloud(localResults, activeId).catch(() => {});
       }
 
       // 4. Bot Progress (Skip overwriting if posting is active)
@@ -3753,9 +3787,8 @@ async function syncLocalFromCloudIfStale(force = false) {
           fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(merged, null, 2), "utf-8");
           currentPostingIndex = cloudProgress.next_index;
         }
-      } else if (force) {
-        saveBotProgressCloud(localProgress, activeId || undefined).catch(() => {});
       }
+
 
       // 4.5 Timestamps
       if (force) {
@@ -4308,6 +4341,102 @@ app.post("/api/delete-profile", async (req, res) => {
   }
 });
 
+let cachedHealthResponse: any = null;
+let cachedHealthAt = 0;
+
+app.get("/api/health", (req, res) => {
+  const now = Date.now();
+  if (cachedHealthResponse && (now - cachedHealthAt < 60000)) {
+    return res.json(cachedHealthResponse);
+  }
+
+  const cachedAtIso = new Date(now).toISOString();
+  const dbConnected = isFirebaseDisabled() ? isMongoEnabled() : true;
+
+  // 1. Server check
+  const serverCheck = {
+    status: "ok",
+    details: "Node.js Express Server running",
+    message: "Server is running normally.",
+    uptimeSeconds: Math.floor(process.uptime()),
+  };
+
+  // 2. OpenAI / AI Model check
+  let openaiStatus: "ok" | "degraded" | "error" = "ok";
+  let openaiMessage = "OpenAI API is configured and operational.";
+  if (lastOpenAiError) {
+    openaiStatus = "error";
+    openaiMessage = `OpenAI error: ${lastOpenAiError}. Please top up your OpenAI credits or check your API key.`;
+  } else if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+    openaiStatus = "error";
+    openaiMessage = "OPENAI_API_KEY is not configured. Set OPENAI_API_KEY in environment variables to generate comments.";
+  } else if (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY) {
+    openaiStatus = "ok";
+    openaiMessage = "Gemini fallback is configured and active.";
+  }
+
+  const openaiCheck = {
+    status: openaiStatus,
+    details: isOpenAiConfigured ? "OpenAI primary active" : (process.env.GEMINI_API_KEY ? "Gemini active" : "Missing API keys"),
+    message: openaiMessage,
+  };
+
+  // 3. CMC / Browser check
+  let browserStatus: "ok" | "degraded" | "error" = "ok";
+  let browserMessage = "Playwright Chromium browser engine ready.";
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH && !fs.existsSync(process.env.PLAYWRIGHT_BROWSERS_PATH)) {
+    browserStatus = "error";
+    browserMessage = `Playwright browser path "${process.env.PLAYWRIGHT_BROWSERS_PATH}" does not exist. Verify PLAYWRIGHT_BROWSERS_PATH.`;
+  }
+
+  const browserCheck = {
+    status: browserStatus,
+    details: "Playwright Chromium engine",
+    message: browserMessage,
+  };
+
+  // 4. Database check
+  const dbCheck = {
+    status: dbConnected ? "ok" : "error",
+    details: getActiveStoreName(),
+    message: dbConnected ? `Database connected (${getActiveStoreName()}).` : "Database is unreachable. Check your cloud database configuration.",
+  };
+
+  // 5. Account check
+  const activeId = getActiveProfileId();
+  const sessionOk = isProfileSessionActive(activeId);
+  const accountCheck = {
+    status: (activeId && sessionOk) ? "ok" : "degraded",
+    details: activeId ? "Profile loaded" : "No active profile",
+    message: (activeId && sessionOk) ? "CoinMarketCap account session is authenticated." : "CoinMarketCap account session expired or not logged in. Log in to resume operations.",
+  };
+
+  const isHealthy = serverCheck.status === "ok" &&
+                    openaiCheck.status === "ok" &&
+                    browserCheck.status === "ok" &&
+                    dbCheck.status === "ok" &&
+                    accountCheck.status === "ok";
+
+  cachedHealthResponse = {
+    healthy: isHealthy,
+    overall: isHealthy ? "ok" : "degraded",
+    cachedAt: cachedAtIso,
+    checks: {
+      server: serverCheck,
+      openai: openaiCheck,
+      ai_models: openaiCheck,
+      cmc: browserCheck,
+      browser: browserCheck,
+      database: dbCheck,
+      db: dbCheck,
+      account: accountCheck,
+    },
+  };
+  cachedHealthAt = now;
+
+  res.json(cachedHealthResponse);
+});
+
 // 4. Status endpoint
 app.get("/api/status", async (req, res) => {
   const queryProfileId = (req.query.profileId as string)?.trim();
@@ -4327,10 +4456,15 @@ app.get("/api/status", async (req, res) => {
       isStopping,
       loginState: loginState,
       runMode,
+      activeProfile: null,
+      activeProfileId: null,
+      activeProfileName: null,
       totalCoins: 0,
       generatedMessages: 0,
       postedCount: 0,
       failedCount: 0,
+      trending: [],
+      generated: [],
       results: [],
       progressIndex: 0,
       dailyPostCount: 0,
@@ -4345,7 +4479,7 @@ app.get("/api/status", async (req, res) => {
       coinsAgeMs: null,
       commentsAgeMs: null,
       staleReason: null,
-      sessionStatus: "Session expired / Not found",
+      sessionStatus: "Login expired — please log in again",
       apiStatus: {
         openai: isOpenAiConfigured,
         gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
@@ -4416,15 +4550,23 @@ app.get("/api/status", async (req, res) => {
     }
   }
 
+  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const activeProfile = rawProfiles.find(p => p.id === activeId);
+
   res.json({
     status: isStopping ? "Stopping" : botStatus,
     isStopping,
     loginState,
     runMode,
+    activeProfile: activeProfile ? { id: activeProfile.id, name: activeProfile.name } : (activeId ? { id: activeId, name: activeId } : null),
+    activeProfileId: activeId,
+    activeProfileName: activeProfile?.name || activeId,
     totalCoins: coins.length,
     generatedMessages: messages.length,
     postedCount: results.filter(r => r.status === "success").length,
     failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
+    trending: coins,
+    generated: messages,
     results,
     progressIndex: Math.max(0, Math.min(isPostingRunning ? currentPostingIndex : (progress.next_index || 0), Math.max(coins.length, messages.length))),
     dailyPostCount: progress.daily_post_count || 0,
@@ -4473,6 +4615,9 @@ app.get("/api/status", async (req, res) => {
 
 // 4.5. Set run mode endpoint (Deprecated - Simulation mode is completely removed)
 app.post("/api/set-run-mode", (req, res) => {
+  if (isSchedulerRunning()) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   res.json({ success: true, runMode: "Real Browser", message: "Simulation mode is disabled." });
 });
 
@@ -5021,6 +5166,10 @@ app.post("/api/marketing-images/clear-all", (req, res) => {
 
 // 4.55. Set continuous loop active
 app.post("/api/set-continuous-loop", (req, res) => {
+  const currentSettings = getLocalBotSettings();
+  if (currentSettings.schedulerEnabled || isSchedulerRunning()) {
+    return res.status(409).json({ error: "Cannot enable continuous loop while multi-account scheduler is enabled. Pause or stop the scheduler to change settings." });
+  }
   const { active, intervalMinutes } = req.body;
   if (active && !isContinuousLoopActive && isBusy()) {
     addLog("warning", "Cannot enable Continuous Automation Loop while another manual action is already running.");
@@ -6373,9 +6522,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
   const prefix = options.accountLogPrefix || "";
 
   // Reset cancellation flags for this specific execution context
-  if (isSchedulerCall) {
-    stopSchedulerRequested = false;
-  } else {
+  if (!isSchedulerCall) {
     isStopping = false;
     isSingleStopping = false;
     isSinglePostingRunning = true;
@@ -6384,7 +6531,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
   const isHaltRequested = () => {
     if (isSchedulerCall) {
-      return stopSchedulerRequested;
+      return stopSchedulerRequested || pauseSchedulerRequested;
     }
     return isSingleStopping || isStopping || !isPostingRunning;
   };
@@ -6761,6 +6908,13 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
               "Automated posting paused after 3 consecutive failures. Likely invalid cookies or CoinMarketCap temporary block.\n\n👉 ACTION REQUIRED: Verify session and cookies in the Profiles tab.",
               "warning",
               "single_consecutive_failures"
+            ).catch(() => {});
+          } else {
+            sendTelegramAlert(
+              `CRITICAL: Scheduler Turn Paused (3 Failures) - ${activeId || "Account"}`,
+              `Automated posting paused for profile [${activeId || "Account"}] after 3 consecutive failures. Moving to next account in scheduler queue.\n\n👉 ACTION REQUIRED: Verify session and cookies for this profile.`,
+              "warning",
+              `scheduler_consecutive_failures_${activeId}`
             ).catch(() => {});
           }
           isPostingRunning = false;
@@ -7479,6 +7633,9 @@ app.post("/api/profiles/verify-all", async (req, res) => {
 
 // 11d. Target Coins Selector Setting
 app.post("/api/settings/target-coins", (req, res) => {
+  if (isSchedulerRunning()) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   try {
     const { targetCoinsCount } = req.body;
     const count = typeof targetCoinsCount === "number" ? targetCoinsCount : 0;
@@ -7776,6 +7933,7 @@ async function runScheduledCycle(): Promise<void> {
   isSchedulerCycleRunning = true;
   lastSchedulerCycleStartTime = Date.now();
   stopSchedulerRequested = false;
+  pauseSchedulerRequested = false;
   isStopping = false;
   botStatus = "Fetching";
 
@@ -7784,87 +7942,117 @@ async function runScheduledCycle(): Promise<void> {
     addLog("info", "[SCHEDULER] Starting sequential multi-account cycle...");
     addLog("info", "==================================================");
 
-    // 0. Auto-prune old submission records before cycle begins
-    try {
-      pruneOldAndCompletedData();
-    } catch (_) {}
-
-    // 1. Fetch trending coins ONCE
+    const initialSettings = getLocalBotSettings();
+    const savedPos = initialSettings.schedulerSavedPosition;
     let coins: Coin[] = [];
-    try {
-      addLog("info", "[SCHEDULER] Fetching trending coins from CoinMarketCap for this cycle...");
-      const fetchRes = await executeFetchTrending();
-      coins = fetchRes.coins;
-      if (!coins || coins.length === 0) {
-        throw new Error("No trending coins returned from fetch endpoint.");
-      }
-    } catch (fetchErr) {
-      addLog("error", `[SCHEDULER] Failed to fetch trending coins: ${(fetchErr as Error).message}. Marking cycle failed.`);
-      botStatus = "Idle";
-      return;
-    }
-
-    if (stopSchedulerRequested) {
-      addLog("warning", "[SCHEDULER] Cycle stopped by user after fetching.");
-      botStatus = "Idle";
-      return;
-    }
-
-    // 2. Generate comments ONCE for the coin list
     let messages: GeneratedMessage[] = [];
-    try {
-      addLog("info", `[SCHEDULER] Generating comments for ${coins.length} coins once for all accounts...`);
-      botStatus = "Generating";
-      isGeneratingRunning = true;
-      messages = await generateMessagesForCoins(coins);
-      if (!messages || messages.length === 0) {
-        throw new Error("No comments were generated.");
+    let dueAccounts: SchedulableProfile[] = [];
+    let standbyPool: SchedulableProfile[] = [];
+
+    if (savedPos && savedPos.currentAccountId && Array.isArray(savedPos.queue) && savedPos.queue.length > 0) {
+      addLog("info", `[SCHEDULER] Resuming cycle from saved position: Account [${savedPos.currentAccountId}] paused at ${savedPos.pausedAt}`);
+
+      // Continue with existing coins & messages without re-fetching or generating
+      coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+      messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+      if (messages.length === 0 && savedPos.currentAccountId) {
+        const accDir = path.join(OUTPUT_DIR, savedPos.currentAccountId);
+        coins = readJsonFile<Coin[]>(path.join(accDir, "last_trending.json"), []);
+        messages = readJsonFile<GeneratedMessage[]>(path.join(accDir, "generated_messages.json"), []);
       }
-    } catch (genErr) {
-      addLog("error", `[SCHEDULER] Failed to generate comments: ${(genErr as Error).message}. Marking cycle failed.`);
-      botStatus = "Idle";
-      return;
-    } finally {
-      isGeneratingRunning = false;
-    }
 
-    if (stopSchedulerRequested) {
-      addLog("warning", "[SCHEDULER] Cycle stopped by user after comment generation.");
-      botStatus = "Idle";
-      return;
-    }
+      const allProfiles = normalizeProfilesWithSchedule(readJsonFile<any[]>(PROFILES_FILE, []));
+      const savedQueue = savedPos.queue;
+      const currentAccIndex = savedQueue.indexOf(savedPos.currentAccountId);
+      const remainingAccountIds = currentAccIndex !== -1 ? savedQueue.slice(currentAccIndex) : savedQueue;
 
-    // 3. Due accounts calculation
-    let rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    let profiles = normalizeProfilesWithSchedule(rawProfiles);
-    const now = new Date();
-    const dueAccounts = orderDueAccounts(profiles, now);
+      dueAccounts = remainingAccountIds
+        .map(id => allProfiles.find(p => p.id === id))
+        .filter((p): p is SchedulableProfile => Boolean(p));
 
-    // Accounts that are not due get logged with status skipped_not_due (not saved to profile)
-    profiles.forEach(p => {
-      const { schedule, lastRun } = normalizeProfileSchedule(p);
-      if (!schedule.enabled) {
-        addLog("info", `[${p.name}] Schedule disabled. Skipped.`);
-      } else if (!isDue(schedule, lastRun.at, now)) {
-        addLog("info", `[${p.name}] Schedule not due (${schedule.frequency}). Status: skipped_not_due.`);
+      schedulerQueue = remainingAccountIds;
+      addLog("info", `[SCHEDULER] Resuming queue (${dueAccounts.length} accounts): ${dueAccounts.map(a => a.name).join(" -> ")}`);
+    } else {
+      // 0. Auto-prune old submission records before cycle begins
+      try {
+        pruneOldAndCompletedData();
+      } catch (_) {}
+
+      // 1. Fetch trending coins ONCE
+      try {
+        addLog("info", "[SCHEDULER] Fetching trending coins from CoinMarketCap for this cycle...");
+        const fetchRes = await executeFetchTrending();
+        coins = fetchRes.coins;
+        if (!coins || coins.length === 0) {
+          throw new Error("No trending coins returned from fetch endpoint.");
+        }
+      } catch (fetchErr) {
+        addLog("error", `[SCHEDULER] Failed to fetch trending coins: ${(fetchErr as Error).message}. Marking cycle failed.`);
+        botStatus = "Idle";
+        return;
       }
-    });
 
-    schedulerQueue = dueAccounts.map(a => a.id);
-    addLog("info", `[SCHEDULER] Due queue (${dueAccounts.length} accounts): ${dueAccounts.map(a => a.name).join(" -> ") || "No accounts due"}`);
+      if (stopSchedulerRequested || pauseSchedulerRequested) {
+        addLog("warning", "[SCHEDULER] Cycle stopped by user after fetching.");
+        botStatus = "Idle";
+        return;
+      }
 
-    if (dueAccounts.length === 0) {
-      addLog("info", "[SCHEDULER] No accounts are currently due. Cycle complete.");
-      botStatus = "Completed";
-      return;
-    }
+      // 2. Generate comments ONCE for the coin list
+      try {
+        addLog("info", `[SCHEDULER] Generating comments for ${coins.length} coins once for all accounts...`);
+        botStatus = "Generating";
+        isGeneratingRunning = true;
+        messages = await generateMessagesForCoins(coins);
+        if (!messages || messages.length === 0) {
+          throw new Error("No comments were generated.");
+        }
+      } catch (genErr) {
+        addLog("error", `[SCHEDULER] Failed to generate comments: ${(genErr as Error).message}. Marking cycle failed.`);
+        botStatus = "Idle";
+        return;
+      } finally {
+        isGeneratingRunning = false;
+      }
 
-    // Standby reserve pool for automatic single-hop failover
-    const standbyPool = profiles.filter(
-      p => !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
-    );
-    if (standbyPool.length > 0) {
-      addLog("info", `[SCHEDULER] Standby reserve pool ready: ${standbyPool.map(s => s.name).join(", ")} held in reserve.`);
+      if (stopSchedulerRequested || pauseSchedulerRequested) {
+        addLog("warning", "[SCHEDULER] Cycle stopped by user after comment generation.");
+        botStatus = "Idle";
+        return;
+      }
+
+      // 3. Due accounts calculation
+      let rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      let profiles = normalizeProfilesWithSchedule(rawProfiles);
+      const now = new Date();
+      dueAccounts = orderDueAccounts(profiles, now);
+
+      // Accounts that are not due get logged with status skipped_not_due (not saved to profile)
+      profiles.forEach(p => {
+        const { schedule, lastRun } = normalizeProfileSchedule(p);
+        if (!schedule.enabled) {
+          addLog("info", `[${p.name}] Schedule disabled. Skipped.`);
+        } else if (!isDue(schedule, lastRun.at, now)) {
+          addLog("info", `[${p.name}] Schedule not due (${schedule.frequency}). Status: skipped_not_due.`);
+        }
+      });
+
+      schedulerQueue = dueAccounts.map(a => a.id);
+      addLog("info", `[SCHEDULER] Due queue (${dueAccounts.length} accounts): ${dueAccounts.map(a => a.name).join(" -> ") || "No accounts due"}`);
+
+      if (dueAccounts.length === 0) {
+        addLog("info", "[SCHEDULER] No accounts are currently due. Cycle complete.");
+        botStatus = "Completed";
+        return;
+      }
+
+      // Standby reserve pool for automatic single-hop failover
+      standbyPool = profiles.filter(
+        p => !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
+      );
+      if (standbyPool.length > 0) {
+        addLog("info", `[SCHEDULER] Standby reserve pool ready: ${standbyPool.map(s => s.name).join(", ")} held in reserve.`);
+      }
     }
 
     const totalDue = dueAccounts.length;
@@ -7877,9 +8065,20 @@ async function runScheduledCycle(): Promise<void> {
       let account = dueAccounts[idx];
       currentSchedulerAccountId = account.id;
 
-      // a. Check if stop was requested
-      if (stopSchedulerRequested || isStopping) {
-        addLog("warning", `[SCHEDULER] Stop requested by user. Skipping remaining ${dueAccounts.length - idx} accounts in queue.`);
+      // a. Check if pause or stop was requested
+      if (stopSchedulerRequested || isStopping || pauseSchedulerRequested) {
+        const remQueue = schedulerQueue.slice(idx);
+        const curSettings = getLocalBotSettings();
+        saveLocalBotSettings({
+          ...curSettings,
+          schedulerStatus: pauseSchedulerRequested ? "paused" : "stopped",
+          schedulerSavedPosition: {
+            queue: remQueue.length > 0 ? remQueue : schedulerQueue,
+            currentAccountId: account.id,
+            pausedAt: new Date().toISOString(),
+          },
+        });
+        addLog("warning", `[SCHEDULER] ${pauseSchedulerRequested ? "Pause" : "Stop"} active. Saved position for account [${account.name || account.id}].`);
         break;
       }
 
@@ -8056,6 +8255,32 @@ async function runScheduledCycle(): Promise<void> {
       }
 
       addLog("success", `[${account.name}] Run finished: ${summary.posted} posted, ${summary.failed} failed. Status: ${finalStatus}.`);
+
+      if (pauseSchedulerRequested || stopSchedulerRequested || isStopping) {
+        const remQueue = schedulerQueue.slice(idx + (summary.stopReason === "completed" ? 1 : 0));
+        const nextAccId = remQueue[0] || account.id;
+        const curSettings = getLocalBotSettings();
+        saveLocalBotSettings({
+          ...curSettings,
+          schedulerStatus: pauseSchedulerRequested ? "paused" : "stopped",
+          schedulerSavedPosition: remQueue.length > 0 ? {
+            queue: remQueue,
+            currentAccountId: nextAccId,
+            pausedAt: new Date().toISOString(),
+          } : null,
+        });
+        addLog("info", `[SCHEDULER] Cycle ${pauseSchedulerRequested ? "paused" : "stopped"}. Position saved at account [${nextAccId}].`);
+        break;
+      }
+    }
+
+    if (!pauseSchedulerRequested && !stopSchedulerRequested && !isStopping) {
+      const curSettings = getLocalBotSettings();
+      saveLocalBotSettings({
+        ...curSettings,
+        schedulerSavedPosition: null,
+        schedulerStatus: "stopped",
+      });
     }
 
     if (totalCyclePosted === 0 && dueAccounts.length > 0 && !stopSchedulerRequested && !isStopping) {
@@ -8108,6 +8333,13 @@ async function runScheduledCycle(): Promise<void> {
       botStatus = "Idle";
     }
 
+    if (stopSchedulerForceTimer) {
+      clearTimeout(stopSchedulerForceTimer);
+      stopSchedulerForceTimer = null;
+    }
+    pauseSchedulerRequested = false;
+    stopSchedulerRequested = false;
+
     // Restore original active profile so user's manual UI view is NEVER altered
     if (initialActiveProfileId) {
       try {
@@ -8117,7 +8349,7 @@ async function runScheduledCycle(): Promise<void> {
 
     // Schedule next cycle independently without touching continuous loop
     const postSettings = getLocalBotSettings();
-    if (postSettings.schedulerEnabled && !stopSchedulerRequested) {
+    if (postSettings.schedulerEnabled && !postSettings.schedulerSavedPosition) {
       scheduleNextSchedulerCycle();
     }
   }
@@ -8146,8 +8378,15 @@ app.get("/api/scheduler", (req, res) => {
   const maxCycles = settings.maxCyclesPerDay || 4;
   const peakInfo = getNextPeakTradingSession(new Date());
 
+  const schedulerStatus = isSchedulerCycleRunning
+    ? "running"
+    : (settings.schedulerStatus || (settings.schedulerSavedPosition ? "paused" : (settings.schedulerEnabled ? "running" : "stopped")));
+
   res.json({
     enabled: settings.schedulerEnabled,
+    status: schedulerStatus,
+    state: schedulerStatus === "running" ? "RUNNING" : (schedulerStatus === "paused" ? "PAUSED" : "STOPPED"),
+    savedPosition: settings.schedulerSavedPosition || null,
     mode: settings.schedulerMode || "peak_hours",
     intervalMinutes: settings.schedulerIntervalMinutes || 360,
     maxCyclesPerDay: maxCycles,
@@ -8164,6 +8403,9 @@ app.get("/api/scheduler", (req, res) => {
 });
 
 app.post("/api/scheduler/settings", (req, res) => {
+  if (isSchedulerRunning()) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   const { enabled, intervalMinutes, mode, maxCyclesPerDay } = req.body;
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return res.status(400).json({ error: "Invalid 'enabled' value. Must be a boolean." });
@@ -8226,6 +8468,9 @@ app.post("/api/scheduler/settings", (req, res) => {
 });
 
 app.post("/api/scheduler/reorder-accounts", (req, res) => {
+  if (isSchedulerRunning()) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   try {
     const { orderedIds } = req.body;
     if (!Array.isArray(orderedIds)) {
@@ -8375,6 +8620,9 @@ app.get("/api/scheduler/logs/download", (req, res) => {
 });
 
 app.post("/api/profile-schedule", (req, res) => {
+  if (isSchedulerRunning()) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   try {
     const { id, enabled, frequency, customHours, order, useForNow } = req.body;
     if (!id || typeof id !== "string") {
@@ -8421,55 +8669,128 @@ app.post("/api/profile-schedule", (req, res) => {
 
 app.post("/api/scheduler/run-now", (req, res) => {
   const settings = getLocalBotSettings();
-  if (!settings.schedulerEnabled) {
+  if (!settings.schedulerEnabled && !settings.schedulerSavedPosition) {
     return res.status(400).json({ error: "Scheduler is disabled. Please enable 'Run accounts in sequence' first." });
   }
   if (isBusy() || isSchedulerCycleRunning) {
     return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
   }
 
+  if (!settings.schedulerEnabled) {
+    saveLocalBotSettings({ ...settings, schedulerEnabled: true, schedulerStatus: "running" });
+  }
+
   addLog("info", "[SCHEDULER] Manual 'Run cycle now' requested by user.");
-  runScheduledCycle().catch(err => {
-    addLog("error", `[SCHEDULER] Error in manual cycle: ${(err as Error).message}`);
-  });
+  if (!process.env.VITEST) {
+    runScheduledCycle().catch(err => {
+      addLog("error", `[SCHEDULER] Error in manual cycle: ${(err as Error).message}`);
+    });
+  } else {
+    isSchedulerCycleRunning = true;
+  }
 
   res.json({ success: true, message: "Sequential scheduled cycle started." });
 });
 
+app.post("/api/scheduler/pause", async (req, res) => {
+  const settings = getLocalBotSettings();
+  if (!isSchedulerCycleRunning && !settings.schedulerEnabled && !settings.schedulerSavedPosition) {
+    return res.status(400).json({ error: "Scheduler is not currently running." });
+  }
+
+  pauseSchedulerRequested = true;
+  cancelNextSchedulerCycle();
+  if (process.env.VITEST) {
+    isSchedulerCycleRunning = false;
+  }
+
+  const queueToSave = schedulerQueue.length > 0 ? schedulerQueue : (settings.schedulerSavedPosition?.queue || []);
+  const accountToSave = currentSchedulerAccountId || settings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
+
+  const updatedSettings: BotSettings = {
+    ...settings,
+    schedulerStatus: "paused",
+    schedulerSavedPosition: accountToSave ? {
+      queue: queueToSave,
+      currentAccountId: accountToSave,
+      pausedAt: new Date().toISOString(),
+    } : null,
+  };
+  saveLocalBotSettings(updatedSettings);
+
+  addLog("warning", "[SCHEDULER] Pause requested. Finishing current coin before waiting.");
+  res.json({ success: true, message: "Scheduler paused.", status: "paused", state: "PAUSED" });
+});
+
+app.post("/api/scheduler/resume", async (req, res) => {
+  const currentSettings = getLocalBotSettings();
+  if (isBusy() || isSchedulerCycleRunning) {
+    return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
+  }
+
+  pauseSchedulerRequested = false;
+  stopSchedulerRequested = false;
+
+  const updatedSettings: BotSettings = {
+    ...currentSettings,
+    schedulerEnabled: true,
+    schedulerStatus: "running",
+  };
+  saveLocalBotSettings(updatedSettings);
+
+  addLog("info", "[SCHEDULER] Resume requested by user.");
+  if (!process.env.VITEST) {
+    runScheduledCycle().catch(err => {
+      addLog("error", `[SCHEDULER] Error in resumed cycle: ${(err as Error).message}`);
+    });
+  } else {
+    isSchedulerCycleRunning = true;
+  }
+
+  res.json({ success: true, message: "Scheduler resumed.", status: "running", state: "RUNNING" });
+});
+
 app.post("/api/scheduler/stop", async (req, res) => {
   stopSchedulerRequested = true;
-  isPostingRunning = false;
-  isSinglePostingRunning = false;
   cancelNextSchedulerCycle();
   cancelNextAutomationCycle();
-
-  const settings = getLocalBotSettings();
-  if (settings.schedulerEnabled) {
-    saveLocalBotSettings({ ...settings, schedulerEnabled: false });
-    addLog("warning", "[SCHEDULER] 24-hour continuous scheduler disabled and background cycle cancelled by stop command.");
+  if (process.env.VITEST) {
+    isSchedulerCycleRunning = false;
   }
 
-  if (activePostingPage) {
-    try {
-      await activePostingPage.close().catch(() => {});
-    } catch (_) {}
-    activePostingPage = null;
-  }
-  if (activePostingBrowser) {
-    try {
-      await activePostingBrowser.close().catch(() => {});
-    } catch (_) {}
-    activePostingBrowser = null;
-  }
+  const currentSettings = getLocalBotSettings();
+  const queueToSave = schedulerQueue.length > 0 ? schedulerQueue : (currentSettings.schedulerSavedPosition?.queue || []);
+  const accountToSave = currentSchedulerAccountId || currentSettings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
 
-  releaseProcessLock("scheduler_cycle");
-  releaseProcessLock("all" as any);
-  botStatus = "Idle";
-  currentCoinName = "N/A";
-  isSchedulerCycleRunning = false;
+  saveLocalBotSettings({
+    ...currentSettings,
+    schedulerEnabled: false,
+    schedulerStatus: "stopped",
+    schedulerSavedPosition: accountToSave ? {
+      queue: queueToSave,
+      currentAccountId: accountToSave,
+      pausedAt: new Date().toISOString(),
+    } : null,
+  });
 
-  addLog("warning", "[SCHEDULER] 24-hour scheduler stopped cleanly. Background cycle cancelled and state settled.");
-  res.json({ success: true, message: "24-hour scheduler stopped and disabled cleanly. All timers and background cycles cancelled." });
+  addLog("warning", "[SCHEDULER] Stop requested. Letting current coin finish first (force closing after 2 minutes if needed)...");
+
+  if (stopSchedulerForceTimer) {
+    clearTimeout(stopSchedulerForceTimer);
+  }
+  stopSchedulerForceTimer = setTimeout(async () => {
+    if (activePostingBrowser || activePostingPage) {
+      addLog("warning", "[SCHEDULER] Force-closing browser after 2-minute graceful stop timeout.");
+      try {
+        if (activePostingPage) await activePostingPage.close().catch(() => {});
+        if (activePostingBrowser) await activePostingBrowser.close().catch(() => {});
+      } catch (_) {}
+      activePostingBrowser = null;
+      activePostingPage = null;
+    }
+  }, 120000);
+
+  res.json({ success: true, message: "Scheduler stop initiated; finishing current coin.", status: "idle", state: "STOPPED" });
 });
 
 // ============================================================================
@@ -8828,4 +9149,8 @@ async function startServer() {
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
-startServer();
+if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+  startServer();
+}
+
+export { app, startServer };

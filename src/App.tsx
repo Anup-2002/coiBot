@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Component, ReactNode, ErrorInfo } from "react";
 import {
   Activity,
   Terminal as TerminalIcon,
@@ -57,9 +57,48 @@ import {
   Share2,
   LogOut,
   EyeOff,
-  RotateCcw
+  RotateCcw,
+  Square
 } from "lucide-react";
-import { api, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo, MarketingImage } from "./api";
+import { api, apiFetch, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo, MarketingImage, HealthResponse } from "./api";
+
+export class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  override state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center gap-4">
+            <div className="p-3 bg-rose-500/10 text-rose-400 rounded-xl border border-rose-500/20">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <h1 className="text-xl font-bold text-white">Something went wrong</h1>
+            <p className="text-sm text-slate-400">An unexpected error occurred. Click reload to refresh the application.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition cursor-pointer flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" /> Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Types matching backend server structures
 interface Coin {
@@ -343,7 +382,7 @@ const CycleCountdown = React.memo(function CycleCountdown({ nextCycleStartTime }
         <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
         <span className="text-[11px] text-emerald-400 font-bold">Cooldown Active</span>
       </div>
-      <span className="font-mono text-xs text-slate-300">
+      <span className="font-mono text-sm text-slate-300">
         Next cycle in: <strong className="text-emerald-400 font-bold">{mins}m {secs}s</strong>
       </span>
     </div>
@@ -383,6 +422,8 @@ export default function App() {
   const isInitialIntervalLoaded = useRef<boolean>(false);
   const [activeProcess, setActiveProcess] = useState<string>("none");
   const [activeProcessDescription, setActiveProcessDescription] = useState<string>("");
+  const [healthData, setHealthData] = useState<HealthResponse | null>(null);
+  const [logsTab, setLogsTab] = useState<"system" | "scheduler">("system");
 
   // Marketing Image Upload Feature State (Strictly 1 Image Per Comment)
   const [imageUploadEnabled, setImageUploadEnabled] = useState<boolean>(false);
@@ -445,7 +486,8 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Routing state between Main Dashboard, Multi-Account Scheduler, and Admin Screen
-  const [currentView, setCurrentView] = useState<"dashboard" | "scheduler" | "admin">(() => {
+  // Routing state between Main Dashboard, Multi-Account Scheduler, Admin Screen, Guide, Logs, and Health
+  const [currentView, setCurrentView] = useState<"dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health">(() => {
     if (typeof window !== "undefined") {
       const p = window.location.pathname.toLowerCase();
       const h = window.location.hash.toLowerCase();
@@ -454,6 +496,15 @@ export default function App() {
       }
       if (p.startsWith("/admin") || h.startsWith("#/admin")) {
         return "admin";
+      }
+      if (p.startsWith("/guide") || h.startsWith("#/guide")) {
+        return "guide";
+      }
+      if (p.startsWith("/logs") || h.startsWith("#/logs")) {
+        return "logs";
+      }
+      if (p.startsWith("/health") || h.startsWith("#/health")) {
+        return "health";
       }
     }
     return "dashboard";
@@ -470,7 +521,7 @@ export default function App() {
   useEffect(() => {
     const fetchTelegramSettings = async () => {
       try {
-        const res = await fetch("/api/telegram/settings");
+        const res = await apiFetch("/api/telegram/settings");
         if (res.ok) {
           const data = await res.json();
           setTelegramEnabled(data.enabled !== false);
@@ -490,6 +541,12 @@ export default function App() {
         setCurrentView("scheduler");
       } else if (p.startsWith("/admin") || h.startsWith("#/admin")) {
         setCurrentView("admin");
+      } else if (p.startsWith("/guide") || h.startsWith("#/guide")) {
+        setCurrentView("guide");
+      } else if (p.startsWith("/logs") || h.startsWith("#/logs")) {
+        setCurrentView("logs");
+      } else if (p.startsWith("/health") || h.startsWith("#/health")) {
+        setCurrentView("health");
       } else {
         setCurrentView("dashboard");
       }
@@ -502,12 +559,15 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security") => {
     setCurrentView(view);
     if (section) setAdminSection(section);
     let path = "/";
     if (view === "scheduler") path = "/scheduler";
     else if (view === "admin") path = "/admin";
+    else if (view === "guide") path = "/guide";
+    else if (view === "logs") path = "/logs";
+    else if (view === "health") path = "/health";
     if (window.location.pathname !== path) {
       window.history.pushState({}, "", path);
     }
@@ -545,6 +605,13 @@ export default function App() {
     isProcess?: boolean;
   } | null>(null);
   const toastTimerRef = useRef<any>(null);
+
+  const [inlineConfirmModal, setInlineConfirmModal] = useState<{
+    isOpen: boolean;
+    title?: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const showToast = (message: string, type: "success" | "error" | "info" | "process" | "warning" = "info", durationMs: number = 4000) => {
     // If notifications are turned off, suppress unless it's a critical error
@@ -590,7 +657,7 @@ export default function App() {
   const handleToggleTelegram = async (enabled: boolean) => {
     try {
       setTelegramEnabled(enabled);
-      const res = await fetch("/api/telegram/settings", {
+      const res = await apiFetch("/api/telegram/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled, botToken: telegramToken, chatId: telegramChatId })
@@ -606,7 +673,7 @@ export default function App() {
   const handleTestEmergencyAlert = async () => {
     setIsTestingTelegram(true);
     try {
-      const res = await fetch("/api/telegram/test", {
+      const res = await apiFetch("/api/telegram/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: telegramToken, chatId: telegramChatId })
@@ -627,7 +694,7 @@ export default function App() {
   const handleDetectTelegramChatId = async () => {
     setIsDetectingTelegram(true);
     try {
-      const res = await fetch(`/api/telegram/detect-chat-id?token=${encodeURIComponent(telegramToken)}`);
+      const res = await apiFetch(`/api/telegram/detect-chat-id?token=${encodeURIComponent(telegramToken)}`);
       const data = await res.json();
       if (data.success && data.chatId) {
         setTelegramChatId(data.chatId);
@@ -1038,13 +1105,14 @@ export default function App() {
     }
   };
 
-  // Poll GET /api/scheduler frequently when on schedule tab or admin scheduler view
+  // Poll GET /api/scheduler frequently when on /scheduler page
   useEffect(() => {
+    if (currentView !== "scheduler") return;
     let isMounted = true;
     const poll = async () => {
       try {
         const data = await api.getScheduler();
-        if (isMounted) {
+        if (isMounted && data) {
           setSchedulerData(data);
           if (data.intervalMinutes) setSchedulerIntervalInput(data.intervalMinutes);
           if (typeof data.targetCoinsCount === "number") setTargetCoinsCount(data.targetCoinsCount);
@@ -1054,12 +1122,12 @@ export default function App() {
 
     poll();
 
-    const interval = setInterval(poll, activeTab === "schedule" || adminSection === "scheduler" ? 3000 : 7000);
+    const interval = setInterval(poll, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [activeTab, adminSection]);
+  }, [currentView]);
 
   const handleToggleScheduler = async (explicitVal?: boolean | unknown) => {
     setIsSchedulerActionPending(true);
@@ -1139,11 +1207,41 @@ export default function App() {
     try {
       await api.stopScheduler().catch(() => {});
       await api.stopPosting().catch(() => {});
-      setSchedulerData(prev => prev ? { ...prev, enabled: false, cycleRunning: false } : null);
-      showToast("24-Hour Scheduler stopped and background cycles cancelled cleanly.", "info");
+      setSchedulerData(prev => prev ? { ...prev, enabled: false, cycleRunning: false, status: "stopped" } : null);
+      showToast("Scheduler stopped; letting current coin finish gracefully.", "info");
       await fetchSchedulerStatus();
     } catch (err) {
       showToast("Error stopping scheduler: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handlePauseScheduler = async () => {
+    setIsSchedulerActionPending(true);
+    try {
+      const res = await api.pauseScheduler();
+      if (res.success) {
+        showToast(res.message || "Scheduler paused; current coin will finish before pausing.", "info");
+      }
+      await fetchSchedulerStatus();
+    } catch (err) {
+      showToast("Error pausing scheduler: " + (err as Error).message, "error");
+    } finally {
+      setIsSchedulerActionPending(false);
+    }
+  };
+
+  const handleResumeScheduler = async () => {
+    setIsSchedulerActionPending(true);
+    try {
+      const res = await api.resumeScheduler();
+      if (res.success) {
+        showToast(res.message || "Scheduler resumed from saved position.", "success");
+      }
+      await fetchSchedulerStatus();
+    } catch (err) {
+      showToast("Error resuming scheduler: " + (err as Error).message, "error");
     } finally {
       setIsSchedulerActionPending(false);
     }
@@ -1230,22 +1328,28 @@ export default function App() {
   };
 
   const handleManualPruneNow = async (count: number) => {
-    if (!window.confirm(`Prune older images and retain only the ${count} newest graphics in your pool?`)) return;
-    setIsPruningImages(true);
-    try {
-      const res = await api.autoPruneMarketingImages(count);
-      if (res.success) {
-        showToast(res.message || `Pruned ${res.prunedCount} images. Retained ${res.remainingCount} newest.`, "success");
-        setSelectedImageFilenames([]);
-        await fetchMarketingImages();
-      } else {
-        showToast(res.error || "Failed to prune images", "error");
+    setInlineConfirmModal({
+      isOpen: true,
+      title: "Prune Marketing Images",
+      message: `Prune older images and retain only the ${count} newest graphics in your pool?`,
+      onConfirm: async () => {
+        setIsPruningImages(true);
+        try {
+          const res = await api.autoPruneMarketingImages(count);
+          if (res.success) {
+            showToast(res.message || `Pruned ${res.prunedCount} images. Retained ${res.remainingCount} newest.`, "success");
+            setSelectedImageFilenames([]);
+            await fetchMarketingImages();
+          } else {
+            showToast(res.error || "Failed to prune images", "error");
+          }
+        } catch (err) {
+          showToast("Error pruning images: " + (err as Error).message, "error");
+        } finally {
+          setIsPruningImages(false);
+        }
       }
-    } catch (err) {
-      showToast("Error pruning images: " + (err as Error).message, "error");
-    } finally {
-      setIsPruningImages(false);
-    }
+    });
   };
 
   const handleDeleteMarketingImage = async (filename: string) => {
@@ -1408,20 +1512,25 @@ export default function App() {
 
   const handleBatchDeleteSelectedImages = async () => {
     if (selectedImageFilenames.length === 0) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedImageFilenames.length} selected image(s)?`)) return;
-
-    try {
-      const res = await api.batchDeleteMarketingImages(selectedImageFilenames);
-      if (res.success) {
-        showToast(`Successfully deleted ${res.deletedCount || selectedImageFilenames.length} image(s)`, "info");
-        setSelectedImageFilenames([]);
-        await fetchMarketingImages();
-      } else {
-        showToast(res.error || "Failed to delete selected images", "error");
+    setInlineConfirmModal({
+      isOpen: true,
+      title: "Delete Selected Images",
+      message: `Are you sure you want to delete ${selectedImageFilenames.length} selected image(s)?`,
+      onConfirm: async () => {
+        try {
+          const res = await api.batchDeleteMarketingImages(selectedImageFilenames);
+          if (res.success) {
+            showToast(`Successfully deleted ${res.deletedCount || selectedImageFilenames.length} image(s)`, "info");
+            setSelectedImageFilenames([]);
+            await fetchMarketingImages();
+          } else {
+            showToast(res.error || "Failed to delete selected images", "error");
+          }
+        } catch (err) {
+          showToast("Error deleting selected images: " + (err as Error).message, "error");
+        }
       }
-    } catch (err) {
-      showToast("Error deleting selected images: " + (err as Error).message, "error");
-    }
+    });
   };
 
   const handleToggleSelectImage = (filename: string) => {
@@ -1431,19 +1540,25 @@ export default function App() {
   };
 
   const handleClearAllMarketingImages = async () => {
-    if (!window.confirm("Are you sure you want to remove all marketing images from the server?")) return;
-    try {
-      const res = await api.clearAllMarketingImages();
-      if (res.success) {
-        showToast("All marketing images removed", "info");
-        setSelectedImageFilenames([]);
-        await fetchMarketingImages();
-      } else {
-        showToast(res.error || "Failed to clear images", "error");
+    setInlineConfirmModal({
+      isOpen: true,
+      title: "Remove All Images",
+      message: "Are you sure you want to remove all marketing images from the server?",
+      onConfirm: async () => {
+        try {
+          const res = await api.clearAllMarketingImages();
+          if (res.success) {
+            showToast("All marketing images removed", "info");
+            setSelectedImageFilenames([]);
+            await fetchMarketingImages();
+          } else {
+            showToast(res.error || "Failed to clear images", "error");
+          }
+        } catch (err) {
+          showToast("Error clearing images: " + (err as Error).message, "error");
+        }
       }
-    } catch (err) {
-      showToast("Error clearing images: " + (err as Error).message, "error");
-    }
+    });
   };
 
   const handleUpdateAccountSchedule = async (params: {
@@ -1580,6 +1695,8 @@ export default function App() {
     (activeProcess !== "none" && activeProcess !== "") ||
     Boolean(schedulerData?.cycleRunning);
 
+  const isSchedulerRunning = Boolean(schedulerData?.cycleRunning);
+
   // Browser Simulator Visual Typing State
   const [simText, setSimText] = useState("");
   const [simTargetCoin, setSimTargetCoin] = useState<string>("");
@@ -1593,43 +1710,97 @@ export default function App() {
   const lastLogsLength = useRef(0);
   const lastRequestTimestamp = useRef<number>(0);
 
-  // Fetch initial stats and list on page load
+  // Global background polling for header status dot and scheduler badge every 30s
   useEffect(() => {
+    let isMounted = true;
+    const pollHeaderStatus = async () => {
+      try {
+        const [health, sched] = await Promise.all([
+          api.getHealth().catch(() => null),
+          api.getScheduler().catch(() => null),
+        ]);
+        if (isMounted) {
+          if (health) setHealthData(health);
+          if (sched) setSchedulerData(sched);
+        }
+      } catch (_) {}
+    };
+
+    pollHeaderStatus();
+    const interval = setInterval(pollHeaderStatus, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Dashboard-specific polling (polls status, and output data only when a run is active)
+  useEffect(() => {
+    if (currentView !== "dashboard") return;
+    let isMounted = true;
+
     fetchStats();
-    fetchLogs();
     fetchSessionDetails();
     fetchProfiles();
-    checkSystemHealth();
-    
-    // Initial fetch of lists
     fetchCoins();
     fetchMessages();
     fetchResults();
 
-    // Setup periodic polling for status & logs with tiered intervals to optimize CPU & network bandwidth
-    let pollTick = 0;
     const interval = setInterval(() => {
-      pollTick++;
-      // High frequency (every 3s): core runtime status and live terminal logs
+      if (!isMounted) return;
       fetchStats();
-      fetchLogs();
-
-      // Lower frequency (every 9s): accounts list & session details
-      if (pollTick % 3 === 0) {
-        fetchProfiles();
-        fetchSessionDetails();
-      }
-
-      // Medium frequency (every 6s): output files
-      if (pollTick % 2 === 0) {
+      if (status === "Posting" || status === "Fetching" || status === "Generating" || isContinuousLoopActive) {
         fetchCoins();
         fetchMessages();
         fetchResults();
       }
     }, 3000);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentView, status, isContinuousLoopActive]);
+
+  // Logs-specific polling (polled only while /logs is open)
+  useEffect(() => {
+    if (currentView !== "logs") return;
+    let isMounted = true;
+
+    const pollLogs = async () => {
+      if (!isMounted) return;
+      await fetchLogs();
+    };
+
+    pollLogs();
+    const interval = setInterval(pollLogs, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentView, logsTab]);
+
+  // Health-specific polling (polled only while /health is open)
+  useEffect(() => {
+    if (currentView !== "health") return;
+    let isMounted = true;
+
+    const pollHealth = async () => {
+      try {
+        const data = await api.getHealth();
+        if (isMounted && data) {
+          setHealthData(data);
+        }
+      } catch (_) {}
+    };
+
+    pollHealth();
+    const interval = setInterval(pollHealth, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentView]);
 
   // Sync Simulator with current posting state
   useEffect(() => {
@@ -1673,7 +1844,7 @@ export default function App() {
     try {
       const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
       const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
-      const res = await fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}${query}`), { cache: "no-store" });
+      const res = await apiFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}${query}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setCoinsList(prev => areCoinsEqual(prev, arr) ? prev : arr);
@@ -1685,7 +1856,7 @@ export default function App() {
     try {
       const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
       const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
-      const res = await fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}${query}`), { cache: "no-store" });
+      const res = await apiFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}${query}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr = Array.isArray(data) ? data : [];
       setMessagesList(prev => areMessagesEqual(prev, arr) ? prev : arr);
@@ -1697,7 +1868,7 @@ export default function App() {
     try {
       const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfileIdRef.current || activeProfile?.id || "");
       const query = pid ? `&profileId=${encodeURIComponent(pid)}` : "";
-      const res = await fetch(resolveUrl(`/output/results.json?t=${Date.now()}${query}`), { cache: "no-store" });
+      const res = await apiFetch(resolveUrl(`/output/results.json?t=${Date.now()}${query}`), { cache: "no-store" });
       const data = res.ok ? await res.json() : [];
       const arr: PostResult[] = Array.isArray(data) ? data : [];
       const filtered = pid ? arr.filter((r: any) => !r.profileId || r.profileId === pid) : arr;
@@ -1709,7 +1880,7 @@ export default function App() {
   const fetchLogs = async (overrideProfileId?: string) => {
     try {
       const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfile?.id || "");
-      const res = await fetch(resolveUrl(`/api/logs?profileId=${encodeURIComponent(pid)}&t=${Date.now()}`));
+      const res = await apiFetch(resolveUrl(`/api/logs?profileId=${encodeURIComponent(pid)}&t=${Date.now()}`));
       if (res.ok) {
         const data = await parseResponseJson(res, { logs: [] });
         const list = (data.logs || []).slice(-100);
@@ -1721,7 +1892,7 @@ export default function App() {
   // Fetch Session details
   const fetchSessionDetails = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/get-session"));
+      const res = await apiFetch(resolveUrl("/api/get-session"));
       if (res.ok) {
         const data = await parseResponseJson(res, { exists: false });
         setSessionExists(data.exists);
@@ -1737,7 +1908,7 @@ export default function App() {
   // Fetch account profiles with O(1) comparison
   const fetchProfiles = async () => {
     try {
-      const res = await fetch(resolveUrl("/api/profiles"));
+      const res = await apiFetch(resolveUrl("/api/profiles"));
       if (res.ok) {
         const data = await parseResponseJson(res, { profiles: [] });
         const list = data.profiles || [];
@@ -1764,7 +1935,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(resolveUrl("/api/save-profile"), {
+      const res = await apiFetch(resolveUrl("/api/save-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, stateJson, dailyPostLimit: Math.max(1, dailyPostLimit || 300), proxy: proxy.trim() })
@@ -1789,7 +1960,7 @@ export default function App() {
 
   const handleUpdateProfileLimit = async (id: string, limit: number) => {
     try {
-      const res = await fetch(resolveUrl("/api/update-profile-limit"), {
+      const res = await apiFetch(resolveUrl("/api/update-profile-limit"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, dailyPostLimit: Math.max(1, limit || 300) })
@@ -1810,7 +1981,7 @@ export default function App() {
 
   const handleUpdateProfileProxy = async (id: string, proxy: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/update-profile-proxy"), {
+      const res = await apiFetch(resolveUrl("/api/update-profile-proxy"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, proxy: proxy.trim() })
@@ -1871,7 +2042,7 @@ export default function App() {
     showToast("Switching active account profile...", "process");
 
     try {
-      const res = await fetch(resolveUrl("/api/activate-profile"), {
+      const res = await apiFetch(resolveUrl("/api/activate-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -1906,7 +2077,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(resolveUrl("/api/delete-profile"), {
+      const res = await apiFetch(resolveUrl("/api/delete-profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
@@ -1932,7 +2103,7 @@ export default function App() {
       const url = curPid
         ? resolveUrl(`/api/status?profileId=${encodeURIComponent(curPid)}&t=${reqTime}`)
         : resolveUrl(`/api/status?t=${reqTime}`);
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (res.ok) {
         if (reqTime < lastRequestTimestamp.current) {
           return; // Skip stale out-of-order poll response
@@ -2038,7 +2209,7 @@ export default function App() {
       3000
     );
     try {
-      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await apiFetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active, intervalMinutes: targetMins }),
@@ -2058,7 +2229,7 @@ export default function App() {
     const safeMins = Math.max(5, mins);
     showToast(`Cooldown interval set to ${safeMins} minutes (min: 5m)`, "info", 2000);
     try {
-      const res = await fetch(resolveUrl("/api/set-continuous-loop"), {
+      const res = await apiFetch(resolveUrl("/api/set-continuous-loop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intervalMinutes: safeMins }),
@@ -2077,7 +2248,7 @@ export default function App() {
   const checkSystemHealth = async () => {
     setIsCheckingSystem(true);
     try {
-      const res = await fetch(resolveUrl("/api/check-system"));
+      const res = await apiFetch(resolveUrl("/api/check-system"));
       if (res.ok) {
         const data = await res.json();
         setSystemCheckResult(data);
@@ -2110,7 +2281,7 @@ export default function App() {
   // Lazy Load Data lists based on Active Tab
   useEffect(() => {
     if (activeTab === "coins") {
-      fetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
+      apiFetch(resolveUrl(`/output/last_trending.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => {
           const arr = Array.isArray(data) ? data : [];
@@ -2118,7 +2289,7 @@ export default function App() {
         })
         .catch(() => {});
     } else if (activeTab === "comments" || activeTab === "reports") {
-      fetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
+      apiFetch(resolveUrl(`/output/generated_messages.json?t=${Date.now()}`))
         .then(res => (res.ok ? res.json() : []))
         .then(data => {
           const arr = Array.isArray(data) ? data : [];
@@ -2204,7 +2375,7 @@ export default function App() {
         options.headers = { "Content-Type": "application/json" };
         options.body = JSON.stringify(bodyData);
       }
-      const res = await fetch(resolveUrl(endpoint), options);
+      const res = await apiFetch(resolveUrl(endpoint), options);
       const data = await parseResponseJson(res, {});
       if (data && data.error) {
         showToast(data.error, "error", 5000);
@@ -2316,7 +2487,7 @@ export default function App() {
     setShowStaleWarningModal(false);
     showToast("Fetching live trending coins and generating fresh AI comments...", "process");
     try {
-      const res = await fetch(resolveUrl("/api/fetch-and-generate-fresh"), { method: "POST" });
+      const res = await apiFetch(resolveUrl("/api/fetch-and-generate-fresh"), { method: "POST" });
       if (res.ok) {
         const data = await parseResponseJson(res, {});
         await Promise.all([fetchCoins(), fetchMessages(), fetchResults(), fetchStats(), fetchLogs()]);
@@ -2342,7 +2513,7 @@ export default function App() {
     if (!sessionJson.trim()) return;
     setIsPending(prev => ({ ...prev, login: true }));
     try {
-      const res = await fetch(resolveUrl("/api/save-session"), {
+      const res = await apiFetch(resolveUrl("/api/save-session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stateJson: sessionJson })
@@ -2355,10 +2526,10 @@ export default function App() {
         fetchStats();
       } else {
         const data = await parseResponseJson(res, { error: "Failed to parse session state JSON." });
-        alert(data.error || "Failed to parse session state JSON.");
+        showToast(data.error || "Failed to parse session state JSON.", "error");
       }
     } catch (error) {
-      alert("Error saving session: " + (error as Error).message);
+      showToast("Error saving session: " + (error as Error).message, "error");
     } finally {
       setIsPending(prev => ({ ...prev, login: false }));
     }
@@ -2367,13 +2538,13 @@ export default function App() {
   // Start credential-based login
   const handleStartLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      alert("Please fill in both email and password.");
+      showToast("Please fill in both email and password.", "error");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Initializing secure browser, navigating to CoinMarketCap and entering credentials...");
     try {
-      const res = await fetch(resolveUrl("/api/start-login"), {
+      const res = await apiFetch(resolveUrl("/api/start-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
@@ -2395,13 +2566,13 @@ export default function App() {
   // Submit OTP / Verification code
   const handleSubmitOtp = async () => {
     if (!otpCode.trim() || otpCode.length < 4) {
-      alert("Please enter a valid verification code.");
+      showToast("Please enter a valid verification code.", "error");
       return;
     }
     setLoginStep("authenticating");
     setLoginStatusMessage("Submitting 6-digit code and verifying active session, please wait...");
     try {
-      const res = await fetch(resolveUrl("/api/submit-otp"), {
+      const res = await apiFetch(resolveUrl("/api/submit-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: otpCode })
@@ -2423,7 +2594,7 @@ export default function App() {
   // Cancel login sequence
   const handleCancelLogin = async () => {
     try {
-      await fetch(resolveUrl("/api/cancel-login"), { method: "POST" });
+      await apiFetch(resolveUrl("/api/cancel-login"), { method: "POST" });
     } catch (_) {}
     setLoginStep("idle");
     setLoginStatusMessage("");
@@ -2437,7 +2608,7 @@ export default function App() {
     setEmail("");
     setPassword("");
     try {
-      await fetch(resolveUrl("/api/reset-login-state"), { method: "POST" });
+      await apiFetch(resolveUrl("/api/reset-login-state"), { method: "POST" });
     } catch (_) {}
     fetchStats();
     fetchProfiles();
@@ -2451,7 +2622,7 @@ export default function App() {
     setIndividualLoading(prev => ({ ...prev, [symbol]: "retry" }));
     showToast(`Launching automated post for ${symbol}...`, "process");
     try {
-      const res = await fetch(resolveUrl("/api/retry-single"), {
+      const res = await apiFetch(resolveUrl("/api/retry-single"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol })
@@ -2491,7 +2662,7 @@ export default function App() {
   // Toggle runMode state
   const handleToggleRunMode = async (mode: string) => {
     try {
-      const res = await fetch(resolveUrl("/api/set-run-mode"), {
+      const res = await apiFetch(resolveUrl("/api/set-run-mode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode })
@@ -2558,7 +2729,7 @@ export default function App() {
             <h1 className="text-2xl font-black tracking-tight text-white">
               Company Admin Access
             </h1>
-            <p className="text-sm text-slate-400 mt-1.5">
+            <p className="text-base text-slate-400 mt-1.5">
               Enter the company admin password or use the 1-click team link to manage CoinMarketCap bot operations.
             </p>
           </div>
@@ -2571,7 +2742,7 @@ export default function App() {
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
                     <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                      <div className="text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
                         <span>24-Hour Scheduler is ACTIVE</span>
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase">
                           {adminSchedulerStatus.cycleRunning ? "Cycle Running" : (adminSchedulerStatus.postingRunning ? "Posting" : "Scheduled 24/7")}
@@ -2594,7 +2765,7 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between text-xs text-slate-400">
+              <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between text-sm text-slate-400">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-slate-500" />
                   <span>24-Hr Scheduler: <strong className="text-slate-300">IDLE / STANDBY</strong></span>
@@ -2608,14 +2779,14 @@ export default function App() {
           <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl backdrop-blur-xl">
             <form onSubmit={handleAdminLogin} className="space-y-4">
               {adminLoginError && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-sm text-rose-300 flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />
                   <span>{adminLoginError}</span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2 font-mono">
+                <label className="block text-sm font-bold uppercase tracking-wider text-slate-300 mb-2 font-mono">
                   Company Admin Password
                 </label>
                 <div className="relative">
@@ -2628,7 +2799,7 @@ export default function App() {
                     }}
                     placeholder="Enter admin password"
                     autoFocus
-                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 pr-11 transition"
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl px-4 py-3 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 pr-11 transition"
                   />
                   <button
                     type="button"
@@ -2641,7 +2812,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+              <div className="flex items-center justify-between text-sm text-slate-400 pt-1">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -2672,12 +2843,12 @@ export default function App() {
               </button>
             </form>
 
-            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center text-xs text-slate-500">
+            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center text-sm text-slate-500">
               Authorized operators only. Contact your organization administrator for access credentials or a direct team link.
             </div>
           </div>
 
-          <div className="text-center mt-6 text-xs text-slate-500 font-mono">
+          <div className="text-center mt-6 text-sm text-slate-500 font-mono">
             CMC Operations Console &bull; Security Level: High
           </div>
         </div>
@@ -2728,62 +2899,40 @@ export default function App() {
             </div>
           </div>
 
-          {/* TOP STATUS & CONTROLS ROW */}
-          <div className="flex flex-wrap items-center justify-start lg:justify-end gap-2 text-xs">
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-[11px] sm:text-xs text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
-              Server: <span className="font-semibold text-emerald-400">ONLINE</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-[11px] sm:text-xs">
-              <span className="text-slate-400 font-mono">OpenAI:</span>
-              {apiStatus.openai ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" /> Enabled
-                </span>
-              ) : (
-                <span className="text-amber-400 font-bold flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" /> Rule-Based
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-[11px] sm:text-xs">
-              <span className="text-slate-400 font-mono">CMC:</span>
-              {apiStatus.cmc ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" /> Connected
-                </span>
-              ) : (
-                <span className="text-blue-400 font-bold flex items-center gap-1">
-                  <Globe className="h-3 w-3" /> CG Public
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-[11px] sm:text-xs">
-              <span className="text-slate-400 font-mono">DB:</span>
-              {storageInfo.isFirebaseDisabled ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
-                  <Database className="h-3 w-3 text-emerald-400" /> Mongo (Quota Safe)
-                </span>
-              ) : storageInfo.isMongoConnected ? (
-                <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
-                  <Database className="h-3 w-3 text-cyan-400" /> Mongo + Cloud
-                </span>
-              ) : (
-                <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
-                  <Database className="h-3 w-3 text-amber-400" /> Firebase
-                </span>
-              )}
-            </div>
+          {/* TOP CONTROLS & NAVIGATION ROW */}
+          <div className="flex flex-wrap items-center justify-start lg:justify-end gap-2 text-sm">
+            {/* Desktop Account / Session Button */}
+            <button
+              onClick={() => {
+                setLoginTab("profiles");
+                setShowSessionModal(true);
+              }}
+              className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+                activeProfile 
+                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
+                  : (sessionExists 
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
+                    : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
+                  )
+              }`}
+              title="Manage Accounts and Cookie Sessions"
+              id="navbar-login-btn"
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>
+                {activeProfile 
+                  ? `Account: ${activeProfile.name}` 
+                  : (sessionExists ? "Account: Active" : "Login / Add Account")
+                }
+              </span>
+            </button>
 
             {/* Quick Account Switcher Dropdown - responsive across all screens */}
             {profilesList.length > 1 && (
-              <div className={`flex items-center bg-slate-950 border rounded-lg px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs shadow-inner transition ${
+              <div className={`flex items-center bg-slate-950 border rounded-lg px-2.5 py-1 sm:py-1.5 text-sm shadow-inner transition ${
                 (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
               }`}>
-                <span className="text-[10px] text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
+                <span className="text-xs text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
                   {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
                   Active:
                 </span>
@@ -2817,36 +2966,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Desktop Account / Session Button */}
-            <button
-              onClick={() => {
-                setLoginTab("profiles");
-                setShowSessionModal(true);
-              }}
-              className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition duration-200 cursor-pointer ${
-                activeProfile 
-                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                  : (sessionExists 
-                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                    : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
-                  )
-              }`}
-              title="Manage Accounts and Cookie Sessions"
-              id="navbar-login-btn"
-            >
-              <Users className="h-3.5 w-3.5" />
-              <span>
-                {activeProfile 
-                  ? `Account: ${activeProfile.name}` 
-                  : (sessionExists ? "Account: Active" : "Login / Add Account")
-                }
-              </span>
-            </button>
-
             {/* Scheduler Screen Link Button (/scheduler) */}
             <button
               onClick={() => navigateTo(currentView === "scheduler" ? "dashboard" : "scheduler")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer shadow-sm ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer shadow-sm ${
                 currentView === "scheduler"
                   ? "bg-indigo-600/30 border-indigo-500/60 text-indigo-300 ring-1 ring-indigo-500/30"
                   : schedulerData?.cycleRunning
@@ -2862,18 +2985,22 @@ export default function App() {
               <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
                 schedulerData?.cycleRunning
                   ? "bg-indigo-500 text-slate-950 animate-pulse"
-                  : schedulerData?.enabled
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                     : "bg-slate-800 text-slate-400"
               }`}>
-                {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+                {schedulerData?.cycleRunning
+                  ? "Running"
+                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                    ? "Paused"
+                    : "Stopped"}
               </span>
             </button>
 
             {/* Admin Switch Button */}
             <button
               onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
                 currentView === "admin"
                   ? "bg-blue-500/20 border-blue-500/40 text-blue-400"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
@@ -2884,12 +3011,56 @@ export default function App() {
               <span>{currentView === "admin" ? "Dashboard" : "Admin"}</span>
             </button>
 
+            {/* Logs Link Button (/logs) */}
+            <button
+              onClick={() => navigateTo(currentView === "logs" ? "dashboard" : "logs")}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+                currentView === "logs"
+                  ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Open Activity Logs Console (/logs)"
+            >
+              <TerminalIcon className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Logs</span>
+            </button>
+
+            {/* Health Link Button (/health) */}
+            <button
+              onClick={() => navigateTo(currentView === "health" ? "dashboard" : "health")}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+                currentView === "health"
+                  ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Open System Health & Diagnostics (/health)"
+            >
+              <span className={`w-2 h-2 rounded-full inline-block ${healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <Activity className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Health</span>
+            </button>
+
+            {/* QUICK START GUIDE BUTTON */}
+            <button
+              onClick={() => navigateTo(currentView === "guide" ? "dashboard" : "guide")}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+                currentView === "guide"
+                  ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Open Quick Start Operating Guide (/guide)"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Guide</span>
+            </button>
+
             {/* Quick Share Team Link & Lock Button */}
-            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-sm">
               <button
                 onClick={handleCopyShareLink}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-[11px] font-bold transition cursor-pointer border border-indigo-500/20"
+                className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-bold transition cursor-pointer border border-indigo-500/20"
                 title="Copy 1-Click Company Team Access Link to clipboard"
+                aria-label="Copy team access link"
               >
                 <Share2 className="h-3 w-3 text-indigo-400" />
                 <span className="hidden xl:inline">Share Link</span>
@@ -2897,399 +3068,18 @@ export default function App() {
               {adminAuthRequired && (
                 <button
                   onClick={handleAdminLogout}
-                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 text-[11px] font-medium transition cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 text-xs font-medium transition cursor-pointer"
                   title="Lock Dashboard / Sign Out of Company Admin"
+                  aria-label="Lock dashboard"
                 >
                   <LogOut className="h-3 w-3" />
                   <span className="hidden xl:inline">Lock</span>
                 </button>
               )}
             </div>
-
-            {/* NOTIFICATION ALERTS TOGGLE BUTTON */}
-            <button
-              onClick={toggleNotifications}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer ${
-                notificationsEnabled
-                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
-                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
-              }`}
-              title={notificationsEnabled ? "Notification toasts are active. Click to mute." : "Notification toasts are muted. Click to turn ON."}
-            >
-              {notificationsEnabled ? (
-                <Bell className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <BellOff className="h-3.5 w-3.5 text-amber-400" />
-              )}
-              <span className="hidden sm:inline">{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
-            </button>
-
-            {/* QUICK START GUIDE TOGGLE BUTTON */}
-            <button
-              onClick={() => setShowQuickGuide(!showQuickGuide)}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-bold transition duration-200 cursor-pointer ${
-                showQuickGuide
-                  ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
-                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
-              }`}
-              title="Toggle Quick Start Guide"
-            >
-              <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Guide</span>
-              <span className="text-[10px] opacity-75 font-mono">{showQuickGuide ? "▲" : "▼"}</span>
-            </button>
           </div>
         </div>
       </header>
-
-      {/* INTERACTIVE QUICK START OPERATING GUIDE (SLIDESHOW) */}
-      {showQuickGuide && (() => {
-        const slides = [
-          {
-            stepNum: 1,
-            tag: "STEP 1 • ACCOUNTS & ROTATION",
-            title: "Connect & Organize Accounts (3 Active + 2 Backup)",
-            icon: Users,
-            iconColor: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-            statusBadge: profilesList.length === 0
-              ? { text: "No Accounts Logged In", color: "bg-rose-500/20 text-rose-300 border-rose-500/30" }
-              : { text: `${profilesList.length} Accounts Configured`, color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
-            headline: profilesList.length === 0
-              ? "First Step: Login or import your CoinMarketCap session to begin automated posting."
-              : "Rotate 3 Primary accounts for daily posts and keep 2 Standby accounts in reserve.",
-            bullets: [
-              profilesList.length === 0
-                ? "No active login detected: Click 'Login / Add Account' below to connect your first profile."
-                : "3 Active Primary Accounts: Check 'Use this account for now' in the Scheduler tab.",
-              "2 Standby / Backup Accounts: Leave unchecked—cookies stay preserved for auto-failover.",
-              "Auto-Failover Protection: If an active account expires or hits captcha, a backup takes its place.",
-              "Strict Session Isolation: Each account has its own isolated cookie & progress sandbox."
-            ],
-            primaryAction: profilesList.length === 0 ? {
-              label: "🔑 Login & Add Account Now",
-              onClick: () => {
-                setLoginTab("login");
-                setShowSessionModal(true);
-              }
-            } : {
-              label: "👥 View & Order Accounts in Scheduler",
-              onClick: () => {
-                navigateTo("scheduler");
-              }
-            },
-            secondaryAction: profilesList.length > 0 ? {
-              label: "Manage Cookie Profiles",
-              onClick: () => {
-                setLoginTab("profiles");
-                setShowSessionModal(true);
-              }
-            } : undefined
-          },
-          {
-            stepNum: 2,
-            tag: "STEP 2 • MARKETING CREATIVES",
-            title: "Upload Marketing Images (Strictly 1 per Comment)",
-            icon: ImageIcon,
-            iconColor: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
-            statusBadge: {
-              text: `${marketingImages.length} Images in Library • Auto-Attach: ${imageUploadEnabled ? "ON" : "OFF"}`,
-              color: imageUploadEnabled ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30" : "bg-slate-800 text-slate-400 border-slate-700"
-            },
-            headline: "Attract high engagement with promotional graphics attached to comments.",
-            bullets: [
-              "Every comment posted by the bot can automatically attach strictly 1 image from your library.",
-              "Image Rotation: Choose 'Cycle' mode to cycle images in sequence, or 'Random' for variety.",
-              "Universal Support: Marketing images work identically across manual tabs, continuous loop, and the scheduler.",
-              "Uploads support PNG, JPG, JPEG, WEBP, and GIF files with instant preview thumbnails."
-            ],
-            primaryAction: {
-              label: "🖼️ Go to Images Library & Upload",
-              onClick: () => {
-                setActiveTab("images");
-                if (currentView !== "dashboard") navigateTo("dashboard");
-                setTimeout(() => {
-                  const el = document.getElementById("storage-explorer");
-                  if (el) el.scrollIntoView({ behavior: "smooth" });
-                }, 100);
-              }
-            }
-          },
-          {
-            stepNum: 3,
-            tag: "STEP 3 • CADENCE & SAFETY",
-            title: "4 Cycles / 24h & 300 Daily Post Cap",
-            icon: Clock,
-            iconColor: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
-            statusBadge: {
-              text: "Target: 200 Posts/Day • Cap: 300 Posts/Day/Account",
-              color: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
-            },
-            headline: "Hit 200 posts per day safely without spam bans or server load.",
-            bullets: [
-              "4 Daily Cycles: Post ~50 coins per cycle during global peak trading sessions (200 posts/day total).",
-              "Even Account Splitting: 50 coins are divided across 3 accounts (~17 coins each).",
-              "Safe Human Delay: 35–45 seconds spacing between posts with 0% CPU kernel sleep.",
-              "300 Daily Cap: Hard limit per account prevents excessive posting or runaway spam loops."
-            ],
-            primaryAction: {
-              label: "⏱️ Open Scheduler to Set Cadence",
-              onClick: () => {
-                navigateTo("scheduler");
-              }
-            }
-          },
-          {
-            stepNum: 4,
-            tag: "STEP 4 • AUTONOMOUS ENGINE",
-            title: "Turn ON Background Scheduler & Relax",
-            icon: Zap,
-            iconColor: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-            statusBadge: schedulerData?.enabled ? (
-              schedulerData?.cycleRunning
-                ? { text: "CYCLE IN PROGRESS", color: "bg-indigo-500 text-slate-950 font-bold animate-pulse" }
-                : { text: "SCHEDULER ENGINE ON", color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" }
-            ) : { text: "SCHEDULER ENGINE OFF", color: "bg-slate-800 text-slate-400 border-slate-700" },
-            headline: "Autonomous posting loop that manages browser lifecycle cleanly.",
-            bullets: [
-              "Trending Fetch & AI: Fetches latest trending coins once and crafts authentic, non-repetitive comments.",
-              "Clean Chromium Lifecycle: Launches headless browser for an account and completely closes it when finished.",
-              "Continuous Cookie Refresh: Fresh cookies are saved to Firestore after every single post.",
-              "Completely Isolated: Leaves your manual view and dashboard tabs untouched while cycling."
-            ],
-            primaryAction: {
-              label: "🚀 Go to Scheduler & Start Cycle",
-              onClick: () => {
-                navigateTo("scheduler");
-              }
-            }
-          }
-        ];
-
-        const currentSlide = slides[guideSlide] || slides[0];
-        const isFirst = guideSlide === 0;
-        const isLast = guideSlide === slides.length - 1;
-        const CurrentIcon = currentSlide.icon;
-
-        return (
-          <div className="bg-gradient-to-r from-slate-950 via-indigo-950/40 to-slate-950 border-b border-indigo-500/30 px-4 sm:px-6 py-5 shadow-2xl relative">
-            {/* Slim Animated Progress Line */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-slate-900 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-300 ease-out"
-                style={{ width: `${((guideSlide + 1) / slides.length) * 100}%` }}
-              ></div>
-            </div>
-
-            <div className="max-w-[1600px] mx-auto space-y-4">
-              {/* SLIDESHOW HEADER & STEP PILLS */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
-                      <BookOpen className="h-4 w-4" />
-                    </span>
-                    <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                      Quick-Start Operating Tour
-                    </span>
-                  </div>
-
-                  {/* Step Selector Pills */}
-                  <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
-                    {slides.map((s, sIdx) => (
-                      <button
-                        key={s.stepNum}
-                        onClick={() => setGuideSlide(sIdx)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition cursor-pointer flex items-center gap-1 ${
-                          guideSlide === sIdx
-                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                            : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                        }`}
-                      >
-                        <span>{sIdx + 1}.</span>
-                        <span className="hidden md:inline">{s.stepNum === 1 ? "Accounts" : s.stepNum === 2 ? "Images" : s.stepNum === 3 ? "Cadence" : "Launch"}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => dismissQuickGuide(true)}
-                    className="text-[11px] text-slate-400 hover:text-slate-200 underline font-medium cursor-pointer"
-                    title="Hide this guide permanently on this browser"
-                  >
-                    Don't show again
-                  </button>
-                  <button
-                    onClick={() => dismissQuickGuide(false)}
-                    className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition cursor-pointer"
-                    title="Close tour"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* SLIDE CARD CONTENT */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-                {/* Left 8 Columns: Main Information & Action */}
-                <div className="lg:col-span-8 space-y-3.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                      {currentSlide.tag}
-                    </span>
-                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${currentSlide.statusBadge.color}`}>
-                      {currentSlide.statusBadge.text}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                      <span className={`p-1.5 rounded-lg border flex-shrink-0 ${currentSlide.iconColor}`}>
-                        <CurrentIcon className="h-5 w-5" />
-                      </span>
-                      <span>{currentSlide.title}</span>
-                    </h3>
-                    <p className="text-xs text-slate-300 font-medium mt-1 leading-relaxed">
-                      {currentSlide.headline}
-                    </p>
-                  </div>
-
-                  {/* Bullet Checklist */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    {currentSlide.bullets.map((b, bIdx) => (
-                      <div key={bIdx} className="flex items-start gap-2 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-300 leading-snug">
-                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                        <span>{b}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Direct "Take Me There" Interactive Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
-                    <button
-                      onClick={currentSlide.primaryAction.onClick}
-                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition cursor-pointer"
-                    >
-                      <span>{currentSlide.primaryAction.label}</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-
-                    {currentSlide.secondaryAction && (
-                      <button
-                        onClick={currentSlide.secondaryAction.onClick}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition cursor-pointer"
-                      >
-                        <Shield className="h-3.5 w-3.5 text-indigo-400" />
-                        <span>{currentSlide.secondaryAction.label}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right 4 Columns: Interactive Live Telemetry / Overview Pill Card */}
-                <div className="lg:col-span-4 bg-slate-950 rounded-xl border border-slate-800 p-4 space-y-3">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-800/80 pb-2">
-                    <span>Live Readiness Check</span>
-                    <span className="text-indigo-400 font-mono">Step {guideSlide + 1}/4</span>
-                  </div>
-
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
-                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
-                        <Users className="h-3.5 w-3.5 text-blue-400" />
-                        Accounts
-                      </span>
-                      <span className="font-mono font-bold text-slate-200">
-                        {profilesList.length} configured
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
-                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
-                        <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
-                        Images
-                      </span>
-                      <span className="font-mono font-bold text-slate-200">
-                        {marketingImages.length} ready ({imageUploadEnabled ? "ON" : "OFF"})
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
-                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-cyan-400" />
-                        Target / Cap
-                      </span>
-                      <span className="font-mono font-bold text-slate-200">
-                        200 / 300 cap
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/60">
-                      <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
-                        <Zap className="h-3.5 w-3.5 text-emerald-400" />
-                        Scheduler
-                      </span>
-                      <span className={`font-mono font-bold ${schedulerData?.enabled ? "text-emerald-400" : "text-slate-500"}`}>
-                        {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ACTIVE" : "STANDBY")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* SLIDESHOW FOOTER CONTROLS */}
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  type="button"
-                  disabled={isFirst}
-                  onClick={() => setGuideSlide(Math.max(0, guideSlide - 1))}
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  <span>Previous</span>
-                </button>
-
-                {/* Dot Indicators */}
-                <div className="flex items-center gap-2">
-                  {slides.map((_, dotIdx) => (
-                    <button
-                      key={dotIdx}
-                      onClick={() => setGuideSlide(dotIdx)}
-                      className={`h-2 rounded-full transition-all cursor-pointer ${
-                        guideSlide === dotIdx
-                          ? "w-6 bg-indigo-500 shadow-sm shadow-indigo-500/50"
-                          : "w-2 bg-slate-800 hover:bg-slate-700"
-                      }`}
-                      title={`Go to step ${dotIdx + 1}`}
-                    />
-                  ))}
-                </div>
-
-                {isLast ? (
-                  <button
-                    type="button"
-                    onClick={() => dismissQuickGuide(false)}
-                    className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
-                  >
-                    <span>Done / Start Tour</span>
-                    <CheckCircle className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setGuideSlide(Math.min(slides.length - 1, guideSlide + 1))}
-                    className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/30"
-                  >
-                    <span>Next Step</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* DASHBOARD OR ADMIN SCREEN CONTENT BODY */}
       {currentView === "admin" ? (
@@ -3308,13 +3098,13 @@ export default function App() {
                     /admin
                   </span>
                 </h1>
-                <p className="text-xs text-slate-400">Environment runtimes, API diagnostics, cache files, and system health checks</p>
+                <p className="text-sm text-slate-400">Environment runtimes, API diagnostics, cache files, and system health checks</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
               >
                 <ArrowLeft className="h-4 w-4" /> Back to Dashboard
               </button>
@@ -3322,7 +3112,7 @@ export default function App() {
           </div>
 
           {/* ADMIN SUB-NAVIGATION BAR */}
-          <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-xs shadow-md">
+          <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-sm shadow-md">
             <button
               onClick={() => setAdminSection("all")}
               className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
@@ -3379,11 +3169,15 @@ export default function App() {
               <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
                 schedulerData?.cycleRunning
                   ? "bg-indigo-400 text-slate-950 animate-pulse"
-                  : schedulerData?.enabled
-                    ? "bg-emerald-500/20 text-emerald-300"
+                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                     : "bg-slate-800 text-slate-400"
               }`}>
-                {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+                {schedulerData?.cycleRunning
+                  ? "Running"
+                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                    ? "Paused"
+                    : "Stopped"}
               </span>
             </button>
             <button
@@ -3442,16 +3236,16 @@ export default function App() {
                     {isCheckingSystem ? (
                       <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
                     ) : systemCheckResult?.success ? (
-                      <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-medium">
+                      <span className="text-sm bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-medium">
                         Healthy
                       </span>
                     ) : (
-                      <span className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20 font-medium">
+                      <span className="text-sm bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20 font-medium">
                         Issue Detected
                       </span>
                     )}
                   </h2>
-                  <p className="text-xs text-slate-400">Verifies backend browser runtimes, executable existence, and system libraries</p>
+                  <p className="text-sm text-slate-400">Verifies backend browser runtimes, executable existence, and system libraries</p>
                 </div>
               </div>
 
@@ -3459,7 +3253,7 @@ export default function App() {
                 <button
                   onClick={checkSystemHealth}
                   disabled={isCheckingSystem}
-                  className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-xs text-slate-300 font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                  className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-sm text-slate-300 font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isCheckingSystem ? "animate-spin" : ""}`} />
                   Re-Run Diagnostics
@@ -3470,12 +3264,12 @@ export default function App() {
             {!systemCheckResult ? (
               <div className="py-6 flex flex-col items-center justify-center text-slate-400 space-y-2">
                 <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
-                <p className="text-xs">Querying system dependencies check...</p>
+                <p className="text-sm">Querying system dependencies check...</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-3 border-r border-slate-800/60 pr-6">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Checklist</h3>
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Checklist</h3>
                   
                   <div className="flex items-start gap-2.5">
                     {systemCheckResult.playwrightInstalled ? (
@@ -3488,7 +3282,7 @@ export default function App() {
                       </span>
                     )}
                     <div>
-                      <h4 className="text-xs font-semibold text-white font-mono">Playwright</h4>
+                      <h4 className="text-sm font-semibold text-white font-mono">Playwright</h4>
                       <p className="text-[10px] text-slate-400">
                         {systemCheckResult.playwrightInstalled ? "Framework is installed and loaded" : "Failed to load playwright"}
                       </p>
@@ -3506,7 +3300,7 @@ export default function App() {
                       </span>
                     )}
                     <div>
-                      <h4 className="text-xs font-semibold text-white font-mono">Chromium Binary</h4>
+                      <h4 className="text-sm font-semibold text-white font-mono">Chromium Binary</h4>
                       <p className="text-[10px] text-slate-400">
                         {systemCheckResult.executableExists ? "Executable exists on disk" : "No executable found at path"}
                       </p>
@@ -3524,7 +3318,7 @@ export default function App() {
                       </span>
                     )}
                     <div>
-                      <h4 className="text-xs font-semibold text-white font-mono">Shared OS Libraries</h4>
+                      <h4 className="text-sm font-semibold text-white font-mono">Shared OS Libraries</h4>
                       <p className="text-[10px] text-slate-400">
                         {systemCheckResult.launchStatus === "success" ? "All OS dependencies satisfied" : "Missing shared libraries detected"}
                       </p>
@@ -3534,7 +3328,7 @@ export default function App() {
 
                 <div className="md:col-span-2 space-y-3 flex flex-col justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Environment Details</h3>
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Environment Details</h3>
                     <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 space-y-2 text-[11px] font-mono leading-relaxed">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                         <span className="text-slate-500">PLAYWRIGHT_BROWSERS_PATH:</span>
@@ -3596,7 +3390,7 @@ export default function App() {
                       <span className="font-mono text-slate-400 font-semibold truncate">OPENAI_API</span>
                       <span className={`w-2 h-2 rounded-full ${apiStatus.openai && !apiStatus.openaiError ? "bg-emerald-500 animate-pulse" : apiStatus.openaiError ? "bg-rose-500" : "bg-slate-600"}`} />
                     </div>
-                    <div className="text-xs font-bold text-white font-mono truncate">
+                    <div className="text-sm font-bold text-white font-mono truncate">
                       {apiStatus.openaiError ? "QUOTA LIMIT" : apiStatus.openai ? "gpt-4o-mini" : "NOT SET"}
                     </div>
                     <span className="text-[10px] text-slate-500 block mt-0.5">Primary Model</span>
@@ -3611,7 +3405,7 @@ export default function App() {
                       <span className="font-mono text-slate-400 font-semibold truncate">GEMINI_API</span>
                       <span className={`w-2 h-2 rounded-full ${apiStatus.gemini && !apiStatus.geminiError ? "bg-emerald-500 animate-pulse" : apiStatus.geminiError ? "bg-rose-500" : "bg-slate-600"}`} />
                     </div>
-                    <div className="text-xs font-bold text-white font-mono truncate">
+                    <div className="text-sm font-bold text-white font-mono truncate">
                       {apiStatus.geminiError ? "KEY LEAKED" : apiStatus.gemini ? "gemini-flash" : "NOT SET"}
                     </div>
                     <span className="text-[10px] text-slate-500 block mt-0.5">Fallback Model</span>
@@ -3625,7 +3419,7 @@ export default function App() {
                       <span className="font-mono text-slate-400 font-semibold truncate">CMC_PRO_KEY</span>
                       <span className={`w-2 h-2 rounded-full ${apiStatus.cmc ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`} />
                     </div>
-                    <div className="text-xs font-bold text-white font-mono truncate">
+                    <div className="text-sm font-bold text-white font-mono truncate">
                       {apiStatus.cmc ? "PRO API ACTIVE" : "CG PUBLIC"}
                     </div>
                     <span className="text-[10px] text-slate-500 block mt-0.5">Market Feed</span>
@@ -3672,7 +3466,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-2 text-xs">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-2 text-sm">
                     <div className="text-[11px] text-slate-400">Storage Location:</div>
                     <div className="font-mono text-emerald-400 text-[11px]">auth/state.json</div>
 
@@ -3691,7 +3485,7 @@ export default function App() {
                         {activeProfile && (
                           <div className="col-span-2 pt-1.5 border-t border-slate-800">
                             <span className="text-slate-500 block">Active Account Profile:</span>
-                            <span className="text-emerald-400 font-bold text-xs">{activeProfile.name}</span>
+                            <span className="text-emerald-400 font-bold text-sm">{activeProfile.name}</span>
                           </div>
                         )}
                       </div>
@@ -3709,14 +3503,14 @@ export default function App() {
                         setShowSessionModal(true);
                       }}
                       disabled={isBusy || isContinuousLoopActive}
-                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition flex items-center justify-center gap-1.5 font-semibold text-xs cursor-pointer disabled:opacity-50"
+                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-50"
                     >
                       <Upload className="h-3.5 w-3.5" /> Configure Cookies
                     </button>
                     <button
                       onClick={() => runCommand("/api/check-login", "login")}
                       disabled={isPending.login || isBusy || isContinuousLoopActive}
-                      className="py-2.5 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition flex items-center justify-center gap-1.5 font-semibold text-xs cursor-pointer disabled:opacity-50"
+                      className="py-2.5 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-50"
                     >
                       {isPending.login ? (
                         <>
@@ -3732,7 +3526,7 @@ export default function App() {
                       <button
                         onClick={() => runCommand("/api/clear-session", "login")}
                         disabled={isBusy || isContinuousLoopActive}
-                        className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition flex items-center justify-center gap-1.5 font-medium text-xs cursor-pointer disabled:opacity-50"
+                        className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete state.json
                       </button>
@@ -3740,7 +3534,7 @@ export default function App() {
                     <button
                       onClick={() => runCommand("/api/clear-all", "clear")}
                       disabled={isPending.clear}
-                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center gap-1.5 font-medium text-xs cursor-pointer disabled:opacity-50"
+                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${isPending.clear ? "animate-spin text-emerald-400" : ""}`} />
                       {isPending.clear ? "Resetting..." : "Reset Storage"}
@@ -3762,27 +3556,27 @@ export default function App() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-emerald-400" />
-                <h2 className="font-bold text-white text-sm">Configured Account Profiles ({profilesList.length}/5)</h2>
+                <h2 className="font-bold text-white text-base">Configured Account Profiles ({profilesList.length}/5)</h2>
               </div>
               <button
                 onClick={() => {
                   setLoginTab("profiles");
                   setShowSessionModal(true);
                 }}
-                className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition cursor-pointer"
+                className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition cursor-pointer"
               >
                 Manage Profiles
               </button>
             </div>
 
             {profilesList.length === 0 ? (
-              <div className="text-slate-500 text-xs italic py-4 text-center">No account profiles saved yet. Click "Manage Profiles" to add one.</div>
+              <div className="text-slate-500 text-sm italic py-4 text-center">No account profiles saved yet. Click "Manage Profiles" to add one.</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {profilesList.map((p) => (
                   <div key={p.id} className={`p-3.5 rounded-xl border transition ${p.isActive ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-slate-950/60 border-slate-800'}`}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-bold text-white text-xs truncate max-w-[180px]">{p.name}</span>
+                      <span className="font-bold text-white text-sm truncate max-w-[180px]">{p.name}</span>
                       {p.isActive ? (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold font-mono">
                           ACTIVE
@@ -3849,7 +3643,7 @@ export default function App() {
                       {schedulerData?.cycleRunning ? "Cycle Running" : (schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled")}
                     </span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-400 mt-0.5">
                     Controls continuous automated multi-account rotation. Strictly one account at a time in order.
                   </p>
                 </div>
@@ -3859,7 +3653,7 @@ export default function App() {
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => navigateTo("scheduler")}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Open Dedicated Scheduler Screen (/scheduler)</span>
@@ -3868,11 +3662,16 @@ export default function App() {
             </div>
 
             {/* Quick Controls Grid */}
+            {isSchedulerRunning && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-sm font-medium">
+                Settings are locked while the scheduler is running. Pause or stop to change them.
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Master Switch */}
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">Run Accounts in Sequence</span>
+                  <span className="text-sm font-bold text-slate-300">Run Accounts in Sequence</span>
                   <button
                     type="button"
                     disabled={isSchedulerActionPending}
@@ -3895,23 +3694,31 @@ export default function App() {
 
               {/* Cycle Trigger & Stop */}
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-xs font-bold text-slate-300 mb-2">Cycle Execution Controls</span>
+                <span className="text-sm font-bold text-slate-300 mb-2">Cycle Execution Controls</span>
                 <div className="flex items-center gap-2">
                   <button
                     disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
-                    onClick={handleRunSchedulerNow}
-                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : "Run sequential cycle now"}
-                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
+                    onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle" : "Run sequential cycle now")}
+                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
                   >
                     <Play className="h-3.5 w-3.5" />
-                    <span>Run Cycle Now</span>
+                    <span>{schedulerData?.savedPosition ? "Resume" : "Run Cycle Now"}</span>
                   </button>
                   <button
-                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled)}
-                    onClick={handleStopScheduler}
-                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    onClick={handlePauseScheduler}
+                    className="py-1.5 px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Pause className="h-3.5 w-3.5" />
+                    <span>Pause</span>
+                  </button>
+                  <button
+                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
+                    onClick={handleStopScheduler}
+                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Square className="h-3.5 w-3.5" />
                     <span>Stop</span>
                   </button>
                 </div>
@@ -3923,7 +3730,7 @@ export default function App() {
               {/* Interval Setting */}
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">Cycle Interval</span>
+                  <span className="text-sm font-bold text-slate-300">Cycle Interval</span>
                   <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 20} mins</span>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
@@ -3931,14 +3738,15 @@ export default function App() {
                     type="number"
                     min={1}
                     max={1440}
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
                     value={schedulerIntervalInput}
                     onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500"
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                   <button
                     onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
-                    disabled={isSchedulerActionPending}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
+                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Save
                   </button>
@@ -3949,7 +3757,7 @@ export default function App() {
               {/* Target Batch Limit (Coins / Run) */}
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">Target Batch Limit</span>
+                  <span className="text-sm font-bold text-slate-300">Target Batch Limit</span>
                   <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
                   </span>
@@ -3959,8 +3767,9 @@ export default function App() {
                     <button
                       key={count}
                       type="button"
+                      disabled={isSchedulerActionPending || isSchedulerRunning}
                       onClick={() => handleUpdateTargetCoins(count)}
-                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer ${
+                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                         targetCoinsCount === count
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
@@ -3978,7 +3787,7 @@ export default function App() {
             {/* Current Sequence Preview */}
             <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-300 flex items-center gap-2">
                   <span>Execution Sequence Queue ({schedulerData?.accounts?.length || 0} accounts)</span>
                 </span>
                 <span className="text-[11px] text-slate-500">
@@ -3988,7 +3797,7 @@ export default function App() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
-                  <span className="text-xs text-slate-500 italic">No accounts configured yet.</span>
+                  <span className="text-sm text-slate-500 italic">No accounts configured yet.</span>
                 ) : (
                   [...schedulerData.accounts]
                     .sort((a, b) => a.schedule.order - b.schedule.order)
@@ -3997,7 +3806,7 @@ export default function App() {
                       return (
                         <div
                           key={acc.id}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition ${
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition ${
                             isCurrent
                               ? "bg-indigo-500/20 border-indigo-500 text-white font-bold ring-2 ring-indigo-500/40"
                               : "bg-slate-900 border-slate-800 text-slate-300"
@@ -4023,16 +3832,8 @@ export default function App() {
             </div>
 
             {/* Quick Files & Logs Links */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
-              <span>View live scheduler files & detailed logs in the Accounts Schedule tab.</span>
-              <a
-                href="/api/scheduler/logs/download"
-                download="scheduler_execution.log"
-                className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-semibold"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download Scheduler Logs (.log)</span>
-              </a>
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-sm text-slate-400">
+              <span>View live scheduler files & detailed logs in the Logs tab.</span>
             </div>
           </section>
           )}
@@ -4059,7 +3860,7 @@ export default function App() {
                       {telegramEnabled ? "High-Alert Mode" : "Disabled"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-400 mt-0.5">
                     Dispatches instant Telegram notifications ONLY when manual interaction is required (all accounts session out, 24-part background cycle stalled, continuous loop aborted, or deployment build failure).
                   </p>
                 </div>
@@ -4067,7 +3868,7 @@ export default function App() {
 
               {/* Master Toggle */}
               <div className="flex items-center gap-3 bg-slate-950/80 border border-slate-800 px-3.5 py-2 rounded-xl">
-                <span className="text-xs font-semibold text-slate-300">Emergency Alerts</span>
+                <span className="text-sm font-semibold text-slate-300">Emergency Alerts</span>
                 <button
                   type="button"
                   onClick={() => handleToggleTelegram(!telegramEnabled)}
@@ -4088,7 +3889,7 @@ export default function App() {
             <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 mb-5">
               <div className="flex items-start gap-3">
                 <Shield className="h-5 w-5 text-rose-400 flex-shrink-0 mt-0.5" />
-                <div className="text-xs space-y-1.5">
+                <div className="text-sm space-y-1.5">
                   <div className="font-bold text-slate-200">Anti-Spam & Emergency Filtering Protocol Active</div>
                   <p className="text-slate-400 leading-relaxed">
                     To prevent hitting Telegram rate limits and avoid buzzing your phone unnecessarily, routine operations run completely silent in the background. The emergency alert fires exclusively under critical conditions:
@@ -4128,7 +3929,7 @@ export default function App() {
               <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Connected Bot</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-white">@anup_cms_alert_bot</span>
+                  <span className="text-sm font-mono font-bold text-white">@anup_cms_alert_bot</span>
                   <a
                     href="https://t.me/anup_cms_alert_bot"
                     target="_blank"
@@ -4146,7 +3947,7 @@ export default function App() {
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Recipient Chat ID</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-emerald-400">{telegramChatId || "Not detected"}</span>
+                    <span className="text-sm font-mono font-bold text-emerald-400">{telegramChatId || "Not detected"}</span>
                     <button
                       onClick={handleDetectTelegramChatId}
                       disabled={isDetectingTelegram}
@@ -4164,7 +3965,7 @@ export default function App() {
                 <button
                   onClick={handleTestEmergencyAlert}
                   disabled={isTestingTelegram || !telegramEnabled}
-                  className="w-full py-2 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow"
+                  className="w-full py-2 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow"
                 >
                   <Bell className="h-3.5 w-3.5" />
                   <span>{isTestingTelegram ? "Dispatching..." : "Send Test Emergency Alert"}</span>
@@ -4190,7 +3991,7 @@ export default function App() {
                       Team Access
                     </span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-400 mt-0.5">
                     Manage the company admin password, copy 1-click access links for team members, and configure protection.
                   </p>
                 </div>
@@ -4200,7 +4001,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleToggleAdminAuth(!adminAuthRequired)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition flex items-center gap-1.5 cursor-pointer ${
                     adminAuthRequired
                       ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
                       : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
@@ -4217,7 +4018,7 @@ export default function App() {
               {/* Left Column: Current Credentials & 1-Click Share */}
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                  <span className="text-sm font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
                     <Shield className="h-4 w-4 text-emerald-400" />
                     Current Admin Password
                   </span>
@@ -4225,7 +4026,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setShowRevealedAdminPassword(!showRevealedAdminPassword)}
-                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition cursor-pointer"
+                      className="text-sm text-slate-400 hover:text-white flex items-center gap-1 transition cursor-pointer"
                     >
                       {showRevealedAdminPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       <span>{showRevealedAdminPassword ? "Hide" : "Show"}</span>
@@ -4233,7 +4034,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={handleCopyPassword}
-                      className="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition cursor-pointer"
+                      className="text-sm text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 transition cursor-pointer"
                     >
                       <Copy className="h-3 w-3" />
                       <span>Copy Password</span>
@@ -4242,7 +4043,7 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                  <div className="font-mono text-sm font-bold text-white tracking-wider">
+                  <div className="font-mono text-base font-bold text-white tracking-wider">
                     {showRevealedAdminPassword ? currentAdminPassword : "•".repeat(Math.max(8, currentAdminPassword.length || 8))}
                   </div>
                   <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded font-mono">
@@ -4251,7 +4052,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-2 pt-1">
-                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                  <span className="text-sm font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
                     <Share2 className="h-4 w-4 text-indigo-400" />
                     Shareable 1-Click Team Access Link
                   </span>
@@ -4263,12 +4064,12 @@ export default function App() {
                       type={showRevealedAdminPassword ? "text" : "password"}
                       readOnly
                       value={`${window.location.origin}/?key=${encodeURIComponent(currentAdminPassword)}`}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono select-all focus:outline-none"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono select-all focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={handleCopyShareLink}
-                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer shadow-md shadow-indigo-600/20"
+                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer shadow-md shadow-indigo-600/20"
                     >
                       <Copy className="h-3.5 w-3.5" />
                       <span>Copy Link</span>
@@ -4280,7 +4081,7 @@ export default function App() {
               {/* Right Column: Change Admin Password */}
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-4">
                 <div className="border-b border-slate-800/60 pb-3">
-                  <span className="text-xs font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
+                  <span className="text-sm font-bold uppercase font-mono text-slate-300 flex items-center gap-1.5">
                     <Lock className="h-4 w-4 text-amber-400" />
                     Update Admin Password
                   </span>
@@ -4300,7 +4101,7 @@ export default function App() {
                       value={newAdminPasswordInput}
                       onChange={(e) => setNewAdminPasswordInput(e.target.value)}
                       placeholder="Enter at least 3 characters..."
-                      className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none"
+                      className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-lg px-3 py-2 text-base text-white placeholder-slate-600 focus:outline-none"
                     />
                   </div>
 
@@ -4308,7 +4109,7 @@ export default function App() {
                     type="button"
                     onClick={handleUpdatePassword}
                     disabled={!newAdminPasswordInput.trim() || newAdminPasswordInput.trim().length < 3}
-                    className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-sm transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
                   >
                     <CheckCircle className="h-3.5 w-3.5 text-slate-950" />
                     <span>Save New Password</span>
@@ -4320,7 +4121,1200 @@ export default function App() {
           )}
 
           </main>
-      ) : currentView !== "scheduler" ? (
+      ) : currentView === "scheduler" ? (
+        /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          {/* SCHEDULER HEADER & CONTROLS DECK */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                <Clock className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                  Sequential Multi-Account Scheduler
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                    /scheduler
+                  </span>
+                  <span className={`px-2 py-0.5 text-[10px] rounded-full font-mono font-semibold uppercase tracking-wider ${
+                    schedulerData?.enabled
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-slate-800 text-slate-400 border border-slate-700"
+                  }`}>
+                    {schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled"}
+                  </span>
+                </h1>
+                <p className="text-sm text-slate-400">
+                  Fully isolated multi-account automation: rotates through accounts in order. Completely separated from manual single-account posting.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateTo("dashboard")}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+              >
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              </button>
+            </div>
+          </div>
+
+          {/* TOP MASTER SWITCH & CYCLE METRICS PANEL */}
+          <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-lg space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <span>Scheduler Engine Controls</span>
+                  {schedulerData?.cycleRunning && (
+                    <span className="px-2 py-0.5 text-[10px] rounded-full font-mono font-bold bg-indigo-500 text-slate-950 animate-pulse">
+                      CYCLE IN PROGRESS
+                    </span>
+                  )}
+                </h3>
+                <p className="text-sm text-slate-400">
+                  When enabled, the bot runs 4 daily cycles across queued accounts (runtime is automatically deducted so all 4 cycles finish within 24 hours).
+                </p>
+              </div>
+
+              {/* Master Switch: Run accounts in sequence */}
+              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2.5 rounded-xl border border-slate-800">
+                <span className="text-sm font-semibold text-slate-200">
+                  Run accounts in sequence
+                </span>
+                <button
+                  type="button"
+                  disabled={isSchedulerActionPending}
+                  onClick={() => handleToggleScheduler()}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* CYCLE STATUS & CONTROLS BAR */}
+            {isSchedulerRunning && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-sm font-medium">
+                Settings are locked while the scheduler is running. Pause or stop to change them.
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+              {/* Status & Current Account */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                      {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
+                    <span className="text-base font-bold text-white">
+                      {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate pt-1">
+                  {schedulerData?.cycleRunning ? (
+                    <>Current: <span className="font-semibold text-slate-200">
+                      {(() => {
+                        if (!schedulerData?.currentAccountId) return "None";
+                        const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
+                        return cur ? cur.name : schedulerData.currentAccountId;
+                      })()}
+                    </span></>
+                  ) : schedulerData?.nextCycleAt ? (
+                    <>Next Run: <span className="font-mono font-semibold text-emerald-400">{new Date(schedulerData.nextCycleAt).toLocaleTimeString()}</span></>
+                  ) : (
+                    <>Next Run: <span className="text-slate-500">Auto-scheduled on enable</span></>
+                  )}
+                </div>
+              </div>
+
+              {/* Interval Settings */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
+                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
+                    value={schedulerIntervalInput}
+                    onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Execution time deducted automatically so all 4 cycles complete within 24h
+                </div>
+              </div>
+
+              {/* Target Batch Limit (Coins / Run) */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1 mt-1">
+                  {[10, 30, 50, 0].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      disabled={isSchedulerActionPending || isSchedulerRunning}
+                      onClick={() => handleUpdateTargetCoins(count)}
+                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        targetCoinsCount === count
+                          ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
+                          : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
+                      }`}
+                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
+                    >
+                      {count === 0 ? "ALL" : `Top ${count}`}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  ALL = Default recommended (Safety cap: 300 posts/day)
+                </div>
+              </div>
+
+              {/* Cycle Action Buttons */}
+              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
+                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Manual Trigger
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
+                    onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Run sequential cycle now")}
+                    className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    <span>{schedulerData?.savedPosition ? "Resume" : "Run cycle now"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
+                    onClick={handlePauseScheduler}
+                    className="px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Pause className="h-3.5 w-3.5" />
+                    <span>Pause</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
+                    onClick={handleStopScheduler}
+                    className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    <span>Stop</span>
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500 text-center">
+                  Live state updates automatically every 3 seconds
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ACTIVE VS BACKUP & MANUAL CHECK NOTICE BANNER */}
+          <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3.5 flex items-start gap-3">
+            <Info className="h-4.5 w-4.5 text-indigo-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-slate-300 leading-relaxed space-y-1">
+              <div>
+                <strong className="text-white">Active vs. Backup Accounts:</strong> Check <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> on the accounts you want to post in the cycle (e.g. 3 primary accounts). Unchecked accounts act as <span className="text-amber-300 font-semibold">Standby / Backup</span>—their login sessions remain safely stored in Firestore and on disk, and you can activate them at any time with one click.
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Uploaded marketing images, AI commentary, and human cooldown timers work automatically across all scheduled posting cycles.
+              </div>
+            </div>
+          </div>
+
+          {/* ACCOUNTS SCHEDULE TABLE */}
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h4 className="text-base font-bold text-white flex items-center gap-2">
+                <span>Configured Accounts & Execution Order</span>
+                <span className="text-sm font-normal text-slate-400">
+                  ({schedulerData?.accounts?.length || 0} accounts)
+                </span>
+              </h4>
+              <span className="text-sm text-slate-400">
+                Accounts run strictly sequentially: Account 1, then Account 2, then Account 3.
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[11px] border-b border-slate-800">
+                    <th className="py-3 px-4 font-semibold text-center w-24">Order</th>
+                    <th className="py-3 px-4 font-semibold">Account</th>
+                    <th className="py-3 px-4 font-semibold min-w-[220px]">Use this account for now</th>
+                    <th className="py-3 px-4 font-semibold min-w-[200px]">Posting Frequency</th>
+                    <th className="py-3 px-4 font-semibold min-w-[180px]">Last Run</th>
+                    <th className="py-3 px-4 font-semibold min-w-[150px]">Next Due</th>
+                    <th className="py-3 px-4 font-semibold text-center w-32">Session</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
+                        No profiles found. Create or import profiles in the Profiles section of the Admin screen.
+                      </td>
+                    </tr>
+                  ) : (
+                    [...schedulerData.accounts]
+                      .sort((a, b) => a.schedule.order - b.schedule.order)
+                      .map((acc, index, sortedArr) => {
+                        const isCurrent = acc.id === schedulerData.currentAccountId;
+                        const isFirst = index === 0;
+                        const isLast = index === sortedArr.length - 1;
+                        const isCheckedNow = acc.schedule.frequency === "weekly"
+                          ? Boolean(acc.schedule.useForNow)
+                          : Boolean(acc.schedule.enabled);
+
+                        return (
+                          <tr
+                            key={acc.id}
+                            draggable={!isSchedulerRunning}
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, index)}
+                            className={`transition-all duration-150 select-none ${
+                              draggedAccountIndex === index
+                                ? "opacity-30 border-2 border-dashed border-indigo-400 bg-indigo-950/40"
+                                : "hover:bg-slate-900/60"
+                            } ${
+                              isCurrent ? "bg-indigo-950/30 border-l-4 border-indigo-500" : ""
+                            }`}
+                          >
+                            {/* Order, Drag Handle, Quick Position Select & Movement Arrows */}
+                            <td className="py-3 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {/* Drag grip handle */}
+                                <div
+                                  title={isSchedulerRunning ? "Reordering is locked while scheduler is running" : "Drag row to reorder"}
+                                  className={`p-1 rounded transition ${isSchedulerRunning ? 'cursor-not-allowed opacity-30 text-slate-600' : 'cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+                                >
+                                  <GripVertical className="h-4 w-4" />
+                                </div>
+
+                                {/* Direct position number dropdown */}
+                                <select
+                                  disabled={isSchedulerRunning}
+                                  value={acc.schedule.order}
+                                  onChange={(e) => handleDirectOrderInput(acc.id, parseInt(e.target.value) || 1)}
+                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded px-1.5 py-0.5 text-sm font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  title={isSchedulerRunning ? "Locked while scheduler is running" : "Click to pick position number directly"}
+                                >
+                                  {sortedArr.map((_, pIdx) => (
+                                    <option key={pIdx + 1} value={pIdx + 1}>
+                                      #{pIdx + 1}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {/* Quick navigation arrows (up / down) */}
+                                <div className="flex flex-col gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={isFirst || isSchedulerRunning}
+                                    onClick={() => handleMoveAccount(index, "up")}
+                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                                    title="Move 1 step up"
+                                  >
+                                    <ChevronUp className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isLast || isSchedulerRunning}
+                                    onClick={() => handleMoveAccount(index, "down")}
+                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                                    title="Move 1 step down"
+                                  >
+                                    <ChevronDown className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Account name & info */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-white text-base flex items-center gap-1.5">
+                                  {acc.name}
+                                  {isCurrent && (
+                                    <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
+                                      RUNNING NOW
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">
+                                  {acc.id}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Checkbox: Use this account for now (Manual weekly checking) */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col gap-1 items-start">
+                                <label className={`inline-flex items-center gap-2 group select-none ${isSchedulerRunning ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={isSchedulerRunning}
+                                    checked={isCheckedNow}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      if (acc.schedule.frequency === "weekly") {
+                                        handleUpdateAccountSchedule({
+                                          id: acc.id,
+                                          enabled: true,
+                                          useForNow: checked,
+                                        });
+                                      } else {
+                                        handleUpdateAccountSchedule({
+                                          id: acc.id,
+                                          enabled: checked,
+                                          useForNow: checked,
+                                        });
+                                      }
+                                    }}
+                                    className="h-4.5 w-4.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 transition cursor-pointer accent-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  />
+                                  <span className={`text-sm font-semibold transition ${
+                                    isCheckedNow ? "text-emerald-300 font-bold" : "text-slate-300 group-hover:text-white"
+                                  }`}>
+                                    Use this account for now
+                                  </span>
+                                </label>
+
+                                {/* Contextual status badges */}
+                                {acc.schedule.frequency === "weekly" ? (
+                                  <div className="pl-6.5">
+                                    {acc.schedule.useForNow ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                                        <CheckCircle className="h-3 w-3" />
+                                        Manually checked for this week
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-300/90 italic flex items-center gap-1">
+                                        <Clock className="h-3 w-3 text-amber-400" />
+                                        Weekly account: check manually when ready
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : acc.schedule.enabled ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/90 pl-6.5 font-mono font-medium">
+                                    <CheckCircle className="h-3 w-3 text-emerald-400" />
+                                    Active Primary (In cycle)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 pl-6.5 font-medium">
+                                    <Shield className="h-3 w-3 text-amber-500/80" />
+                                    Standby / Backup (Reserved)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Frequency dropdown & custom input */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-2">
+                                <select
+                                  disabled={isSchedulerRunning}
+                                  value={acc.schedule.frequency}
+                                  onChange={(e) =>
+                                    handleUpdateAccountSchedule({
+                                      id: acc.id,
+                                      frequency: e.target.value as any,
+                                      ...(e.target.value === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {})
+                                    })
+                                  }
+                                  className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <option value="every_cycle">Every cycle</option>
+                                  <option value="daily">Daily (24h)</option>
+                                  <option value="weekly">Weekly (Manual check)</option>
+                                  <option value="custom">Custom hours</option>
+                                </select>
+
+                                {acc.schedule.frequency === "custom" && (
+                                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={720}
+                                      disabled={isSchedulerRunning}
+                                      value={acc.schedule.customHours || 24}
+                                      onChange={(e) => {
+                                        const val = Math.min(720, Math.max(1, parseInt(e.target.value) || 1));
+                                        handleUpdateAccountSchedule({ id: acc.id, customHours: val });
+                                      }}
+                                      className="w-12 bg-transparent text-sm text-white text-center focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
+                                    />
+                                    <span className="text-[10px] text-slate-400">hrs</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Last run (time + status badge + posted/failed) */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-slate-300 font-mono text-[11px]">
+                                    {acc.lastRun.at ? new Date(acc.lastRun.at).toLocaleString() : "Never run"}
+                                  </span>
+                                  {acc.lastRun.status && (
+                                    <span className={`px-1.5 py-0.5 text-[9px] rounded font-semibold uppercase ${
+                                      acc.lastRun.status === "completed"
+                                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                        : acc.lastRun.status === "skipped_not_due"
+                                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                          : acc.lastRun.status === "skipped_missing_session"
+                                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                            : acc.lastRun.status === "skipped_expired"
+                                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                              : acc.lastRun.status === "stopped_daily_limit"
+                                                ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
+                                                : acc.lastRun.status === "stopped_captcha"
+                                                  ? "bg-rose-600/30 text-rose-200 border border-rose-500"
+                                                  : acc.lastRun.status === "stopped_by_user"
+                                                    ? "bg-amber-600/20 text-amber-300 border border-amber-500/30"
+                                                    : "bg-red-500/20 text-red-300 border border-red-500/30"
+                                    }`}>
+                                      {acc.lastRun.status.replace(/_/g, " ")}
+                                    </span>
+                                  )}
+                                </div>
+                                {acc.lastRun.at && (
+                                  <span className="text-[10px] text-slate-400">
+                                    {acc.lastRun.posted} posted, {acc.lastRun.failed} failed
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Next due */}
+                            <td className="py-3.5 px-4 font-mono text-[11px]">
+                              {acc.schedule.enabled === false ? (
+                                <span className="text-slate-500 italic">Disabled</span>
+                              ) : acc.schedule.useForNow ? (
+                                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Due now (Checked)
+                                </span>
+                              ) : acc.schedule.frequency === "every_cycle" ? (
+                                <span className="text-indigo-400 font-semibold">Every cycle</span>
+                              ) : acc.schedule.frequency === "weekly" ? (
+                                <span className="text-amber-300/80 italic">Check box when ready</span>
+                              ) : acc.nextDueAt ? (
+                                <div className="flex flex-col">
+                                  <span className="text-slate-300">{new Date(acc.nextDueAt).toLocaleString()}</span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {new Date(acc.nextDueAt).getTime() <= Date.now() ? "Due now" : "Upcoming"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-400 font-semibold">Due now</span>
+                              )}
+                            </td>
+
+                            {/* Session */}
+                            <td className="py-3.5 px-4 text-center">
+                              {acc.hasValidSession ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Valid
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Missing
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SCHEDULER LIVE LOGS VIEWER */}
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl space-y-0">
+            <div className="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60">
+              <div className="flex items-center gap-2.5">
+                <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
+                  <TerminalIcon className="h-4 w-4" />
+                </span>
+                <div>
+                  <h4 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Sequential Scheduler Execution Logs</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 font-mono font-semibold">
+                      {schedulerLogs.length} events
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Live stream of trending fetch, AI comment generation, account session checks, and posting loop steps
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Filter scheduler logs..."
+                    value={schedulerLogQuery}
+                    onChange={(e) => setSchedulerLogQuery(e.target.value)}
+                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
+                  />
+                  {schedulerLogQuery && (
+                    <button
+                      onClick={() => setSchedulerLogQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Log Terminal Screen */}
+            <div className="p-4 bg-slate-950 font-mono text-xs max-h-80 overflow-y-auto space-y-1.5 border-t border-slate-900">
+              {schedulerLogs.length === 0 ? (
+                <div className="text-slate-500 italic py-6 text-center">
+                  No scheduler events recorded yet. Run a cycle or enable the scheduler to stream live sequential execution events.
+                </div>
+              ) : (
+                schedulerLogs.map((l, lIdx) => {
+                  const isErr = l.level === "error";
+                  const isWarn = l.level === "warning";
+                  const isSucc = l.level === "success";
+                  return (
+                    <div
+                      key={lIdx}
+                      className={`flex items-start gap-2.5 leading-relaxed py-0.5 px-1.5 rounded transition ${
+                        isErr
+                          ? "bg-rose-950/20 text-rose-300"
+                          : isWarn
+                            ? "bg-amber-950/20 text-amber-300"
+                            : isSucc
+                              ? "bg-emerald-950/20 text-emerald-300"
+                              : "text-slate-300 hover:bg-slate-900/40"
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-500 shrink-0 font-mono select-none">
+                        {l.timestamp}
+                      </span>
+                      <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
+                        isErr
+                          ? "bg-rose-500/20 text-rose-300"
+                          : isWarn
+                            ? "bg-amber-500/20 text-amber-300"
+                            : isSucc
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-slate-800 text-slate-400"
+                      }`}>
+                        {l.level}
+                      </span>
+                      <span className="break-all whitespace-pre-wrap">{l.message}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+        </main>
+      ) : currentView === "guide" ? (
+        /* DEDICATED OPERATING GUIDE SCREEN (/guide) */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                <BookOpen className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                  Operating Guide
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                    /guide
+                  </span>
+                </h1>
+                <p className="text-sm text-slate-400">
+                  Quick start guide and operational workflows for automated CoinMarketCap posting
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateTo("dashboard")}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+              >
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              </button>
+            </div>
+          </div>
+          {/* 5-SECTION OPERATIONAL GUIDE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* 1. Getting started */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Getting started</h2>
+                  <p className="text-xs text-slate-400">Core requirements and initial configuration</p>
+                </div>
+              </div>
+              <ul className="space-y-2.5">
+                {[
+                  "Connect at least one active CoinMarketCap account before running automated workflows.",
+                  "Configure your OpenAI or Gemini API key in the environment to generate authentic comments.",
+                  "Review your daily post limit and cooldown gap settings to prevent spam rate limits.",
+                  "Verify that your database connection is active to preserve persistent session states.",
+                  "Monitor the Health page to ensure all dependencies and credentials are green."
+                ].map((bullet, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
+                    <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 2. Adding an account */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Adding an account</h2>
+                  <p className="text-xs text-slate-400">Profile management and session isolation</p>
+                </div>
+              </div>
+              <ul className="space-y-2.5">
+                {[
+                  "Click 'Login / Add Account' in the top bar to open the account management dialog.",
+                  "Enter your email and password for automatic browser login with Playwright.",
+                  "Alternatively, import existing cookies or storage state JSON from an authenticated browser.",
+                  "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
+                  "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
+                ].map((bullet, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
+                    <CheckCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 3. Running the scheduler (start, pause, stop, resume) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
+                  <p className="text-xs text-slate-400">Sequential cycling, state persistence, and control operations</p>
+                </div>
+              </div>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[
+                  "Start: Click Start in the Scheduler tab to begin sequential posting across active accounts.",
+                  "Pause: Click Pause to finish posting to the current coin and then halt execution gracefully.",
+                  "Resume: Click Resume to continue posting to the remaining coins right from where you paused.",
+                  "Stop: Click Stop to cancel the active cycle once the in-flight coin completes.",
+                  "Position and progress are automatically saved across server restarts and page refreshes.",
+                  "Settings are locked while running; pause or stop the scheduler to adjust intervals or accounts."
+                ].map((bullet, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
+                    <CheckCircle className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 4. Images */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                  <ImageIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Images</h2>
+                  <p className="text-xs text-slate-400">Attaching graphics and rotation rules</p>
+                </div>
+              </div>
+              <ul className="space-y-2.5">
+                {[
+                  "Upload promotional marketing graphics in PNG, JPG, or WEBP format in the Images section.",
+                  "Enable 'Auto-Attach' to include strictly one branded graphic with each posted comment.",
+                  "Choose 'Cycle' mode to rotate through images sequentially or 'Random' mode for variety.",
+                  "Use Auto-Prune to retain the latest uploaded graphics and automatically clean older files."
+                ].map((bullet, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
+                    <CheckCircle className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 5. If something goes wrong */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">If something goes wrong</h2>
+                  <p className="text-xs text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
+                </div>
+              </div>
+              <ul className="space-y-2.5">
+                {[
+                  "Check the Health page (/health) to immediately identify degraded services or missing keys.",
+                  "If an account session expires, click Check login and re-authenticate or re-import cookies.",
+                  "If comment generation fails, verify your OpenAI credit balance or switch to Gemini.",
+                  "Review real-time diagnostic output in the Activity Logs (/logs) to view error traces.",
+                  "Failed coins are automatically queued for retry without disrupting the remaining queue."
+                ].map((bullet, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
+                    <CheckCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+        </main>
+      ) : currentView === "logs" ? (
+        /* DEDICATED LOGS SCREEN (/logs) */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          {/* Header Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                <TerminalIcon className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                  Activity Logs
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                    /logs
+                  </span>
+                </h1>
+                <p className="text-sm text-slate-400">System Activity and Console Output</p>
+              </div>
+            </div>
+
+            {/* Sub-tab Switcher & Dashboard Return */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setLogsTab("system")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                    logsTab === "system"
+                      ? "bg-emerald-600 text-white shadow"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <TerminalIcon className="h-3.5 w-3.5" />
+                  <span>System Activity</span>
+                </button>
+                <button
+                  onClick={() => setLogsTab("scheduler")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                    logsTab === "scheduler"
+                      ? "bg-indigo-600 text-white shadow"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Scheduler Logs</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => navigateTo("dashboard")}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+              >
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              </button>
+            </div>
+          </div>
+
+          {/* TAB 1: SYSTEM ACTIVITY LOGS */}
+          {logsTab === "system" ? (
+            <section className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+              <div className="flex flex-col gap-3.5 mb-3.5 border-b border-slate-800 pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-bold text-white tracking-tight flex items-center gap-2">
+                      <span className="p-1.5 bg-slate-800 text-emerald-400 rounded-lg border border-slate-700">
+                        <TerminalIcon className="h-4 w-4" />
+                      </span>
+                      Activity
+                    </h2>
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800 font-medium" title="Logs are kept to a maximum of 100 entries with automatic rotation to prevent memory leaks">
+                      Ring Buffer: {filteredLogs.length}/100 max (auto-rotates)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => runCommand("/api/clear-all", "clear")}
+                    disabled={isPending.clear}
+                    className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500 cursor-pointer"
+                    title="Clear console"
+                    aria-label="Clear console"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Filter logs by keyword..."
+                    value={logSearchQuery}
+                    onChange={(e) => setLogSearchQuery(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 placeholder-slate-600 font-mono"
+                  />
+
+                  <button
+                    onClick={() => {
+                      const nextVal = !autoScroll;
+                      setAutoScroll(nextVal);
+                      if (nextVal && terminalContainerRef.current) {
+                        terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
+                      }
+                    }}
+                    className={`px-2 py-1 text-[10px] font-bold rounded border transition flex items-center gap-1 cursor-pointer ${
+                      autoScroll
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+                    }`}
+                    title={autoScroll ? "Pause auto-scrolling when new logs arrive" : "Resume auto-scrolling to the bottom"}
+                    aria-label="Toggle auto-scroll"
+                  >
+                    <ArrowDown className={`h-3 w-3 ${autoScroll ? "animate-pulse" : ""}`} />
+                    Scroll: {autoScroll ? "ON" : "PAUSED"}
+                  </button>
+
+                  <select
+                    value={logFilter}
+                    onChange={(e) => setLogFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] font-semibold text-slate-400 cursor-pointer focus:outline-none focus:border-emerald-500"
+                    aria-label="Filter logs by level"
+                  >
+                    <option value="all">ALL LOGS</option>
+                    <option value="info">INFO</option>
+                    <option value="success">SUCCESS</option>
+                    <option value="warning">WARNING</option>
+                    <option value="error">ERROR</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Terminal console */}
+              <div 
+                ref={terminalContainerRef}
+                className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-[11px] space-y-1.5 leading-relaxed shadow-inner"
+              >
+                {filteredLogs.length === 0 ? (
+                  <div className="text-slate-600 italic text-center pt-12">No console messages matching filter.</div>
+                ) : (
+                  filteredLogs.slice(-100).map((log, index) => {
+                    let colorClass = "text-slate-300";
+                    if (log.level === "success") colorClass = "text-emerald-400";
+                    else if (log.level === "warning") colorClass = "text-amber-400";
+                    else if (log.level === "error") colorClass = "text-red-400 font-semibold";
+                    else if (log.level === "info") colorClass = "text-blue-400";
+
+                    return (
+                      <div key={index} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
+                        <span className="text-slate-600 flex-shrink-0 select-none">[{log.timestamp}]</span>
+                        <span className={colorClass}>{log.message}</span>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={terminalEndRef}></div>
+              </div>
+            </section>
+          ) : (
+            /* TAB 2: SCHEDULER LOGS WITH SINGLE DOWNLOAD LINK */
+            <section className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-slate-800 text-indigo-400 rounded-lg border border-slate-700">
+                    <Clock className="h-4 w-4" />
+                  </span>
+                  <h2 className="font-bold text-white tracking-tight">Scheduler Execution Log</h2>
+                  <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+                    {schedulerLogs.length} events
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Filter scheduler logs..."
+                    value={schedulerLogQuery}
+                    onChange={(e) => setSchedulerLogQuery(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 placeholder-slate-600 font-mono w-48"
+                  />
+                  <a
+                    href="/api/scheduler/logs/download"
+                    download="scheduler_execution.log"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download Scheduler Logs</span>
+                  </a>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-xs space-y-1.5 leading-relaxed shadow-inner">
+                {schedulerLogs.length === 0 ? (
+                  <div className="text-slate-600 italic text-center pt-12">No scheduler logs recorded yet.</div>
+                ) : (
+                  schedulerLogs
+                    .filter(l => !schedulerLogQuery || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase()))
+                    .map((l, idx) => {
+                      const isErr = l.level === "error";
+                      const isWarn = l.level === "warning";
+                      const isSucc = l.level === "success";
+                      return (
+                        <div key={idx} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
+                          <span className="text-slate-600 flex-shrink-0 select-none">[{l.timestamp}]</span>
+                          <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
+                            isErr ? "bg-rose-500/20 text-rose-300" : isWarn ? "bg-amber-500/20 text-amber-300" : isSucc ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
+                          }`}>{l.level}</span>
+                          <span className={isErr ? "text-rose-400" : isWarn ? "text-amber-400" : isSucc ? "text-emerald-400" : "text-slate-300"}>{l.message}</span>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </section>
+          )}
+        </main>
+      ) : currentView === "health" ? (
+        /* DEDICATED HEALTH SCREEN (/health) */
+        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          {/* Header Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                <Activity className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                  System Health
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                    /health
+                  </span>
+                </h1>
+                <p className="text-sm text-slate-400">Service diagnostics and readiness checks</p>
+              </div>
+            </div>
+            <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
+              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+            </button>
+          </div>
+
+          {/* Top Overall Status Banner */}
+          {healthData?.overall === "ok" && healthData?.healthy !== false ? (
+            <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Everything is working</h2>
+                  <p className="text-sm text-slate-300">All services, database connections, and credentials are operational.</p>
+                </div>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                SYSTEM OPTIMAL
+              </span>
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/30 flex items-center justify-between shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                  <AlertTriangle className="h-6 w-6 text-rose-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Needs attention</h2>
+                  <p className="text-sm text-slate-300">One or more system checks failed. Review the diagnostics below.</p>
+                </div>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                ACTION REQUIRED
+              </span>
+            </div>
+          )}
+
+          {/* 5 SYSTEM HEALTH CHIPS */}
+          <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl">
+            {/* Server Chip */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
+              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.server?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <span className="text-slate-400 font-mono text-xs">Server:</span>
+              <span className="font-bold text-slate-200">
+                {healthData?.checks?.server?.status === "ok" ? "Online" : "Degraded"}
+              </span>
+            </div>
+
+            {/* OpenAI Chip */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
+              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.openai?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <span className="text-slate-400 font-mono text-xs">OpenAI:</span>
+              <span className="font-bold text-slate-200">
+                {healthData?.checks?.openai?.status === "ok" ? (apiStatus.openai ? "Active" : "Gemini Fallback") : (apiStatus.openaiError ? "Quota Limit" : "Missing Key")}
+              </span>
+            </div>
+
+            {/* CMC Chip */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
+              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.cmc?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <span className="text-slate-400 font-mono text-xs">CMC:</span>
+              <span className="font-bold text-slate-200">
+                {healthData?.checks?.cmc?.status === "ok" ? "Ready" : "Browser Missing"}
+              </span>
+            </div>
+
+            {/* DB Chip */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
+              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <span className="text-slate-400 font-mono text-xs">DB:</span>
+              <span className="font-bold text-slate-200">
+                {healthData?.checks?.database?.details || healthData?.checks?.db?.details || "Connected"}
+              </span>
+            </div>
+
+            {/* Alerts Toggle Chip */}
+            <button
+              onClick={() => handleToggleTelegram(!telegramEnabled)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold transition cursor-pointer ${
+                telegramEnabled
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                  : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
+              }`}
+              title="Toggle Emergency Telegram Alerts"
+            >
+              <Bell className="h-4 w-4" />
+              <span>Alerts: {telegramEnabled ? "ON" : "OFF"}</span>
+            </button>
+          </div>
+
+          {/* DIAGNOSTIC CHECK DETAILS WITH PLAIN SENTENCE GUIDANCE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Server Card */}
+            <div className={`p-5 rounded-2xl border ${healthData?.checks?.server?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-base">Server Express API</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.server?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                  {healthData?.checks?.server?.status || "ok"}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">
+                {healthData?.checks?.server?.message || "Node.js Express backend server is healthy and responding."}
+              </p>
+            </div>
+
+            {/* OpenAI Card */}
+            <div className={`p-5 rounded-2xl border ${healthData?.checks?.openai?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-base">OpenAI / AI Models</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.openai?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                  {healthData?.checks?.openai?.status || (apiStatus.openai ? "ok" : "error")}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">
+                {healthData?.checks?.openai?.message || (apiStatus.openai ? "OpenAI primary model is operational." : "OPENAI_API_KEY is not configured. Add OPENAI_API_KEY to your environment variables to enable comment generation.")}
+              </p>
+            </div>
+
+            {/* CMC Browser Card */}
+            <div className={`p-5 rounded-2xl border ${healthData?.checks?.cmc?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-base">Playwright Chromium</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.cmc?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                  {healthData?.checks?.cmc?.status || "ok"}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">
+                {healthData?.checks?.cmc?.message || "Headless Chromium browser engine is ready for automation."}
+              </p>
+            </div>
+
+            {/* Database Card */}
+            <div className={`p-5 rounded-2xl border ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-base">Database Storage</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                  {healthData?.checks?.database?.status || healthData?.checks?.db?.status || "ok"}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">
+                {healthData?.checks?.database?.message || healthData?.checks?.db?.message || "Persistent data storage connection is healthy."}
+              </p>
+            </div>
+
+            {/* Account Session Card */}
+            <div className={`p-5 rounded-2xl border ${healthData?.checks?.account?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2 md:col-span-2`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-base">CoinMarketCap Account Session</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.account?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                  {healthData?.checks?.account?.status || "degraded"}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">
+                {healthData?.checks?.account?.message || "Active account session check. Ensure at least one account is logged in."}
+              </p>
+            </div>
+          </div>
+        </main>
+      ) : (
         /* MAIN BOT DASHBOARD */
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
 
@@ -4340,7 +5334,7 @@ export default function App() {
                     <Layers className="h-4 w-4" />
                   </span>
                   <div>
-                    <h2 className="font-bold text-white text-sm tracking-tight flex items-center gap-1.5">
+                    <h2 className="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
                       Control Center
                     </h2>
                     <p className="text-[11px] text-slate-400">Playwright Community Auto-Poster</p>
@@ -4361,19 +5355,16 @@ export default function App() {
               </div>
 
               {/* RUN MODE STRIP */}
-              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-sm">
                 <span className="text-slate-300 flex items-center gap-2 text-[11px]">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   Engine: <strong className="text-white font-semibold">Real Browser (Headless Playwright)</strong>
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                  Anti-Detection Active
                 </span>
               </div>
 
               {/* ACTIVE PROCESS MUTEX BANNER */}
               {activeProcess && activeProcess !== "none" && (
-                <div className="mb-3 px-3.5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center justify-between text-xs text-indigo-300 shadow-sm">
+                <div className="mb-3 px-3.5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center justify-between text-sm text-indigo-300 shadow-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400 shrink-0" />
                     <span className="truncate text-[11px]">
@@ -4388,7 +5379,7 @@ export default function App() {
 
               {/* 2x2 MODERN ACTION DECK - STABILIZED GRID */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
-                {/* 1. Check Session */}
+                {/* 1. Check login */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
                   disabled={isPending.login || isBusy || isContinuousLoopActive}
@@ -4400,7 +5391,7 @@ export default function App() {
                       <CheckCircle className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">Check Session</h3>
+                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">Check login</h3>
                       <p className="text-[10px] text-slate-400">Verify login state</p>
                     </div>
                   </div>
@@ -4411,7 +5402,7 @@ export default function App() {
                   )}
                 </button>
 
-                {/* 2. Fetch Trending */}
+                {/* 2. Get trending coins */}
                 <button
                   onClick={async () => {
                     if (coinsList.length > 0) {
@@ -4429,7 +5420,7 @@ export default function App() {
                       <Search className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-xs font-bold text-white group-hover:text-blue-300 transition">Fetch Trending</h3>
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">Get trending coins</h3>
                       <p className="text-[10px] text-slate-400">
                         {coinsList.length > 0
                           ? (coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).text}` : "Fetched: Prev session")
@@ -4447,7 +5438,7 @@ export default function App() {
                                 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
                                 : "bg-blue-500/10 text-blue-400 border-blue-500/20")
                           : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                      }`} title={coinsFetchedAt ? `Exact fetch time: ${formatTimeAgo(coinsFetchedAt).full}` : "Coins loaded from previous session. Click Fetch Trending to get fresh coins with live timer."}>
+                      }`} title={coinsFetchedAt ? `Exact fetch time: ${formatTimeAgo(coinsFetchedAt).full}` : "Coins loaded from previous session. Click Get trending coins to get fresh coins with live timer."}>
                         {coinsFetchedAt ? formatTimeAgo(coinsFetchedAt).text : "Prev Session"}
                       </span>
                     )}
@@ -4459,7 +5450,7 @@ export default function App() {
                   </div>
                 </button>
 
-                {/* 3. Generate Comments */}
+                {/* 3. Write comments */}
                 <button
                   onClick={async () => {
                     if (coinsList.length === 0) {
@@ -4481,7 +5472,7 @@ export default function App() {
                       <BookOpen className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-xs font-bold text-white group-hover:text-purple-300 transition">Generate Comments</h3>
+                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">Write comments</h3>
                       <p className="text-[10px] text-slate-400">
                         {messagesList.length > 0
                           ? (commentsGeneratedAt ? `Gen: ${formatTimeAgo(commentsGeneratedAt).text}` : "Gen: Prev session")
@@ -4499,7 +5490,7 @@ export default function App() {
                                 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
                                 : "bg-purple-500/10 text-purple-400 border-purple-500/20")
                           : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                      }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Generate Comments to generate fresh commentary with live timer."}>
+                      }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Write comments to generate fresh commentary with live timer."}>
                         {commentsGeneratedAt ? formatTimeAgo(commentsGeneratedAt).text : "Prev Session"}
                       </span>
                     )}
@@ -4532,7 +5523,7 @@ export default function App() {
                         )}
                       </span>
                       <div>
-                        <h3 className="text-xs font-bold text-white">
+                        <h3 className="text-sm font-bold text-white">
                           {(isStoppingPost || status === "Stopping") ? "Stop Posting (Stopping...)" : "Stop Posting"}
                         </h3>
                         <p className="text-[10px] text-rose-300/80">
@@ -4580,7 +5571,7 @@ export default function App() {
                         )}
                       </span>
                       <div>
-                        <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">
                           {isStartingPost ? "Starting..." : "Start Posting"}
                         </h3>
                         <p className="text-[10px] text-slate-400">Launch real browser</p>
@@ -4597,11 +5588,11 @@ export default function App() {
 
               {/* Dedicated Stale Market Data Warning Banner Row (Eliminates Action Deck Bounciness) */}
               {isDataOlderThan2Days() && status !== "Posting" && status !== "Stopping" && !isContinuousLoopActive && (
-                <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-300 shadow-sm animate-fadeIn">
+                <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3 text-sm text-amber-300 shadow-sm animate-fadeIn">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
                     <div className="truncate">
-                      <span className="font-bold text-xs block text-amber-200">Market Data Over 2 Days Old</span>
+                      <span className="font-bold text-sm block text-amber-200">Market Data Over 2 Days Old</span>
                       <span className="text-[11px] text-amber-400/80 block truncate">
                         Cryptocurrency prices shift rapidly. Recommend refreshing trending coins and comments before posting.
                       </span>
@@ -4610,7 +5601,7 @@ export default function App() {
                   <button
                     onClick={() => handleRefreshFreshData(false)}
                     disabled={isRefreshingFreshData || isBusy}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition shrink-0 cursor-pointer disabled:opacity-50 shadow-sm"
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-sm transition shrink-0 cursor-pointer disabled:opacity-50 shadow-sm"
                   >
                     {isRefreshingFreshData ? "Refreshing..." : "Refresh Now"}
                   </button>
@@ -4623,7 +5614,7 @@ export default function App() {
               <button
                 onClick={() => runCommand("/api/full-flow", "full", { continuous: isContinuousLoopActive, intervalMinutes: continuousInterval })}
                 disabled={isPending.full || isBusy || isContinuousLoopActive}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 transition-all duration-200 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-[0.99] flex items-center justify-center gap-2 font-black text-xs shadow-md disabled:opacity-40 cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 transition-all duration-200 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-[0.99] flex items-center justify-center gap-2 font-black text-sm shadow-md disabled:opacity-40 cursor-pointer"
                 id="btn-full-flow"
               >
                 {isPending.full ? (
@@ -4636,13 +5627,18 @@ export default function App() {
 
               {/* CONTINUOUS LOOP REFINED CONTROLLER - SEAMLESS DESIGN */}
               <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/60 flex flex-col gap-3 shadow-inner">
+                {isSchedulerRunning && (
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-xs font-medium">
+                    Settings are locked while the scheduler is running. Pause or stop to change them.
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <label className={`relative inline-flex items-center ${isBusy && !isContinuousLoopActive ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                    <label className={`relative inline-flex items-center ${(isBusy && !isContinuousLoopActive) || isSchedulerRunning ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                       <input
                         type="checkbox"
                         checked={isContinuousLoopActive}
-                        disabled={isBusy && !isContinuousLoopActive}
+                        disabled={(isBusy && !isContinuousLoopActive) || isSchedulerRunning}
                         onChange={(e) => toggleContinuousLoop(e.target.checked, continuousInterval)}
                         className="sr-only peer"
                         id="chk-continuous"
@@ -4650,7 +5646,7 @@ export default function App() {
                       <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 peer-checked:after:bg-slate-950 peer-checked:after:border-transparent peer-disabled:opacity-40 shadow-inner"></div>
                     </label>
                     <div>
-                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-slate-200 flex items-center gap-1.5">
                         Continuous Automation Loop
                         {isContinuousLoopActive && (
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
@@ -4674,12 +5670,12 @@ export default function App() {
                 {/* Interval slider & Quick preset buttons */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-slate-400 font-medium">Cooldown Gap:</span>
+                    <span className="text-slate-400 font-medium">Wait between rounds:</span>
                     <div className="flex items-center gap-1.5">
                       {[5, 15, 30, 60].map((preset) => (
                         <button
                           key={preset}
-                          disabled={isContinuousLoopActive}
+                          disabled={isContinuousLoopActive || isSchedulerRunning}
                           onClick={() => {
                             setContinuousInterval(preset);
                             saveIntervalToServer(preset);
@@ -4688,7 +5684,7 @@ export default function App() {
                             continuousInterval === preset
                               ? "bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/20"
                               : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800/80"
-                          } disabled:opacity-40 cursor-pointer`}
+                          } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                         >
                           {preset}m
                         </button>
@@ -4702,11 +5698,12 @@ export default function App() {
                       type="range"
                       min="5"
                       max="120"
+                      disabled={isContinuousLoopActive || isSchedulerRunning}
                       value={continuousInterval}
                       onChange={(e) => setContinuousInterval(Math.max(5, Number(e.target.value)))}
                       onMouseUp={() => saveIntervalToServer(continuousInterval)}
                       onTouchEnd={() => saveIntervalToServer(continuousInterval)}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400"
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
                       id="slider-interval"
                       title="Adjust cooldown gap between automated cycles (min: 5m)"
                     />
@@ -4714,13 +5711,14 @@ export default function App() {
                       type="number"
                       min="5"
                       max="1440"
+                      disabled={isContinuousLoopActive || isSchedulerRunning}
                       value={continuousInterval}
                       onChange={(e) => {
                         const val = Math.max(5, Number(e.target.value));
                         setContinuousInterval(val);
                         saveIntervalToServer(val);
                       }}
-                      className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner"
+                      className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner disabled:opacity-40 disabled:cursor-not-allowed"
                       id="num-interval"
                       title="Cooldown minutes between automated cycles (min: 5m)"
                     />
@@ -4751,7 +5749,7 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-1.5">
                         <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
-                        <span className="text-xs font-bold text-white">
+                        <span className="text-sm font-bold text-white">
                           Marketing Image Upload
                         </span>
                         <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
@@ -4824,7 +5822,7 @@ export default function App() {
                     <Activity className="h-4 w-4" />
                   </span>
                   <div>
-                    <h2 className="font-bold text-white text-sm tracking-tight">Execution Monitor</h2>
+                    <h2 className="font-bold text-white text-base tracking-tight">Progress</h2>
                     <p className="text-[11px] text-slate-400">Live Post & Batch Metrics</p>
                   </div>
                 </div>
@@ -4854,11 +5852,11 @@ export default function App() {
                         <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">Target Asset</span>
                         <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
                           {status === "Stopping" || isStoppingPost ? (
-                            <span className="text-amber-400 flex items-center gap-1.5 text-sm font-bold">
+                            <span className="text-amber-400 flex items-center gap-1.5 text-base font-bold">
                               <RefreshCw className="h-4 w-4 animate-spin" /> Stopping Engine
                             </span>
                           ) : isStartingPost ? (
-                            <span className="text-emerald-400 flex items-center gap-1.5 text-sm font-bold">
+                            <span className="text-emerald-400 flex items-center gap-1.5 text-base font-bold">
                               <RefreshCw className="h-4 w-4 animate-spin" /> Starting Engine...
                             </span>
                           ) : currentCoin !== "N/A" ? (
@@ -4936,7 +5934,7 @@ export default function App() {
                           <span className={`text-base font-black font-mono tabular-nums ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
                             {dailyPostCount}
                           </span>
-                          <span className="text-xs text-slate-500 font-mono tabular-nums">/ {dailyPostLimit}</span>
+                          <span className="text-sm text-slate-500 font-mono tabular-nums">/ {dailyPostLimit}</span>
                           {dailyPostCount >= dailyPostLimit ? (
                             <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
                               Cap Reached
@@ -4964,7 +5962,7 @@ export default function App() {
                     )}
 
                     {dailyPostCount >= dailyPostLimit && (
-                      <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-semibold">
+                      <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2 text-rose-300 text-sm font-semibold">
                         <AlertTriangle className="h-4 w-4 flex-shrink-0 animate-pulse text-rose-400" />
                         <span>Account reached daily posting limit ({dailyPostCount}/{dailyPostLimit} posts today). Automated posting is halted until tomorrow.</span>
                       </div>
@@ -4972,7 +5970,7 @@ export default function App() {
 
                     {/* BATCH PROGRESS BAR */}
                     <div className="pt-3 mt-3 border-t border-slate-800/80 space-y-2 relative z-10">
-                      <div className="flex justify-between items-center text-xs font-mono">
+                      <div className="flex justify-between items-center text-sm font-mono">
                         <span className="text-slate-400 text-[11px]">Batch Progress Track</span>
                         <span className="text-emerald-400 font-bold text-[11px] font-mono">
                           {clampedProgress} / {activeBatchTotal} {generatedCount > 0 && generatedCount !== totalCoins ? "comments" : "coins"}
@@ -5014,103 +6012,6 @@ export default function App() {
 
         </div>
 
-        {/* ROW 2: LOG CONSOLE TERMINAL (Full width) */}
-        <section className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
-            <div className="flex flex-col gap-3.5 mb-3.5 border-b border-slate-800 pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-bold text-white tracking-tight flex items-center gap-2">
-                    <span className="p-1.5 bg-slate-800 text-emerald-400 rounded-lg border border-slate-700">
-                      <TerminalIcon className="h-4 w-4" />
-                    </span>
-                    Interactive Logs Console
-                  </h2>
-                  <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800 font-medium" title="Logs are kept to a maximum of 100 entries with automatic rotation to prevent memory leaks">
-                    Ring Buffer: {filteredLogs.length}/100 max (auto-rotates)
-                  </span>
-                </div>
-                <button
-                  onClick={() => runCommand("/api/clear-all", "clear")}
-                  disabled={isPending.clear}
-                  className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500"
-                  title="Clear console"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Search query input */}
-                <input
-                  type="text"
-                  placeholder="Filter logs by keyword..."
-                  value={logSearchQuery}
-                  onChange={(e) => setLogSearchQuery(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500 placeholder-slate-600 font-mono"
-                />
-
-                {/* Auto-scroll toggle indicator/button */}
-                <button
-                  onClick={() => {
-                    const nextVal = !autoScroll;
-                    setAutoScroll(nextVal);
-                    if (nextVal && terminalContainerRef.current) {
-                      terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
-                    }
-                  }}
-                  className={`px-2 py-1 text-[10px] font-bold rounded border transition flex items-center gap-1 cursor-pointer ${
-                    autoScroll
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                      : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
-                  }`}
-                  title={autoScroll ? "Pause auto-scrolling when new logs arrive" : "Resume auto-scrolling to the bottom"}
-                >
-                  <ArrowDown className={`h-3 w-3 ${autoScroll ? "animate-pulse" : ""}`} />
-                  Scroll: {autoScroll ? "ON" : "PAUSED"}
-                </button>
-
-                {/* Log level selector */}
-                <select
-                  value={logFilter}
-                  onChange={(e) => setLogFilter(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] font-semibold text-slate-400 cursor-pointer focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">ALL LOGS</option>
-                  <option value="info">INFO</option>
-                  <option value="success">SUCCESS</option>
-                  <option value="warning">WARNING</option>
-                  <option value="error">ERROR</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Terminal console */}
-            <div 
-              ref={terminalContainerRef}
-              className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[360px] overflow-y-auto font-mono text-[11px] space-y-1.5 leading-relaxed shadow-inner"
-            >
-              {filteredLogs.length === 0 ? (
-                <div className="text-slate-600 italic text-center pt-12">No console messages matching filter.</div>
-              ) : (
-                filteredLogs.slice(-100).map((log, index) => {
-                  let colorClass = "text-slate-300";
-                  if (log.level === "success") colorClass = "text-emerald-400";
-                  else if (log.level === "warning") colorClass = "text-amber-400";
-                  else if (log.level === "error") colorClass = "text-red-400 font-semibold";
-                  else if (log.level === "info") colorClass = "text-blue-400";
-
-                  return (
-                    <div key={index} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
-                      <span className="text-slate-600 flex-shrink-0 select-none">[{log.timestamp}]</span>
-                      <span className={colorClass}>{log.message}</span>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={terminalEndRef}></div>
-            </div>
-          </section>
-
         {/* ROW 3: STORAGE AND REPORTS DATA EXPLORER (Full width) */}
         <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -5125,7 +6026,7 @@ export default function App() {
             <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
               <button
                 onClick={() => setActiveTab("coins")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
                   activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -5133,7 +6034,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActiveTab("comments")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
                   activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -5141,7 +6042,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActiveTab("results")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
                   activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -5153,7 +6054,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActiveTab("reports")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
                   activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -5161,7 +6062,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActiveTab("images")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
                   activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -5173,7 +6074,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => navigateTo("scheduler")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
                   currentView === "scheduler"
                     ? "bg-indigo-600/40 text-white border border-indigo-500 shadow"
                     : schedulerData?.enabled
@@ -5187,11 +6088,15 @@ export default function App() {
                 <span className={`px-1.5 py-0.5 text-[9px] rounded font-mono font-bold ${
                   schedulerData?.cycleRunning
                     ? "bg-indigo-500 text-slate-950 animate-pulse"
-                    : schedulerData?.enabled
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                       : "bg-slate-800 text-slate-400"
                 }`}>
-                  {schedulerData?.cycleRunning ? "RUNNING" : (schedulerData?.enabled ? "ON" : "OFF")}
+                  {schedulerData?.cycleRunning
+                    ? "Running"
+                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                      ? "Paused"
+                      : "Stopped"}
                 </span>
                 <ArrowRight className="h-3 w-3 text-slate-500" />
               </button>
@@ -5206,7 +6111,7 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="text-xs text-slate-400 font-mono">
+                    <span className="text-sm text-slate-400 font-mono">
                       Showing {coinsList.length} trending assets for the active profile
                     </span>
                     {coinsList.length > 0 && (
@@ -5218,18 +6123,18 @@ export default function App() {
                                 ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
                                 : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20")
                           : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                      }`} title={coinsFetchedAt ? `Exact fetch time: ${formatTimeAgo(coinsFetchedAt).full}` : "Coins loaded from previous session. Click Fetch Trending to get fresh coins with live timer."}>
+                      }`} title={coinsFetchedAt ? `Exact fetch time: ${formatTimeAgo(coinsFetchedAt).full}` : "Coins loaded from previous session. Click Get trending coins to get fresh coins with live timer."}>
                         <Clock className="h-3 w-3" />
                         {coinsFetchedAt 
                           ? `Fetched: ${formatTimeAgo(coinsFetchedAt).text} (${formatTimeAgo(coinsFetchedAt).full})`
-                          : "Fetched: Previous Session (Click Fetch Trending to update)"}
+                          : "Fetched: Previous Session (Click Get trending coins to update)"}
                       </span>
                     )}
                   </div>
                   <button
                     onClick={handleManualRefresh}
                     disabled={isRefreshingData}
-                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
                     Refresh Coins
@@ -5237,7 +6142,7 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
-                  <table className="w-full text-left text-xs border border-slate-700/80 border-collapse min-w-[900px]">
+                  <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[900px]">
                     <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
                       <tr>
                         <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Rank</th>
@@ -5258,12 +6163,12 @@ export default function App() {
                             <div className="space-y-3 max-w-md mx-auto">
                               <p className="text-slate-500 font-medium">No trending coins found in storage for this profile.</p>
                               <p className="text-[11px] text-slate-400">
-                                If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Coins"</strong> above, or trigger <strong>"Fetch Trending"</strong> in the Control Center to populate.
+                                If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Coins"</strong> above, or trigger <strong>"Get trending coins"</strong> in the Control Center to populate.
                               </p>
                               <button
                                 onClick={handleManualRefresh}
                                 disabled={isRefreshingData}
-                                className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                                className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition inline-flex items-center gap-1.5 cursor-pointer"
                               >
                                 <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
                                 Refresh Now
@@ -5335,7 +6240,7 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
                     <div className="flex flex-wrap items-center gap-2.5">
-                      <span className="text-xs text-slate-400 font-mono">
+                      <span className="text-sm text-slate-400 font-mono">
                         Showing {messagesList.length} generated comments ({pendingCoins.length} pending, {failedCoins.length} failed)
                       </span>
                       {messagesList.length > 0 && (
@@ -5347,18 +6252,18 @@ export default function App() {
                                   ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
                                   : "bg-purple-500/10 text-purple-400 border-purple-500/20")
                             : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                        }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Generate Comments to generate fresh commentary with live timer."}>
+                        }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Write comments to generate fresh commentary with live timer."}>
                           <Clock className="h-3 w-3" />
                           {commentsGeneratedAt 
                             ? `Generated: ${formatTimeAgo(commentsGeneratedAt).text} (${formatTimeAgo(commentsGeneratedAt).full})`
-                            : "Generated: Previous Session (Click Generate Comments to update)"}
+                            : "Generated: Previous Session (Click Write comments to update)"}
                         </span>
                       )}
                     </div>
                     <button
                       onClick={handleManualRefresh}
                       disabled={isRefreshingData}
-                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
                       Refresh Comments
@@ -5368,13 +6273,13 @@ export default function App() {
                   {messagesList.length === 0 ? (
                     <div className="p-12 bg-slate-950/60 border border-slate-800 rounded-2xl text-center text-slate-400 space-y-3">
                       <div className="text-slate-500 font-medium">No generated comments found in storage for this profile.</div>
-                      <div className="text-xs text-slate-400 max-w-md mx-auto">
-                        Comments must be generated before they can be posted. If you recently switched profiles or expect data, click the <strong className="text-emerald-400">"Refresh Comments"</strong> button above, or trigger <strong className="text-purple-400">"Generate Comments"</strong> in the Control Center.
+                      <div className="text-sm text-slate-400 max-w-md mx-auto">
+                        Comments must be generated before they can be posted. If you recently switched profiles or expect data, click the <strong className="text-emerald-400">"Refresh Comments"</strong> button above, or trigger <strong className="text-purple-400">"Write comments"</strong> in the Control Center.
                       </div>
                       <button
                         onClick={handleManualRefresh}
                         disabled={isRefreshingData}
-                        className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                        className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
                         Refresh Now
@@ -5384,12 +6289,12 @@ export default function App() {
                     <div className="space-y-8">
                       {/* Active Automated Posting Queue */}
                       <div className="space-y-3">
-                        <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                        <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                           Active Automated Posting Queue ({pendingCoins.length} coins pending)
                         </h3>
                     <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
-                      <table className="w-full text-left text-xs border border-slate-700/80 border-collapse min-w-[750px]">
+                      <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[750px]">
                         <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
                           <tr>
                             <th className="py-3 px-4 w-[100px] border-r border-slate-700/80 whitespace-nowrap">Sequence</th>
@@ -5452,12 +6357,12 @@ export default function App() {
 
                   {/* Failed/Unsuccessful Submissions */}
                   <div className="space-y-3 pt-4 border-t border-slate-800">
-                    <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-rose-500"></span>
                       Failed / Unsuccessful Submissions ({failedCoins.length} failures)
                     </h3>
                     <div className="overflow-x-auto rounded-xl border border-rose-900/50 shadow-md bg-slate-950/70">
-                      <table className="w-full text-left text-xs border border-rose-900/40 border-collapse min-w-[750px]">
+                      <table className="w-full text-left text-sm border border-rose-900/40 border-collapse min-w-[750px]">
                         <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-rose-900/50 font-mono font-bold">
                           <tr>
                             <th className="py-3 px-4 w-[150px] border-r border-rose-900/40 whitespace-nowrap">Asset</th>
@@ -5583,7 +6488,7 @@ export default function App() {
                       <div className="flex items-center bg-slate-900 p-1 rounded-lg border border-slate-800">
                         <button
                           onClick={() => setSubmissionsViewMode("current_batch")}
-                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-sm font-bold transition flex items-center gap-1.5 cursor-pointer ${
                             submissionsViewMode === "current_batch"
                               ? "bg-emerald-500 text-slate-950 shadow-sm"
                               : "text-slate-400 hover:text-white"
@@ -5594,7 +6499,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setSubmissionsViewMode("all_history")}
-                          className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-md text-sm font-bold transition flex items-center gap-1.5 cursor-pointer ${
                             submissionsViewMode === "all_history"
                               ? "bg-blue-500 text-slate-950 shadow-sm"
                               : "text-slate-400 hover:text-white"
@@ -5614,7 +6519,7 @@ export default function App() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => setShowRetentionSettingsModal(true)}
-                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-sm font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
                         title="Configure automatic data retention and completed batch auto-pruning"
                       >
                         <Clock className="h-3.5 w-3.5" />
@@ -5623,7 +6528,7 @@ export default function App() {
                       <button
                         onClick={() => handlePruneOldData(retentionDays)}
                         disabled={isPruningData || profileResults.length === 0}
-                        className="py-1.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold border border-amber-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        className="py-1.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-bold border border-amber-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
                         title={`Prune records older than ${retentionDays} days into long-term archive`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -5632,7 +6537,7 @@ export default function App() {
                       <button
                         onClick={() => setShowResetQueueConfirm(true)}
                         disabled={isResettingDailyQueue || profileResults.length === 0}
-                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
                         title="Archive completed submissions into 7-day database and restart queue from Coin #1 (accounts and cookies preserved)"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
@@ -5641,7 +6546,7 @@ export default function App() {
                       <button
                         onClick={handleManualRefresh}
                         disabled={isRefreshingData}
-                        className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                        className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
                       >
                         <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
                         Refresh
@@ -5650,7 +6555,7 @@ export default function App() {
                   </div>
 
                   {/* Automated Background Isolation & Compaction Notice Banner */}
-                  <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl flex items-center justify-between text-xs">
+                  <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2.5 text-blue-300">
                       <span className="p-1 bg-blue-500/20 rounded-md text-blue-400 font-bold whitespace-nowrap">⚡ AUTO-COMPACTION</span>
                       <p className="text-[11px] leading-relaxed">
@@ -5660,7 +6565,7 @@ export default function App() {
                   </div>
 
                   <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
-                    <table className="w-full text-left text-xs border border-slate-700/80 border-collapse min-w-[850px]">
+                    <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[850px]">
                       <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
                         <tr>
                           <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Time</th>
@@ -5748,12 +6653,12 @@ export default function App() {
                                 <div className="space-y-3 max-w-md mx-auto">
                                   <p className="text-slate-500 font-medium">No generated comments loaded for the current cycle.</p>
                                   <p className="text-[11px] text-slate-400">
-                                    Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Generate Comments"</strong> in the Control Center to populate the queue.
+                                    Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Write comments"</strong> in the Control Center to populate the queue.
                                   </p>
                                   <button
                                     onClick={handleManualRefresh}
                                     disabled={isRefreshingData}
-                                    className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                                    className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition inline-flex items-center gap-1.5 cursor-pointer"
                                   >
                                     <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
                                     Refresh Now
@@ -5814,7 +6719,7 @@ export default function App() {
                                       </span>
                                     ) : item.status === "expired" ? (
                                       <span className="text-rose-400 flex items-center gap-1 font-bold" title="Account session expired: CoinMarketCap displayed Log In">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Session Expired (Log In Required)
+                                        <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Login expired — please log in again
                                       </span>
                                     ) : (
                                       <span className="text-red-400 flex items-center gap-1 font-bold">
@@ -5894,13 +6799,13 @@ export default function App() {
             {activeTab === "reports" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-xs text-slate-400 font-mono">
+                  <span className="text-sm text-slate-400 font-mono">
                     Download analytical reports and raw data sheets for external use
                   </span>
                   <button
                     onClick={handleManualRefresh}
                     disabled={isRefreshingData}
-                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
+                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
                     Refresh Reports
@@ -5916,7 +6821,7 @@ export default function App() {
                       <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 w-fit">
                         <FileText className="h-5 w-5" />
                       </div>
-                      <h3 className="font-bold text-white text-sm">Trending Coins CSV</h3>
+                      <h3 className="font-bold text-white text-base">Trending Coins CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
                         Complete log report containing details of the top trending assets, dynamic live price changes, ranks, and coin URLs.
                       </p>
@@ -5924,7 +6829,7 @@ export default function App() {
                     <a
                       href={resolveUrl("/api/download/trending_coins.csv")}
                       onClick={() => showToast("Downloading Trending Coins CSV...", "info", 2500)}
-                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-blue-400" /> Download CSV
                     </a>
@@ -5935,7 +6840,7 @@ export default function App() {
                       <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 w-fit">
                         <FileText className="h-5 w-5" />
                       </div>
-                      <h3 className="font-bold text-white text-sm">Generated Comments CSV</h3>
+                      <h3 className="font-bold text-white text-base">Generated Comments CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
                         Complete listing of generated custom comments ready for automated Playwright commenting.
                       </p>
@@ -5943,7 +6848,7 @@ export default function App() {
                     <a
                       href={resolveUrl("/api/download/generated_comments.csv")}
                       onClick={() => showToast("Downloading Generated Comments CSV...", "info", 2500)}
-                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-purple-400" /> Download CSV
                     </a>
@@ -5954,7 +6859,7 @@ export default function App() {
                       <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 w-fit">
                         <FileText className="h-5 w-5" />
                       </div>
-                      <h3 className="font-bold text-white text-sm">Post Submissions CSV</h3>
+                      <h3 className="font-bold text-white text-base">Post Submissions CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
                         Active cycle and recent execution logs representing each individual automated browser posting session.
                       </p>
@@ -5962,7 +6867,7 @@ export default function App() {
                     <a
                       href={resolveUrl("/api/download/post_submissions.csv")}
                       onClick={() => showToast("Downloading Post Submissions CSV...", "info", 2500)}
-                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-emerald-400" /> Download CSV
                     </a>
@@ -5973,7 +6878,7 @@ export default function App() {
                       <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20 w-fit">
                         <FileText className="h-5 w-5" />
                       </div>
-                      <h3 className="font-bold text-white text-sm">Overall Report CSV</h3>
+                      <h3 className="font-bold text-white text-base">Overall Report CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
                         High-level summary representing overall run health, conversion rates, counts, and bot execution parameters.
                       </p>
@@ -5981,7 +6886,7 @@ export default function App() {
                     <a
                       href={resolveUrl("/api/download/overall_report.csv")}
                       onClick={() => showToast("Downloading Overall Audit Report CSV...", "info", 2500)}
-                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-amber-400" /> Download CSV
                     </a>
@@ -5992,7 +6897,7 @@ export default function App() {
                       <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 w-fit">
                         <Archive className="h-5 w-5 text-indigo-400" />
                       </div>
-                      <h3 className="font-bold text-white text-sm">Archived Logs CSV</h3>
+                      <h3 className="font-bold text-white text-base">Archived Logs CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
                         Lifetime historical records of older pruned batches (&gt;{retentionDays}d), safely preserved for audit compliance.
                       </p>
@@ -6000,7 +6905,7 @@ export default function App() {
                     <a
                       href={resolveUrl("/api/download/archived_submissions.csv")}
                       onClick={() => showToast("Downloading Archived Submissions CSV...", "info", 2500)}
-                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:text-white transition"
+                      className="mt-4 w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:text-white transition"
                     >
                       <Download className="h-3.5 w-3.5 text-indigo-400" /> Download Archive
                     </a>
@@ -6014,10 +6919,10 @@ export default function App() {
                     
                     {/* Success Rate Pie Chart (Radial SVG Chart) */}
                     <div className="lg:col-span-5 bg-slate-950 p-5 rounded-2xl border border-slate-800/80 flex flex-col items-center justify-center space-y-4">
-                      <h4 className="font-bold text-white text-xs uppercase tracking-wider text-center">Submission Success Rate</h4>
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wider text-center">Submission Success Rate</h4>
                       
                       {results.length === 0 ? (
-                        <div className="py-12 text-center text-xs text-slate-500 italic">
+                        <div className="py-12 text-center text-sm text-slate-500 italic">
                           No submissions executed yet to compute analytics.
                         </div>
                       ) : (
@@ -6058,13 +6963,13 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-4 w-full text-center">
                             <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
                               <div className="text-[10px] text-slate-400 font-medium">Successful</div>
-                              <div className="text-sm font-bold text-emerald-400 font-mono">
+                              <div className="text-base font-bold text-emerald-400 font-mono">
                                 {results.filter(r => r.status === "success").length} / {results.filter(r => r.status !== "skipped").length}
                               </div>
                             </div>
                             <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
                               <div className="text-[10px] text-slate-400 font-medium">Failed / Skipped</div>
-                              <div className="text-sm font-bold text-rose-400 font-mono">
+                              <div className="text-base font-bold text-rose-400 font-mono">
                                 {results.filter(r => r.status !== "success" && r.status !== "skipped").length} F / {results.filter(r => r.status === "skipped").length} S
                               </div>
                             </div>
@@ -6076,11 +6981,11 @@ export default function App() {
                     {/* Overall Conversion & Sentiment Health */}
                     <div className="lg:col-span-7 bg-slate-950 p-5 rounded-2xl border border-slate-800/80 flex flex-col justify-between">
                       <div>
-                        <h4 className="font-bold text-white text-xs uppercase tracking-wider mb-4">Sentiment & Channel Statistics</h4>
+                        <h4 className="font-bold text-white text-sm uppercase tracking-wider mb-4">Sentiment & Channel Statistics</h4>
                         
                         <div className="space-y-4">
                           <div>
-                            <div className="flex justify-between items-center text-xs text-slate-400 mb-1.5">
+                            <div className="flex justify-between items-center text-sm text-slate-400 mb-1.5">
                               <span>Bullish Target Engagement</span>
                               <span className="font-mono text-emerald-400 font-semibold">
                                 {messagesList.filter(m => m.sentiment !== "bearish").length} coins
@@ -6097,7 +7002,7 @@ export default function App() {
                           </div>
 
                           <div>
-                            <div className="flex justify-between items-center text-xs text-slate-400 mb-1.5">
+                            <div className="flex justify-between items-center text-sm text-slate-400 mb-1.5">
                               <span>Bearish Target Engagement</span>
                               <span className="font-mono text-rose-400 font-semibold">
                                 {messagesList.filter(m => m.sentiment === "bearish").length} coins
@@ -6114,7 +7019,7 @@ export default function App() {
                           </div>
 
                           <div>
-                            <div className="flex justify-between items-center text-xs text-slate-400 mb-1.5">
+                            <div className="flex justify-between items-center text-sm text-slate-400 mb-1.5">
                               <span>Total Unique Targets Added</span>
                               <span className="font-mono text-blue-400 font-semibold">
                                 {coinsList.length} unique assets
@@ -6154,7 +7059,7 @@ export default function App() {
                         {imageUploadEnabled ? 'ON (1 IMAGE PER COMMENT)' : 'OFF (TEXT-ONLY)'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-sm text-slate-400">
                       Attaches exactly 1 promotional/macro chart graphic to every comment submitted across Manual, Continuous Loop, and Scheduler.
                     </p>
                   </div>
@@ -6175,14 +7080,14 @@ export default function App() {
                   <button
                     onClick={() => imageFileInputRef.current?.click()}
                     disabled={isUploadingImages}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50"
                   >
                     <Upload className="h-4 w-4" />
                     {isUploadingImages ? (uploadProgressText || "Optimizing & Uploading...") : "Upload Images"}
                   </button>
 
                   {/* Replace existing toggle (convenient for daily image packs) */}
-                  <label className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-900/80 px-2.5 py-2 rounded-xl border border-slate-800 cursor-pointer hover:text-slate-200 transition" title="When checked, uploading replaces old graphics with the new batch">
+                  <label className="flex items-center gap-1.5 text-sm text-slate-400 bg-slate-900/80 px-2.5 py-2 rounded-xl border border-slate-800 cursor-pointer hover:text-slate-200 transition" title="When checked, uploading replaces old graphics with the new batch">
                     <input
                       type="checkbox"
                       checked={replaceExistingOnUpload}
@@ -6196,7 +7101,7 @@ export default function App() {
                   {marketingImages.length > 0 && (
                     <button
                       onClick={handleSelectAllImages}
-                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 text-xs font-semibold transition cursor-pointer"
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 text-sm font-semibold transition cursor-pointer"
                     >
                       {selectedImageFilenames.length === marketingImages.length
                         ? "Deselect All"
@@ -6208,7 +7113,7 @@ export default function App() {
                   {selectedImageFilenames.length > 0 && (
                     <button
                       onClick={handleBatchDeleteSelectedImages}
-                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/20"
+                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/20"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       Delete Selected ({selectedImageFilenames.length})
@@ -6219,7 +7124,7 @@ export default function App() {
                   <button
                     onClick={() => handleToggleImageUpload()}
                     disabled={isUpdatingImageSettings}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                    className={`px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
                       imageUploadEnabled
                         ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30"
                         : "bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -6232,7 +7137,7 @@ export default function App() {
                   {marketingImages.length > 0 && (
                     <button
                       onClick={handleClearAllMarketingImages}
-                      className="px-3 py-2 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-xl border border-slate-800 hover:border-red-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-2 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-xl border border-slate-800 hover:border-red-500/30 text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
                       title="Remove all images"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -6250,7 +7155,7 @@ export default function App() {
 
                   <button
                     onClick={() => setIsExternalImportModalOpen(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
                     title="Import images from Google Drive, S3, or public image URLs"
                   >
                     <Upload className="h-3.5 w-3.5" />
@@ -6267,7 +7172,7 @@ export default function App() {
                     <button
                       onClick={() => handleSetImageMode("cycle")}
                       disabled={isUpdatingImageSettings}
-                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-sm font-semibold transition cursor-pointer ${
                         imageSelectionMode === "cycle"
                           ? "bg-indigo-600 text-white shadow"
                           : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -6278,7 +7183,7 @@ export default function App() {
                     <button
                       onClick={() => handleSetImageMode("random")}
                       disabled={isUpdatingImageSettings}
-                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-sm font-semibold transition cursor-pointer ${
                         imageSelectionMode === "random"
                           ? "bg-indigo-600 text-white shadow"
                           : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -6296,7 +7201,7 @@ export default function App() {
 
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Single Image Constraint</span>
-                  <div className="text-sm font-bold text-emerald-400 font-mono pt-1">Strictly 1 Image / Post</div>
+                  <div className="text-base font-bold text-emerald-400 font-mono pt-1">Strictly 1 Image / Post</div>
                   <p className="text-[10px] text-slate-500 leading-relaxed">
                     Enforces CoinMarketCap's community standard: exactly 1 graphic attached per comment.
                   </p>
@@ -6319,7 +7224,7 @@ export default function App() {
                     <select
                       value={autoPruneLimit}
                       onChange={(e) => handleToggleAutoPrune(autoPruneEnabled, Number(e.target.value))}
-                      className="flex-1 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-xs font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="flex-1 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-sm font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
                     >
                       <option value={10}>Keep latest 10 images</option>
                       <option value={20}>Keep latest 20 images</option>
@@ -6347,7 +7252,7 @@ export default function App() {
               </div>
 
               {/* ARCHITECTURE & FUTURE SOURCE NOTE */}
-              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2.5 text-slate-300">
                   <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider">
                     Source Agnostic
@@ -6358,7 +7263,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => imageFileInputRef.current?.click()}
-                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs flex items-center gap-1 cursor-pointer shrink-0"
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-sm flex items-center gap-1 cursor-pointer shrink-0"
                 >
                   <Upload className="h-3.5 w-3.5" />
                   Upload more images
@@ -6370,7 +7275,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
-                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <h4 className="text-base font-bold text-white flex items-center gap-2">
                       SpikeSignals Image Library
                       <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-mono">
                         {marketingImages.length} images ({((totalMarketingBytes / 1024) > 1024 ? (totalMarketingBytes / (1024 * 1024)).toFixed(1) + " MB" : (totalMarketingBytes / 1024).toFixed(0) + " KB")})
@@ -6391,7 +7296,7 @@ export default function App() {
                           setImagePage(1);
                         }}
                         placeholder="Filter by filename..."
-                        className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44 sm:w-56"
+                        className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44 sm:w-56"
                       />
                       {imageSearchQuery && (
                         <button
@@ -6399,7 +7304,7 @@ export default function App() {
                             setImageSearchQuery("");
                             setImagePage(1);
                           }}
-                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-xs"
+                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-sm"
                         >
                           ✕
                         </button>
@@ -6410,7 +7315,7 @@ export default function App() {
                     <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800">
                       <button
                         onClick={() => setImageViewMode("grid")}
-                        className={`p-1.5 rounded-md text-xs transition cursor-pointer ${
+                        className={`p-1.5 rounded-md text-sm transition cursor-pointer ${
                           imageViewMode === "grid"
                             ? "bg-indigo-600 text-white shadow"
                             : "text-slate-400 hover:text-slate-200"
@@ -6421,7 +7326,7 @@ export default function App() {
                       </button>
                       <button
                         onClick={() => setImageViewMode("list")}
-                        className={`p-1.5 rounded-md text-xs transition cursor-pointer ${
+                        className={`p-1.5 rounded-md text-sm transition cursor-pointer ${
                           imageViewMode === "list"
                             ? "bg-indigo-600 text-white shadow"
                             : "text-slate-400 hover:text-slate-200"
@@ -6439,7 +7344,7 @@ export default function App() {
                         setImagePageSize(Number(e.target.value));
                         setImagePage(1);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
                       title="Items per page"
                     >
                       <option value={12}>12 / page</option>
@@ -6495,13 +7400,13 @@ export default function App() {
                       className="bg-slate-950/60 p-12 text-center rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 transition cursor-pointer space-y-3"
                     >
                       <Upload className="h-10 w-10 text-indigo-400 mx-auto" />
-                      <p className="text-sm text-slate-300 font-semibold">No images currently in library</p>
-                      <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      <p className="text-base text-slate-300 font-semibold">No images currently in library</p>
+                      <p className="text-sm text-slate-500 max-w-md mx-auto">
                         Click here to upload your 5 SpikeSignals infographics (PNG/JPG). In the future, daily images from an S3 bucket or API can be dropped here as well.
                       </p>
                     </div>
                   ) : (
-                    <div className="bg-slate-950 p-8 text-center rounded-2xl border border-slate-800 text-slate-400 text-xs">
+                    <div className="bg-slate-950 p-8 text-center rounded-2xl border border-slate-800 text-slate-400 text-sm">
                       No graphics found matching "{imageSearchQuery}". Try a different filter term.
                     </div>
                   )
@@ -6605,7 +7510,7 @@ export default function App() {
                   /* COMPACT LIST TABLE VIEW (Ultra-compact for 100+ images) */
                   <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
+                      <table className="w-full text-left text-sm">
                         <thead className="bg-slate-900/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                           <tr>
                             <th className="py-2.5 px-3 w-16 text-center">
@@ -6672,7 +7577,7 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="py-2 px-3">
-                                  <span className="font-semibold text-white hover:text-indigo-300 transition text-xs block truncate max-w-xs sm:max-w-md">
+                                  <span className="font-semibold text-white hover:text-indigo-300 transition text-sm block truncate max-w-xs sm:max-w-md">
                                     {img.filename}
                                   </span>
                                 </td>
@@ -6721,7 +7626,7 @@ export default function App() {
 
                 {/* BOTTOM PAGINATION BAR */}
                 {totalImagePages > 1 && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-900 text-xs text-slate-400">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-900 text-sm text-slate-400">
                     <div>
                       Page <span className="text-white font-bold">{currentPageClamped}</span> of{" "}
                       <span className="text-white font-bold">{totalImagePages}</span> ({filteredMarketingImages.length} items total)
@@ -6730,14 +7635,14 @@ export default function App() {
                       <button
                         onClick={() => setImagePage(1)}
                         disabled={currentPageClamped <= 1}
-                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-sm border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
                       >
                         « First
                       </button>
                       <button
                         onClick={() => setImagePage((p) => Math.max(1, p - 1))}
                         disabled={currentPageClamped <= 1}
-                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-sm border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
                       >
                         <ChevronLeft className="h-3 w-3" />
                         Prev
@@ -6757,7 +7662,7 @@ export default function App() {
                           <button
                             key={pageNum}
                             onClick={() => setImagePage(pageNum)}
-                            className={`w-7 h-7 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                            className={`w-7 h-7 rounded-lg text-sm font-mono font-bold transition cursor-pointer ${
                               currentPageClamped === pageNum
                                 ? "bg-indigo-600 text-white shadow"
                                 : "bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800"
@@ -6771,7 +7676,7 @@ export default function App() {
                       <button
                         onClick={() => setImagePage((p) => Math.min(totalImagePages, p + 1))}
                         disabled={currentPageClamped >= totalImagePages}
-                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 text-sm border border-slate-800 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
                       >
                         Next
                         <ChevronRight className="h-3 w-3" />
@@ -6779,7 +7684,7 @@ export default function App() {
                       <button
                         onClick={() => setImagePage(totalImagePages)}
                         disabled={currentPageClamped >= totalImagePages}
-                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-xs border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-slate-300 font-mono text-sm border border-slate-800 cursor-pointer disabled:cursor-not-allowed"
                       >
                         Last »
                       </button>
@@ -6799,7 +7704,7 @@ export default function App() {
                         </span>
                         <div>
                           <h3 className="text-base font-bold text-white">Import from Google Drive / S3 / Cloud URLs</h3>
-                          <p className="text-xs text-slate-400">Paste shared Google Drive links, S3 bucket URLs, or image web links</p>
+                          <p className="text-sm text-slate-400">Paste shared Google Drive links, S3 bucket URLs, or image web links</p>
                         </div>
                       </div>
                       <button
@@ -6815,7 +7720,7 @@ export default function App() {
 
                     <div className="mt-4 space-y-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                        <label className="block text-sm font-semibold text-slate-300 mb-1.5">
                           Cloud Link or Image URLs (One per line or comma-separated)
                         </label>
                         <textarea
@@ -6827,7 +7732,7 @@ S3 Bucket / Image URLs:
 https://my-bucket.s3.amazonaws.com/promo1.png
 https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           rows={5}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
                         />
                         <p className="text-[11px] text-slate-500 mt-1">
                           Tip: For Google Drive folders, ensure the folder sharing link is set to "Anyone with the link can view".
@@ -6842,13 +7747,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           onChange={(e) => setExternalImportReplace(e.target.checked)}
                           className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-emerald-600 focus:ring-0 cursor-pointer accent-emerald-600"
                         />
-                        <label htmlFor="modalReplaceExisting" className="text-xs text-slate-300 font-medium cursor-pointer select-none">
+                        <label htmlFor="modalReplaceExisting" className="text-sm text-slate-300 font-medium cursor-pointer select-none">
                           Replace existing images with this new imported batch
                         </label>
                       </div>
 
                       {externalImportStatus && (
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 font-mono">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-300 font-mono">
                           {externalImportStatus}
                         </div>
                       )}
@@ -6860,7 +7765,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             setIsExternalImportModalOpen(false);
                             setExternalImportStatus(null);
                           }}
-                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold transition cursor-pointer"
                         >
                           Cancel
                         </button>
@@ -6868,7 +7773,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           type="button"
                           disabled={isImportingExternal || !externalImportLinks.trim()}
                           onClick={handleImportExternalImages}
-                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30 cursor-pointer"
+                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30 cursor-pointer"
                         >
                           {isImportingExternal ? (
                             <>
@@ -6902,7 +7807,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
                       <div className="flex items-center gap-2 overflow-hidden">
                         <ImageIcon className="h-4 w-4 text-indigo-400 shrink-0" />
-                        <h4 className="text-xs font-bold text-white truncate font-mono">
+                        <h4 className="text-sm font-bold text-white truncate font-mono">
                           {previewModalImage.filename}
                         </h4>
                         <span className="text-[10px] text-slate-500 font-mono shrink-0">
@@ -6957,7 +7862,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     </div>
 
                     {/* Modal Bottom Actions Bar */}
-                    <div className="p-3.5 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between gap-3 text-xs">
+                    <div className="p-3.5 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between gap-3 text-sm">
                       <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
                         <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold">
                           #{marketingImages.findIndex((m) => m.filename === previewModalImage.filename) + 1} of {marketingImages.length}
@@ -6973,14 +7878,14 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             handleDeleteMarketingImage(previewModalImage.filename);
                             setPreviewModalImage(null);
                           }}
-                          className="px-3.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white border border-red-500/30 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
+                          className="px-3.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white border border-red-500/30 text-sm font-medium transition flex items-center gap-1.5 cursor-pointer"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           Delete Image
                         </button>
                         <button
                           onClick={() => setPreviewModalImage(null)}
-                          className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer"
+                          className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition cursor-pointer"
                         >
                           Close
                         </button>
@@ -6994,637 +7899,10 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
           </div>
         </section>
       </main>
-      ) : (
-        /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
-          {/* SCHEDULER HEADER & CONTROLS DECK */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
-                <Clock className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  Sequential Multi-Account Scheduler
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-                    /scheduler
-                  </span>
-                  <span className={`px-2 py-0.5 text-[10px] rounded-full font-mono font-semibold uppercase tracking-wider ${
-                    schedulerData?.enabled
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : "bg-slate-800 text-slate-400 border border-slate-700"
-                  }`}>
-                    {schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled"}
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-400">
-                  Fully isolated multi-account automation: rotates through accounts in order. Completely separated from manual single-account posting.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
-              >
-                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-              </button>
-            </div>
-          </div>
-
-          {/* TOP MASTER SWITCH & CYCLE METRICS PANEL */}
-          <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-lg space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                  <span>Scheduler Engine Controls</span>
-                  {schedulerData?.cycleRunning && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-full font-mono font-bold bg-indigo-500 text-slate-950 animate-pulse">
-                      CYCLE IN PROGRESS
-                    </span>
-                  )}
-                </h3>
-                <p className="text-xs text-slate-400">
-                  When enabled, the bot runs 4 daily cycles across queued accounts (runtime is automatically deducted so all 4 cycles finish within 24 hours).
-                </p>
-              </div>
-
-              {/* Master Switch: Run accounts in sequence */}
-              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2.5 rounded-xl border border-slate-800">
-                <span className="text-xs font-semibold text-slate-200">
-                  Run accounts in sequence
-                </span>
-                <button
-                  type="button"
-                  disabled={isSchedulerActionPending}
-                  onClick={() => handleToggleScheduler()}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {/* CYCLE STATUS & CONTROLS BAR */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
-              {/* Status & Current Account */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
-                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                      {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
-                    <span className="text-sm font-bold text-white">
-                      {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-[11px] text-slate-400 truncate pt-1">
-                  {schedulerData?.cycleRunning ? (
-                    <>Current: <span className="font-semibold text-slate-200">
-                      {(() => {
-                        if (!schedulerData?.currentAccountId) return "None";
-                        const cur = schedulerData.accounts.find(a => a.id === schedulerData.currentAccountId);
-                        return cur ? cur.name : schedulerData.currentAccountId;
-                      })()}
-                    </span></>
-                  ) : schedulerData?.nextCycleAt ? (
-                    <>Next Run: <span className="font-mono font-semibold text-emerald-400">{new Date(schedulerData.nextCycleAt).toLocaleTimeString()}</span></>
-                  ) : (
-                    <>Next Run: <span className="text-slate-500">Auto-scheduled on enable</span></>
-                  )}
-                </div>
-              </div>
-
-              {/* Interval Settings */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
-                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
-                </div>
-                <div className="flex items-center gap-2 mt-1">
-                  <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={schedulerIntervalInput}
-                    onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500"
-                  />
-                  <button
-                    onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
-                    disabled={isSchedulerActionPending}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer"
-                  >
-                    Save
-                  </button>
-                </div>
-                <div className="text-[10px] text-slate-500">
-                  Execution time deducted automatically so all 4 cycles complete within 24h
-                </div>
-              </div>
-
-              {/* Target Batch Limit (Coins / Run) */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-1 mt-1">
-                  {[10, 30, 50, 0].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => handleUpdateTargetCoins(count)}
-                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer ${
-                        targetCoinsCount === count
-                          ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
-                          : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
-                      }`}
-                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
-                    >
-                      {count === 0 ? "ALL" : `Top ${count}`}
-                    </button>
-                  ))}
-                </div>
-                <div className="text-[10px] text-slate-500">
-                  ALL = Default recommended (Safety cap: 300 posts/day)
-                </div>
-              </div>
-
-              {/* Cycle Action Buttons */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
-                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Manual Trigger
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
-                    onClick={handleRunSchedulerNow}
-                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : "Run sequential cycle now"}
-                    className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    <span>Run cycle now</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled)}
-                    onClick={handleStopScheduler}
-                    className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Pause className="h-3.5 w-3.5" />
-                    <span>Stop</span>
-                  </button>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center">
-                  Live state updates automatically every 3 seconds
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ACTIVE VS BACKUP & MANUAL CHECK NOTICE BANNER */}
-          <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3.5 flex items-start gap-3">
-            <Info className="h-4.5 w-4.5 text-indigo-400 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-slate-300 leading-relaxed space-y-1">
-              <div>
-                <strong className="text-white">Active vs. Backup Accounts:</strong> Check <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> on the accounts you want to post in the cycle (e.g. 3 primary accounts). Unchecked accounts act as <span className="text-amber-300 font-semibold">Standby / Backup</span>—their login sessions remain safely stored in Firestore and on disk, and you can activate them at any time with one click.
-              </div>
-              <div className="text-[11px] text-slate-400">
-                Uploaded marketing images, AI commentary, and human cooldown timers work automatically across all scheduled posting cycles.
-              </div>
-            </div>
-          </div>
-
-          {/* ACCOUNTS SCHEDULE TABLE */}
-          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>Configured Accounts & Execution Order</span>
-                <span className="text-xs font-normal text-slate-400">
-                  ({schedulerData?.accounts?.length || 0} accounts)
-                </span>
-              </h4>
-              <span className="text-xs text-slate-400">
-                Accounts run strictly sequentially: Account 1, then Account 2, then Account 3.
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[11px] border-b border-slate-800">
-                    <th className="py-3 px-4 font-semibold text-center w-24">Order</th>
-                    <th className="py-3 px-4 font-semibold">Account</th>
-                    <th className="py-3 px-4 font-semibold min-w-[220px]">Use this account for now</th>
-                    <th className="py-3 px-4 font-semibold min-w-[200px]">Posting Frequency</th>
-                    <th className="py-3 px-4 font-semibold min-w-[180px]">Last Run</th>
-                    <th className="py-3 px-4 font-semibold min-w-[150px]">Next Due</th>
-                    <th className="py-3 px-4 font-semibold text-center w-32">Session</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-medium">
-                  {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
-                        No profiles found. Create or import profiles in the Profiles section of the Admin screen.
-                      </td>
-                    </tr>
-                  ) : (
-                    [...schedulerData.accounts]
-                      .sort((a, b) => a.schedule.order - b.schedule.order)
-                      .map((acc, index, sortedArr) => {
-                        const isCurrent = acc.id === schedulerData.currentAccountId;
-                        const isFirst = index === 0;
-                        const isLast = index === sortedArr.length - 1;
-                        const isCheckedNow = acc.schedule.frequency === "weekly"
-                          ? Boolean(acc.schedule.useForNow)
-                          : Boolean(acc.schedule.enabled);
-
-                        return (
-                          <tr
-                            key={acc.id}
-                            draggable={true}
-                            onDragStart={(e) => handleDragStart(e, index)}
-                            onDragOver={handleDragOver}
-                            onDrop={(e) => handleDrop(e, index)}
-                            className={`transition-all duration-150 select-none ${
-                              draggedAccountIndex === index
-                                ? "opacity-30 border-2 border-dashed border-indigo-400 bg-indigo-950/40"
-                                : "hover:bg-slate-900/60"
-                            } ${
-                              isCurrent ? "bg-indigo-950/30 border-l-4 border-indigo-500" : ""
-                            }`}
-                          >
-                            {/* Order, Drag Handle, Quick Position Select & Movement Arrows */}
-                            <td className="py-3 px-3 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
-                                {/* Drag grip handle */}
-                                <div
-                                  title="Drag row to reorder"
-                                  className="p-1 cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-400 rounded hover:bg-slate-800 transition"
-                                >
-                                  <GripVertical className="h-4 w-4" />
-                                </div>
-
-                                {/* Direct position number dropdown */}
-                                <select
-                                  value={acc.schedule.order}
-                                  onChange={(e) => handleDirectOrderInput(acc.id, parseInt(e.target.value) || 1)}
-                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer"
-                                  title="Click to pick position number directly"
-                                >
-                                  {sortedArr.map((_, pIdx) => (
-                                    <option key={pIdx + 1} value={pIdx + 1}>
-                                      #{pIdx + 1}
-                                    </option>
-                                  ))}
-                                </select>
-
-                                {/* Quick navigation arrows (up / down) */}
-                                <div className="flex flex-col gap-0.5">
-                                  <button
-                                    type="button"
-                                    disabled={isFirst}
-                                    onClick={() => handleMoveAccount(index, "up")}
-                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
-                                    title="Move 1 step up"
-                                  >
-                                    <ChevronUp className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isLast}
-                                    onClick={() => handleMoveAccount(index, "down")}
-                                    className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer"
-                                    title="Move 1 step down"
-                                  >
-                                    <ChevronDown className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            </td>
-
-                            {/* Account name & info */}
-                            <td className="py-3.5 px-4">
-                              <div className="flex flex-col">
-                                <span className="font-bold text-white text-sm flex items-center gap-1.5">
-                                  {acc.name}
-                                  {isCurrent && (
-                                    <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
-                                      RUNNING NOW
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">
-                                  {acc.id}
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* Checkbox: Use this account for now (Manual weekly checking) */}
-                            <td className="py-3.5 px-4">
-                              <div className="flex flex-col gap-1 items-start">
-                                <label className="inline-flex items-center gap-2 cursor-pointer group select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={isCheckedNow}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      if (acc.schedule.frequency === "weekly") {
-                                        handleUpdateAccountSchedule({
-                                          id: acc.id,
-                                          enabled: true,
-                                          useForNow: checked,
-                                        });
-                                      } else {
-                                        handleUpdateAccountSchedule({
-                                          id: acc.id,
-                                          enabled: checked,
-                                          useForNow: checked,
-                                        });
-                                      }
-                                    }}
-                                    className="h-4.5 w-4.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 transition cursor-pointer accent-indigo-600"
-                                  />
-                                  <span className={`text-xs font-semibold transition ${
-                                    isCheckedNow ? "text-emerald-300 font-bold" : "text-slate-300 group-hover:text-white"
-                                  }`}>
-                                    Use this account for now
-                                  </span>
-                                </label>
-
-                                {/* Contextual status badges */}
-                                {acc.schedule.frequency === "weekly" ? (
-                                  <div className="pl-6.5">
-                                    {acc.schedule.useForNow ? (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                                        <CheckCircle className="h-3 w-3" />
-                                        Manually checked for this week
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] text-amber-300/90 italic flex items-center gap-1">
-                                        <Clock className="h-3 w-3 text-amber-400" />
-                                        Weekly account: check manually when ready
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : acc.schedule.enabled ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/90 pl-6.5 font-mono font-medium">
-                                    <CheckCircle className="h-3 w-3 text-emerald-400" />
-                                    Active Primary (In cycle)
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 pl-6.5 font-medium">
-                                    <Shield className="h-3 w-3 text-amber-500/80" />
-                                    Standby / Backup (Reserved)
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Frequency dropdown & custom input */}
-                            <td className="py-3.5 px-4">
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={acc.schedule.frequency}
-                                  onChange={(e) =>
-                                    handleUpdateAccountSchedule({
-                                      id: acc.id,
-                                      frequency: e.target.value as any,
-                                      ...(e.target.value === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {})
-                                    })
-                                  }
-                                  className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                                >
-                                  <option value="every_cycle">Every cycle</option>
-                                  <option value="daily">Daily (24h)</option>
-                                  <option value="weekly">Weekly (Manual check)</option>
-                                  <option value="custom">Custom hours</option>
-                                </select>
-
-                                {acc.schedule.frequency === "custom" && (
-                                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      max={720}
-                                      value={acc.schedule.customHours || 24}
-                                      onChange={(e) => {
-                                        const val = Math.min(720, Math.max(1, parseInt(e.target.value) || 1));
-                                        handleUpdateAccountSchedule({ id: acc.id, customHours: val });
-                                      }}
-                                      className="w-12 bg-transparent text-xs text-white text-center focus:outline-none"
-                                    />
-                                    <span className="text-[10px] text-slate-400">hrs</span>
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Last run (time + status badge + posted/failed) */}
-                            <td className="py-3.5 px-4">
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-slate-300 font-mono text-[11px]">
-                                    {acc.lastRun.at ? new Date(acc.lastRun.at).toLocaleString() : "Never run"}
-                                  </span>
-                                  {acc.lastRun.status && (
-                                    <span className={`px-1.5 py-0.5 text-[9px] rounded font-semibold uppercase ${
-                                      acc.lastRun.status === "completed"
-                                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                        : acc.lastRun.status === "skipped_not_due"
-                                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                                          : acc.lastRun.status === "skipped_missing_session"
-                                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                            : acc.lastRun.status === "skipped_expired"
-                                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                                              : acc.lastRun.status === "stopped_daily_limit"
-                                                ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
-                                                : acc.lastRun.status === "stopped_captcha"
-                                                  ? "bg-rose-600/30 text-rose-200 border border-rose-500"
-                                                  : acc.lastRun.status === "stopped_by_user"
-                                                    ? "bg-amber-600/20 text-amber-300 border border-amber-500/30"
-                                                    : "bg-red-500/20 text-red-300 border border-red-500/30"
-                                    }`}>
-                                      {acc.lastRun.status.replace(/_/g, " ")}
-                                    </span>
-                                  )}
-                                </div>
-                                {acc.lastRun.at && (
-                                  <span className="text-[10px] text-slate-400">
-                                    {acc.lastRun.posted} posted, {acc.lastRun.failed} failed
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Next due */}
-                            <td className="py-3.5 px-4 font-mono text-[11px]">
-                              {acc.schedule.enabled === false ? (
-                                <span className="text-slate-500 italic">Disabled</span>
-                              ) : acc.schedule.useForNow ? (
-                                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                                  <CheckCircle className="h-3 w-3" />
-                                  Due now (Checked)
-                                </span>
-                              ) : acc.schedule.frequency === "every_cycle" ? (
-                                <span className="text-indigo-400 font-semibold">Every cycle</span>
-                              ) : acc.schedule.frequency === "weekly" ? (
-                                <span className="text-amber-300/80 italic">Check box when ready</span>
-                              ) : acc.nextDueAt ? (
-                                <div className="flex flex-col">
-                                  <span className="text-slate-300">{new Date(acc.nextDueAt).toLocaleString()}</span>
-                                  <span className="text-[10px] text-slate-500">
-                                    {new Date(acc.nextDueAt).getTime() <= Date.now() ? "Due now" : "Upcoming"}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-emerald-400 font-semibold">Due now</span>
-                              )}
-                            </td>
-
-                            {/* Session */}
-                            <td className="py-3.5 px-4 text-center">
-                              {acc.hasValidSession ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  <CheckCircle className="h-3 w-3" />
-                                  Valid
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                  <AlertTriangle className="h-3 w-3" />
-                                  Missing
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* SCHEDULER LIVE LOGS VIEWER */}
-          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl space-y-0">
-            <div className="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
-                  <TerminalIcon className="h-4 w-4" />
-                </span>
-                <div>
-                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                    <span>Sequential Scheduler Execution Logs</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 font-mono font-semibold">
-                      {schedulerLogs.length} events
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Live stream of trending fetch, AI comment generation, account session checks, and posting loop steps
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <div className="relative">
-                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Filter scheduler logs..."
-                    value={schedulerLogQuery}
-                    onChange={(e) => setSchedulerLogQuery(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
-                  />
-                  {schedulerLogQuery && (
-                    <button
-                      onClick={() => setSchedulerLogQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                <a
-                  href="/api/scheduler/logs/download"
-                  download="scheduler_execution.log"
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                  title="Download complete execution log file to disk"
-                >
-                  <Download className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>Download Logs</span>
-                </a>
-              </div>
-            </div>
-
-            {/* Log Terminal Screen */}
-            <div className="p-4 bg-slate-950 font-mono text-xs max-h-80 overflow-y-auto space-y-1.5 border-t border-slate-900">
-              {schedulerLogs.length === 0 ? (
-                <div className="text-slate-500 italic py-6 text-center">
-                  No scheduler events recorded yet. Run a cycle or enable the scheduler to stream live sequential execution events.
-                </div>
-              ) : (
-                schedulerLogs.map((l, lIdx) => {
-                  const isErr = l.level === "error";
-                  const isWarn = l.level === "warning";
-                  const isSucc = l.level === "success";
-                  return (
-                    <div
-                      key={lIdx}
-                      className={`flex items-start gap-2.5 leading-relaxed py-0.5 px-1.5 rounded transition ${
-                        isErr
-                          ? "bg-rose-950/20 text-rose-300"
-                          : isWarn
-                            ? "bg-amber-950/20 text-amber-300"
-                            : isSucc
-                              ? "bg-emerald-950/20 text-emerald-300"
-                              : "text-slate-300 hover:bg-slate-900/40"
-                      }`}
-                    >
-                      <span className="text-[10px] text-slate-500 shrink-0 font-mono select-none">
-                        {l.timestamp}
-                      </span>
-                      <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
-                        isErr
-                          ? "bg-rose-500/20 text-rose-300"
-                          : isWarn
-                            ? "bg-amber-500/20 text-amber-300"
-                            : isSucc
-                              ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-slate-800 text-slate-400"
-                      }`}>
-                        {l.level}
-                      </span>
-                      <span className="break-all whitespace-pre-wrap">{l.message}</span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-        </main>
       )}
 
       {/* FOOTER */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-sm text-slate-500">
         <p className="tracking-wide">CoinMarketCap Automated Community Bot Control Panel © 2026. All rights reserved.</p>
       </footer>
 
@@ -7639,7 +7917,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
                   <Key className="h-4 w-4" />
                 </span>
-                <h3 className="font-bold text-white text-sm">
+                <h3 className="font-bold text-white text-base">
                   Configure Playwright Session
                 </h3>
               </div>
@@ -7648,7 +7926,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   setShowSessionModal(false);
                   handleResetLoginState();
                 }}
-                className="text-slate-400 hover:text-white transition font-bold font-mono text-sm"
+                className="text-slate-400 hover:text-white transition font-bold font-mono text-base"
               >
                 ✕
               </button>
@@ -7662,7 +7940,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   handleResetLoginState();
                 }}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "credentials" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7671,7 +7949,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => setLoginTab("cookies")}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "cookies" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7685,7 +7963,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   }
                 }}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-xs font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "profiles" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7697,7 +7975,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="p-5 max-h-[60vh] overflow-y-auto space-y-4">
 
               {loginTab === "credentials" && (
-                <div className="space-y-4 text-xs">
+                <div className="space-y-4 text-sm">
                   <p className="text-slate-300 text-[11px] leading-relaxed">
                     Log in directly using your CoinMarketCap credentials. Our backend Playwright browser will run the login, handle security, and capture/save the <code className="text-emerald-400 font-mono">state.json</code> automatically!
                   </p>
@@ -7726,7 +8004,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       </div>
                       <button
                         onClick={handleStartLogin}
-                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2"
                       >
                         Start Automated Login Process
                       </button>
@@ -7740,7 +8018,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl pointer-events-none" />
                       </div>
                       <div className="space-y-1.5 max-w-sm">
-                        <h4 className="font-bold text-white text-sm">Processing CoinMarketCap Authentication...</h4>
+                        <h4 className="font-bold text-white text-base">Processing CoinMarketCap Authentication...</h4>
                         <p className="text-[11px] text-slate-400 leading-relaxed">{loginStatusMessage}</p>
                       </div>
                       <div className="w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 text-[10px] text-slate-400 space-y-1.5 text-left font-mono">
@@ -7779,13 +8057,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       <div className="flex gap-2">
                         <button
                           onClick={handleCancelLogin}
-                          className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                          className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={handleSubmitOtp}
-                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold"
+                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold"
                         >
                           Confirm & Verify Code
                         </button>
@@ -7799,7 +8077,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         <CheckCircle className="h-10 w-10 text-emerald-400" />
                       </div>
                       <div className="space-y-1">
-                        <h4 className="font-bold text-white text-sm">Authentication Succeeded!</h4>
+                        <h4 className="font-bold text-white text-base">Authentication Succeeded!</h4>
                         <p className="text-[11px] text-slate-300 max-w-sm">{loginStatusMessage || "Your CoinMarketCap session has been captured and validated successfully."}</p>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full pt-1">
@@ -7808,7 +8086,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             setShowSessionModal(false);
                             handleResetLoginState();
                           }}
-                          className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-sm"
+                          className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-sm"
                         >
                           Finish & Close
                         </button>
@@ -7817,7 +8095,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             handleResetLoginState();
                             setLoginTab("credentials");
                           }}
-                          className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                          className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
                         >
                           ➕ Add Another Account
                         </button>
@@ -7826,7 +8104,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             handleResetLoginState();
                             setLoginTab("profiles");
                           }}
-                          className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                          className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
                         >
                           👥 Switch Accounts ({profilesList.length})
                         </button>
@@ -7839,7 +8117,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       <div className="p-5 bg-rose-500/10 rounded-xl border border-rose-500/20 text-rose-400 flex flex-col items-center text-center space-y-3">
                         <AlertTriangle className="h-10 w-10 text-rose-400" />
                         <div className="space-y-1">
-                          <h4 className="font-bold text-white text-sm">Login Attempt Notice</h4>
+                          <h4 className="font-bold text-white text-base">Login Attempt Notice</h4>
                           <p className="text-[11px] text-slate-300 leading-relaxed max-w-sm">{loginStatusMessage}</p>
                         </div>
                       </div>
@@ -7854,7 +8132,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             setLoginStatusMessage("Verifying active session on CoinMarketCap with real browser...");
                             setLoginStep("authenticating");
                             try {
-                              const res = await fetch(resolveUrl("/api/check-login"), { method: "POST" });
+                              const res = await apiFetch(resolveUrl("/api/check-login"), { method: "POST" });
                               const data = await parseResponseJson(res, { status: "failed" });
                               if (data.status === "success") {
                                 setLoginStep("success");
@@ -7871,7 +8149,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                               setLoginStatusMessage("Verification check error: " + (e as Error).message);
                             }
                           }}
-                          className="w-full py-2.5 px-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+                          className="w-full py-2.5 px-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
                         >
                           <Search className="h-3.5 w-3.5" /> Check If Already Logged In / Verify Session
                         </button>
@@ -7880,13 +8158,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       <div className="flex gap-2">
                         <button
                           onClick={handleCancelLogin}
-                          className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition"
+                          className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-semibold cursor-pointer transition"
                         >
                           Close
                         </button>
                         <button
                           onClick={handleResetLoginState}
-                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold cursor-pointer transition shadow-sm"
+                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold cursor-pointer transition shadow-sm"
                         >
                           Retry Login (Re-enter)
                         </button>
@@ -7898,7 +8176,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               )}
 
               {loginTab === "cookies" && (
-                <div className="space-y-3.5 text-xs text-slate-300">
+                <div className="space-y-3.5 text-sm text-slate-300">
                   <p>
                     Directly paste your existing CoinMarketCap <strong>login cookie storage state</strong> JSON array if you prefer not to enter your credentials.
                   </p>
@@ -7929,9 +8207,9 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               )}
 
               {loginTab === "profiles" && (
-                <div className="space-y-4 text-xs text-slate-300">
+                <div className="space-y-4 text-sm text-slate-300">
                   {(isBusy || isPostingActive || isContinuousLoopActive) && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-2.5 text-amber-300 text-xs font-semibold">
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-2.5 text-amber-300 text-sm font-semibold">
                       <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 animate-pulse" />
                       <span>Process in progress: Posting or background automation is active. Account switching, profile additions, and deletions are locked until you click "Stop Posting".</span>
                     </div>
@@ -7981,7 +8259,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           disabled={isBusy || isContinuousLoopActive}
                           onChange={(e) => setNewProfileName(e.target.value)}
                           placeholder="e.g. Anup Main Account, Vineet Bot"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -8007,7 +8285,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           value={newProfileLimit}
                           disabled={isBusy || isContinuousLoopActive}
                           onChange={(e) => setNewProfileLimit(Math.max(1, parseInt(e.target.value) || 500))}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-xs font-mono disabled:opacity-40"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -8021,13 +8299,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           disabled={isBusy || isContinuousLoopActive}
                           onChange={(e) => setNewProfileProxy(e.target.value)}
                           placeholder="http://user:pass@proxy-ip:port (optional)"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-xs font-mono disabled:opacity-40 placeholder-slate-700"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40 placeholder-slate-700"
                         />
                       </div>
                       <button
                         onClick={() => handleSaveProfile(newProfileName, newProfileJson, newProfileLimit, newProfileProxy)}
                         disabled={isBusy || isContinuousLoopActive}
-                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Save Account Profile
                       </button>
@@ -8053,7 +8331,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           >
                             <div className="space-y-1 pr-4 min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-bold text-white text-xs truncate">{p.name}</span>
+                                <span className="font-bold text-white text-sm truncate">{p.name}</span>
                                 {p.isActive && (
                                   <span className="bg-emerald-500/15 text-emerald-400 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
                                     Active
@@ -8269,13 +8547,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     setShowSessionModal(false);
                     handleResetLoginState();
                   }}
-                  className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+                  className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveSession}
-                  className="py-2 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+                  className="py-2 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
                 >
                   Save & Load Session
                 </button>
@@ -8298,7 +8576,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <h3 className="font-bold text-white text-base">
                   Refetch Trending Coins?
                 </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
+                <p className="text-sm text-slate-400 leading-relaxed">
                   Trending coins have already been fetched. Refetching will clear current trending data, reset generated comments, and clear posting statistics first.
                 </p>
               </div>
@@ -8306,7 +8584,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowConfirmFetchModal(false)}
-                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold"
               >
                 Cancel
               </button>
@@ -8316,7 +8594,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   await runCommand("/api/clear-all", "clear");
                   await runCommand("/api/fetch-trending", "fetch");
                 }}
-                className="py-2 px-5 bg-blue-500 hover:bg-blue-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+                className="py-2 px-5 bg-blue-500 hover:bg-blue-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
               >
                 Yes, Reset & Fetch
               </button>
@@ -8337,7 +8615,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <h3 className="font-bold text-white text-base">
                   Regenerate Comments?
                 </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
+                <p className="text-sm text-slate-400 leading-relaxed">
                   Comments have already been generated. Regenerating will overwrite existing comments and reset your current posting sequence progress.
                 </p>
               </div>
@@ -8345,7 +8623,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowConfirmGenerateModal(false)}
-                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold"
               >
                 Cancel
               </button>
@@ -8354,7 +8632,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   setShowConfirmGenerateModal(false);
                   await runCommand("/api/generate-messages", "generate");
                 }}
-                className="py-2 px-5 bg-purple-500 hover:bg-purple-400 text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+                className="py-2 px-5 bg-purple-500 hover:bg-purple-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
               >
                 Yes, Regenerate
               </button>
@@ -8375,7 +8653,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <h3 className="font-bold text-white text-base">
                   Archive Batch & Restart Queue?
                 </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
+                <p className="text-sm text-slate-400 leading-relaxed">
                   This resets the queue index back to Coin #1 for <strong>{activeProfile?.name || "the active profile"}</strong>. All completed submission records will be automatically moved into your <strong>7-Day Retention Archive</strong> so no historical results are lost. Your CoinMarketCap logins, cookies, and daily post caps remain 100% intact.
                 </p>
               </div>
@@ -8384,14 +8662,14 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => setShowResetQueueConfirm(false)}
                 disabled={isResettingDailyQueue}
-                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold cursor-pointer"
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleResetDailyQueue(false)}
                 disabled={isResettingDailyQueue}
-                className="py-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="py-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {isResettingDailyQueue ? (
                   <>
@@ -8422,7 +8700,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 <h3 className="font-bold text-white text-base">
                   Data Retention & Lifecycle Policy
                 </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
+                <p className="text-sm text-slate-400 leading-relaxed">
                   Configure how long older trending coins, completed comment batches, and submission logs are kept in active memory.
                 </p>
               </div>
@@ -8430,7 +8708,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
             <div className="space-y-4 pt-2">
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                <label className="text-xs font-bold text-slate-300 block">
+                <label className="text-sm font-bold text-slate-300 block">
                   Keep Active Submission Records For:
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -8443,7 +8721,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700"
                     }`}
                   >
-                    <div className="font-bold text-sm">4 Days (Lean & Fast)</div>
+                    <div className="font-bold text-base">4 Days (Lean & Fast)</div>
                     <div className="text-[11px] text-slate-400 mt-1">Recommended for high-frequency bots running continuous cycles.</div>
                   </button>
 
@@ -8456,7 +8734,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700"
                     }`}
                   >
-                    <div className="font-bold text-sm">7 Days (Standard)</div>
+                    <div className="font-bold text-base">7 Days (Standard)</div>
                     <div className="text-[11px] text-slate-400 mt-1">Preserves one full week of posting data before archiving.</div>
                   </button>
                 </div>
@@ -8464,7 +8742,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-200">Auto-Archive Completed Batches</span>
+                  <span className="text-sm font-bold text-slate-200">Auto-Archive Completed Batches</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">ENABLED</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -8473,7 +8751,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               </div>
 
               <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between">
-                <div className="text-xs text-amber-300">
+                <div className="text-sm text-amber-300">
                   <span className="font-bold">Manual Clean Now:</span> Immediately prune records older than {retentionDays} days into the archive.
                 </div>
                 <button
@@ -8482,7 +8760,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     handlePruneOldData(retentionDays);
                   }}
                   disabled={isPruningData}
-                  className="py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition cursor-pointer whitespace-nowrap ml-3"
+                  className="py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-lg transition cursor-pointer whitespace-nowrap ml-3"
                 >
                   {isPruningData ? "Pruning..." : "Prune Now"}
                 </button>
@@ -8492,7 +8770,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="mt-6 flex items-center justify-end">
               <button
                 onClick={() => setShowRetentionSettingsModal(false)}
-                className="py-2 px-5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                className="py-2 px-5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-bold transition cursor-pointer"
               >
                 Close
               </button>
@@ -8512,7 +8790,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white tracking-tight">Confirm Account Switch</h3>
-                  <p className="text-xs text-slate-400">Review what happens before switching profiles</p>
+                  <p className="text-sm text-slate-400">Review what happens before switching profiles</p>
                 </div>
               </div>
               <button
@@ -8524,7 +8802,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* Profile comparison card */}
-            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between gap-3 text-xs">
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between gap-3 text-sm">
               <div className="flex-1">
                 <span className="text-[10px] text-slate-500 font-mono uppercase block font-semibold">Current Active Account</span>
                 <span className="font-bold text-slate-300 truncate block">{activeProfile?.name || "Default Session"}</span>
@@ -8537,8 +8815,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* Detailed Explanation of what happens */}
-            <div className="space-y-2.5 text-xs text-slate-300">
-              <div className="font-semibold text-slate-200 text-xs">Here is what will happen when you switch:</div>
+            <div className="space-y-2.5 text-sm text-slate-300">
+              <div className="font-semibold text-slate-200 text-sm">Here is what will happen when you switch:</div>
               <ul className="space-y-2 text-[11px] text-slate-400">
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 flex-shrink-0"></span>
@@ -8561,7 +8839,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
             {/* Active Process Barrier Warning */}
             {(isBusy || isPostingActive || isContinuousLoopActive) && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-rose-300 text-xs font-semibold animate-pulse">
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-rose-300 text-sm font-semibold animate-pulse">
                 <AlertCircle className="h-4 w-4 text-rose-400 flex-shrink-0" />
                 <span>Posting or background process is running! You must click "Stop Posting" before switching accounts to prevent data corruption.</span>
               </div>
@@ -8571,7 +8849,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
                 onClick={() => setConfirmSwitchProfile(null)}
-                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-xs font-semibold hover:bg-slate-800 transition"
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold hover:bg-slate-800 transition"
               >
                 Cancel / Keep Current
               </button>
@@ -8582,7 +8860,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   await handleActivateProfile(targetId);
                 }}
                 disabled={(isBusy || isPostingActive || isContinuousLoopActive) || switchingProfileId !== null}
-                className="py-2.5 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="py-2.5 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 title={
                   (isBusy || isPostingActive || isContinuousLoopActive)
                     ? "Cannot switch accounts while process is active. Click 'Stop Posting' first."
@@ -8622,7 +8900,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white tracking-tight">Warning: Market Data Over 2 Days Old</h3>
-                  <p className="text-xs text-amber-400/90 font-medium">Trending coins & comments were fetched over 48 hours ago</p>
+                  <p className="text-sm text-amber-400/90 font-medium">Trending coins & comments were fetched over 48 hours ago</p>
                 </div>
               </div>
               <button
@@ -8637,7 +8915,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                 <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Coins Fetched</div>
-                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                <div className="text-base font-bold text-amber-400 mt-0.5">
                   {formatTimeAgo(coinsFetchedAt).text}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">
@@ -8646,7 +8924,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               </div>
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                 <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Comments Generated</div>
-                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                <div className="text-base font-bold text-amber-400 mt-0.5">
                   {formatTimeAgo(commentsGeneratedAt).text}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">
@@ -8656,7 +8934,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* Warning Explanation */}
-            <div className="space-y-2 text-xs text-slate-300 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+            <div className="space-y-2 text-sm text-slate-300 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
               <p className="font-semibold text-slate-200">
                 Why we recommend fetching fresh market data:
               </p>
@@ -8672,7 +8950,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => handleRefreshFreshData(false)}
                 disabled={isRefreshingFreshData}
-                className="flex-1 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                className="flex-1 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingFreshData ? "animate-spin" : ""}`} />
                 {isRefreshingFreshData ? "Refreshing Data..." : "Fetch New Data First (Recommended)"}
@@ -8683,13 +8961,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   setIsStartingPost(true);
                   await runCommand("/api/post-chat", "post", { force: true });
                 }}
-                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium rounded-xl text-xs transition border border-slate-700 cursor-pointer text-center"
+                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium rounded-xl text-sm transition border border-slate-700 cursor-pointer text-center"
               >
                 Post Anyway
               </button>
               <button
                 onClick={() => setShowStaleWarningModal(false)}
-                className="py-2.5 px-3 text-slate-400 hover:text-slate-200 font-medium rounded-xl text-xs transition hover:bg-slate-800/50 cursor-pointer text-center"
+                className="py-2.5 px-3 text-slate-400 hover:text-slate-200 font-medium rounded-xl text-sm transition hover:bg-slate-800/50 cursor-pointer text-center"
               >
                 Cancel
               </button>
@@ -8700,7 +8978,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
       {/* Dynamic Floating Toast with Process Indicator, Turn Off toggle, and Dismiss (No persistent history) */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4.5 py-3 rounded-2xl border shadow-2xl bg-slate-900/95 border-slate-800 text-xs text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4.5 py-3 rounded-2xl border shadow-2xl bg-slate-900/95 border-slate-800 text-sm text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-3 duration-200">
           {toast.isProcess ? (
             <div className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 flex-shrink-0">
               <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
@@ -8742,6 +9020,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               onClick={dismissToast}
               className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition cursor-pointer"
               title="Dismiss"
+              aria-label="Dismiss notification"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -8749,7 +9028,39 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
         </div>
       )}
 
-
+      {inlineConfirmModal && inlineConfirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              <h3 className="text-base font-bold text-white">{inlineConfirmModal.title || "Confirm Action"}</h3>
+            </div>
+            <p className="text-sm text-slate-300 leading-relaxed">{inlineConfirmModal.message}</p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setInlineConfirmModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const fn = inlineConfirmModal.onConfirm;
+                  setInlineConfirmModal(null);
+                  fn();
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm rounded-xl transition cursor-pointer shadow-md"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -82,6 +82,12 @@ export function getNextPeakTradingSession(now: Date = new Date()): {
   };
 }
 
+export interface SchedulerSavedPosition {
+  queue: string[];
+  currentAccountId: string | null;
+  pausedAt: string;
+}
+
 export interface BotSettings {
   schedulerEnabled: boolean;
   schedulerMode?: "peak_hours" | "interval";
@@ -89,6 +95,8 @@ export interface BotSettings {
   maxCyclesPerDay?: number;
   dailyCycleCount?: number;
   lastCycleDate?: string;
+  schedulerSavedPosition?: SchedulerSavedPosition | null;
+  schedulerStatus?: "running" | "paused" | "stopped";
   imageUploadEnabled?: boolean;
   imageSelectionMode?: "cycle" | "random";
   activeImageIndex?: number;
@@ -113,6 +121,8 @@ export const DEFAULT_SETTINGS: BotSettings = {
   maxCyclesPerDay: 4,
   dailyCycleCount: 0,
   lastCycleDate: new Date().toISOString().split("T")[0],
+  schedulerSavedPosition: null,
+  schedulerStatus: "stopped",
   imageUploadEnabled: false,
   imageSelectionMode: "cycle",
   activeImageIndex: 0,
@@ -141,6 +151,16 @@ export function parseBotSettings(raw: string | null | undefined): BotSettings {
       maxCyclesPerDay: typeof data.maxCyclesPerDay === "number" && data.maxCyclesPerDay >= 1 ? data.maxCyclesPerDay : 4,
       dailyCycleCount: typeof data.dailyCycleCount === "number" && data.dailyCycleCount >= 0 ? data.dailyCycleCount : 0,
       lastCycleDate: typeof data.lastCycleDate === "string" ? data.lastCycleDate : new Date().toISOString().split("T")[0],
+      schedulerSavedPosition: data.schedulerSavedPosition && Array.isArray(data.schedulerSavedPosition.queue)
+        ? {
+            queue: data.schedulerSavedPosition.queue.filter((q: any) => typeof q === "string"),
+            currentAccountId: typeof data.schedulerSavedPosition.currentAccountId === "string" ? data.schedulerSavedPosition.currentAccountId : null,
+            pausedAt: typeof data.schedulerSavedPosition.pausedAt === "string" ? data.schedulerSavedPosition.pausedAt : new Date().toISOString(),
+          }
+        : null,
+      schedulerStatus: (data.schedulerStatus === "running" || data.schedulerStatus === "paused" || data.schedulerStatus === "stopped")
+        ? data.schedulerStatus
+        : (data.schedulerSavedPosition ? "paused" : "stopped"),
       imageUploadEnabled: typeof data.imageUploadEnabled === "boolean" ? data.imageUploadEnabled : false,
       imageSelectionMode: data.imageSelectionMode === "random" ? "random" : "cycle",
       activeImageIndex: typeof data.activeImageIndex === "number" && !isNaN(data.activeImageIndex) ? data.activeImageIndex : 0,

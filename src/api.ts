@@ -50,26 +50,72 @@ export interface Profile {
   id: string;
   name: string;
   stateJson?: string;
+  proxy?: string;
   isActive?: boolean;
   email?: string;
   dailyPostLimit?: number;
   updatedAt?: string;
 }
 
+export interface PostResultItem {
+  coin: string;
+  cashtag: string;
+  status: "success" | "failed";
+  timestamp: string;
+  url?: string;
+  error?: string;
+  comment?: string;
+  accountName?: string;
+  [key: string]: any;
+}
+
+export interface HealthCheckItem {
+  status: "ok" | "degraded" | "error";
+  latencyMs?: number;
+  details?: string;
+  [key: string]: any;
+}
+
+export interface HealthResponse {
+  healthy: boolean;
+  overall?: string;
+  cachedAt: string;
+  checks: {
+    server: HealthCheckItem;
+    database: HealthCheckItem;
+    browser: HealthCheckItem;
+    [key: string]: any;
+  };
+}
+
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export const api = {
   async getStatus(): Promise<ApiStatusResponse> {
-    const res = await fetch("/api/status");
+    const res = await apiFetch("/api/status");
     if (!res.ok) throw new Error(`Status error: ${res.status}`);
     return res.json();
   },
 
   async getProfiles(): Promise<{ success: boolean; profiles: Profile[] }> {
-    const res = await fetch("/api/profiles");
+    const res = await apiFetch("/api/profiles");
     return res.json();
   },
 
   async activateProfile(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await fetch("/api/activate-profile", {
+    const res = await apiFetch("/api/activate-profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -78,7 +124,7 @@ export const api = {
   },
 
   async saveProfile(profile: Partial<Profile>): Promise<{ success: boolean; profile?: Profile; error?: string }> {
-    const res = await fetch("/api/save-profile", {
+    const res = await apiFetch("/api/save-profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(profile),
@@ -87,7 +133,7 @@ export const api = {
   },
 
   async deleteProfile(id: string): Promise<{ success: boolean; error?: string }> {
-    const res = await fetch("/api/delete-profile", {
+    const res = await apiFetch("/api/delete-profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -96,12 +142,12 @@ export const api = {
   },
 
   async clearSession(): Promise<{ success: boolean; error?: string }> {
-    const res = await fetch("/api/clear-session", { method: "POST" });
+    const res = await apiFetch("/api/clear-session", { method: "POST" });
     return res.json();
   },
 
   async updateProfileLimit(id: string, dailyPostLimit: number): Promise<{ success: boolean; profile?: Profile; dailyPostLimit?: number; error?: string }> {
-    const res = await fetch("/api/update-profile-limit", {
+    const res = await apiFetch("/api/update-profile-limit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, dailyPostLimit }),
@@ -109,8 +155,17 @@ export const api = {
     return res.json();
   },
 
+  async updateProfileProxy(id: string, proxy?: string): Promise<{ success: boolean; profile?: Profile; error?: string }> {
+    const res = await apiFetch("/api/update-profile-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, proxy: proxy || "" }),
+    });
+    return res.json();
+  },
+
   async setContinuousLoop(active?: boolean, intervalMinutes?: number): Promise<any> {
-    const res = await fetch("/api/set-continuous-loop", {
+    const res = await apiFetch("/api/set-continuous-loop", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active, intervalMinutes }),
@@ -119,7 +174,7 @@ export const api = {
   },
 
   async retrySingle(symbol: string): Promise<any> {
-    const res = await fetch("/api/retry-single", {
+    const res = await apiFetch("/api/retry-single", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbol }),
@@ -128,12 +183,12 @@ export const api = {
   },
 
   async checkSystem(): Promise<any> {
-    const res = await fetch("/api/check-system");
+    const res = await apiFetch("/api/check-system");
     return res.json();
   },
 
   async getScheduler(): Promise<SchedulerStatusResponse> {
-    const res = await fetch("/api/scheduler");
+    const res = await apiFetch("/api/scheduler");
     if (!res.ok) throw new Error(`Scheduler error: ${res.status}`);
     return res.json();
   },
@@ -159,7 +214,7 @@ export const api = {
         payload.maxCyclesPerDay = Math.round(params.maxCyclesPerDay);
       }
     }
-    const res = await fetch("/api/scheduler/settings", {
+    const res = await apiFetch("/api/scheduler/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -182,7 +237,7 @@ export const api = {
     if (typeof params.order === "number" && !isNaN(params.order)) payload.order = params.order;
     if (typeof params.useForNow === "boolean") payload.useForNow = params.useForNow;
 
-    const res = await fetch("/api/profile-schedule", {
+    const res = await apiFetch("/api/profile-schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -192,7 +247,7 @@ export const api = {
 
   async reorderSchedulerAccounts(orderedIds: string[]): Promise<{ success: boolean; profiles?: any[]; error?: string }> {
     const cleanIds = Array.isArray(orderedIds) ? orderedIds.map(id => String(id)) : [];
-    const res = await fetch("/api/scheduler/reorder-accounts", {
+    const res = await apiFetch("/api/scheduler/reorder-accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderedIds: cleanIds }),
@@ -201,44 +256,96 @@ export const api = {
   },
 
   async getSchedulerFilesInfo(): Promise<{ success: boolean; files: SchedulerFileInfo[] }> {
-    const res = await fetch("/api/scheduler/files-info");
+    const res = await apiFetch("/api/scheduler/files-info");
     if (!res.ok) throw new Error(`Files info error: ${res.status}`);
     return res.json();
   },
 
   async getSchedulerFileContent(key: string): Promise<{ success: boolean; exists: boolean; path?: string; content?: string | null; error?: string }> {
-    const res = await fetch(`/api/scheduler/file-content?key=${encodeURIComponent(key)}`);
+    const res = await apiFetch(`/api/scheduler/file-content?key=${encodeURIComponent(key)}`);
     return res.json();
   },
 
   async getSchedulerLogs(): Promise<{ success: boolean; logs: { timestamp: string; level: "info" | "success" | "warning" | "error"; message: string }[] }> {
-    const res = await fetch("/api/scheduler/logs");
+    const res = await apiFetch("/api/scheduler/logs");
     return res.json();
   },
 
   async runSchedulerNow(): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await fetch("/api/scheduler/run-now", {
+    const res = await apiFetch("/api/scheduler/run-now", {
       method: "POST",
     });
     return res.json();
   },
 
-  async stopScheduler(): Promise<{ success: boolean; message?: string }> {
-    const res = await fetch("/api/scheduler/stop", {
+  async stopScheduler(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await apiFetch("/api/scheduler/stop", {
       method: "POST",
     });
     return res.json();
   },
 
-  async stopPosting(): Promise<{ success: boolean; message?: string }> {
-    const res = await fetch("/api/stop-posting", {
+  async pauseScheduler(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await apiFetch("/api/scheduler/pause", {
       method: "POST",
     });
+    return res.json();
+  },
+
+  async resumeScheduler(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await apiFetch("/api/scheduler/resume", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async stopPosting(): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await apiFetch("/api/stop-posting", {
+      method: "POST",
+    });
+    return res.json();
+  },
+
+  async getResults(): Promise<PostResultItem[]> {
+    const res = await apiFetch("/output/results.json?t=" + Date.now());
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async fetchTrendingCoins(): Promise<{ success: boolean; count?: number; error?: string }> {
+    const res = await apiFetch("/api/fetch-trending", { method: "POST" });
+    return res.json();
+  },
+
+  async generateComments(): Promise<{ success: boolean; count?: number; error?: string }> {
+    const res = await apiFetch("/api/generate-messages", { method: "POST" });
+    return res.json();
+  },
+
+  async startPosting(): Promise<{ success: boolean; error?: string }> {
+    const res = await apiFetch("/api/start-posting", { method: "POST" });
+    return res.json();
+  },
+
+  async checkSession(): Promise<{ status: string; message?: string }> {
+    const res = await apiFetch("/api/get-session");
+    return res.json();
+  },
+
+  async getHealth(): Promise<HealthResponse> {
+    const res = await apiFetch("/api/health");
+    if (!res.ok) throw new Error(`Health error: ${res.status}`);
+    return res.json();
+  },
+
+  async getSystemLogs(profileId?: string): Promise<{ success: boolean; logs: any[] }> {
+    const url = profileId ? `/api/logs?profileId=${encodeURIComponent(profileId)}&t=${Date.now()}` : `/api/logs?t=${Date.now()}`;
+    const res = await apiFetch(url);
     return res.json();
   },
 
   async getMarketingImages(): Promise<{ success: boolean; images: MarketingImage[]; imageUploadEnabled: boolean; imageSelectionMode: "cycle" | "random"; activeImageIndex: number }> {
-    const res = await fetch("/api/marketing-images");
+    const res = await apiFetch("/api/marketing-images");
     if (!res.ok) throw new Error(`Images error: ${res.status}`);
     return res.json();
   },
@@ -256,7 +363,7 @@ export const api = {
     autoPruneLimit?: number;
     error?: string;
   }> {
-    const res = await fetch("/api/settings/image-upload", {
+    const res = await apiFetch("/api/settings/image-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -265,7 +372,7 @@ export const api = {
   },
 
   async deleteMarketingImage(filename: string): Promise<{ success: boolean; error?: string }> {
-    const res = await fetch(`/api/marketing-images?filename=${encodeURIComponent(filename)}`, {
+    const res = await apiFetch(`/api/marketing-images?filename=${encodeURIComponent(filename)}`, {
       method: "DELETE",
     });
     return res.json();
@@ -276,7 +383,7 @@ export const api = {
     replaceExisting: boolean = false,
     autoPruneLimit?: number
   ): Promise<{ success: boolean; uploadedCount?: number; error?: string }> {
-    const res = await fetch("/api/marketing-images/upload", {
+    const res = await apiFetch("/api/marketing-images/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ files, replaceExisting, autoPruneLimit }),
@@ -294,7 +401,7 @@ export const api = {
     message?: string;
     error?: string;
   }> {
-    const res = await fetch("/api/marketing-images/import-external", {
+    const res = await apiFetch("/api/marketing-images/import-external", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -303,7 +410,7 @@ export const api = {
   },
 
   async batchDeleteMarketingImages(filenames: string[]): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
-    const res = await fetch("/api/marketing-images/batch-delete", {
+    const res = await apiFetch("/api/marketing-images/batch-delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ filenames }),
@@ -312,7 +419,7 @@ export const api = {
   },
 
   async autoPruneMarketingImages(keepCount: number): Promise<{ success: boolean; prunedCount?: number; remainingCount?: number; message?: string; error?: string }> {
-    const res = await fetch("/api/marketing-images/auto-prune", {
+    const res = await apiFetch("/api/marketing-images/auto-prune", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keepCount }),
@@ -321,14 +428,14 @@ export const api = {
   },
 
   async clearAllMarketingImages(): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await fetch("/api/marketing-images/clear-all", {
+    const res = await apiFetch("/api/marketing-images/clear-all", {
       method: "POST",
     });
     return res.json();
   },
 
   async resetDailyQueue(options?: { resetDailyCap?: boolean }): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await fetch("/api/queue/reset-daily", {
+    const res = await apiFetch("/api/queue/reset-daily", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(options || {}),
@@ -352,14 +459,14 @@ export const api = {
     checkedAt: string;
     error?: string;
   }> {
-    const res = await fetch("/api/profiles/verify-all", {
+    const res = await apiFetch("/api/profiles/verify-all", {
       method: "POST",
     });
     return res.json();
   },
 
   async updateTargetCoins(targetCoinsCount: number): Promise<{ success: boolean; targetCoinsCount: number; error?: string }> {
-    const res = await fetch("/api/settings/target-coins", {
+    const res = await apiFetch("/api/settings/target-coins", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetCoinsCount }),
@@ -375,7 +482,7 @@ export const api = {
     details: string;
     error?: string;
   }> {
-    const res = await fetch("/api/data/prune", {
+    const res = await apiFetch("/api/data/prune", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(options || {}),
@@ -392,7 +499,7 @@ export const api = {
     maxKeep: number;
     error?: string;
   }> {
-    const res = await fetch("/api/data/retention-stats");
+    const res = await apiFetch("/api/data/retention-stats");
     return res.json();
   },
 
@@ -402,7 +509,7 @@ export const api = {
     maxResultsHistoryCount?: number;
     autoPruneCompletedBatches?: boolean;
   }): Promise<{ success: boolean; error?: string }> {
-    const res = await fetch("/api/settings/data-retention", {
+    const res = await apiFetch("/api/settings/data-retention", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
@@ -411,7 +518,7 @@ export const api = {
   },
 
   async adminLogin(password: string): Promise<{ success: boolean; token?: string; error?: string; message?: string }> {
-    const res = await fetch("/api/auth/login", {
+    const res = await apiFetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
@@ -435,13 +542,13 @@ export const api = {
   }> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch("/api/auth/status", { headers });
+    const res = await apiFetch("/api/auth/status", { headers });
     return res.json();
   },
 
 
   async updateAdminPassword(newPassword: string, token: string): Promise<{ success: boolean; message?: string; token?: string; error?: string; newPassword?: string }> {
-    const res = await fetch("/api/auth/update-password", {
+    const res = await apiFetch("/api/auth/update-password", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -453,7 +560,7 @@ export const api = {
   },
 
   async toggleAdminAuth(enabled: boolean, token: string): Promise<{ success: boolean; authRequired?: boolean; error?: string }> {
-    const res = await fetch("/api/auth/toggle-auth", {
+    const res = await apiFetch("/api/auth/toggle-auth", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -496,8 +603,17 @@ export interface SchedulerAccountItem {
   hasValidSession: boolean;
 }
 
+export interface SchedulerSavedPosition {
+  queue: string[];
+  currentAccountId: string | null;
+  pausedAt: string;
+}
+
 export interface SchedulerStatusResponse {
   enabled: boolean;
+  status?: "running" | "paused" | "stopped";
+  cycleStatus?: string;
+  savedPosition?: SchedulerSavedPosition | null;
   intervalMinutes: number;
   schedulerMode?: "peak_hours" | "interval";
   maxCyclesPerDay?: number;

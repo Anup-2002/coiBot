@@ -149,7 +149,7 @@ async function writeToRtdb(docPath: string, data: any): Promise<boolean> {
   if (!rtdbUrl) return false;
   try {
     const sanitizedPath = docPath.replace(/[^a-zA-Z0-9_\-\/]/g, "_");
-    const res = await fetch(`${rtdbUrl}/${sanitizedPath}.json`, {
+    const res = await fetch(`${rtdbUrl}/${sanitizedPath}.json?print=silent`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

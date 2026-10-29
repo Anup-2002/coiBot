@@ -16,13 +16,17 @@ export default defineConfig(() => {
       outDir: 'dist',
       assetsDir: 'assets',
       emptyOutDir: true,
-      sourcemap: true,
+      sourcemap: false,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-lucide': ['lucide-react'],
+          manualChunks(id) {
+            if (id.includes('node_modules/react') || id.includes('node_modules/scheduler')) {
+              return 'vendor-react';
+            }
+            if (id.includes('node_modules/lucide-react')) {
+              return 'vendor-lucide';
+            }
           },
         },
       },

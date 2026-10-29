@@ -25,7 +25,6 @@ const esbuildArgs = [
   '--platform=node',
   '--format=cjs',
   '--packages=external',
-  '--sourcemap',
   '--outfile=dist/server.cjs'
 ];
 const esbuildRes = spawnSync('npx', esbuildArgs, { stdio: 'inherit', shell: true });
