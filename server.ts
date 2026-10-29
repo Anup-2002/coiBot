@@ -778,6 +778,27 @@ interface LogEntry {
   profileId?: string | null;
 }
 let logs: LogEntry[] = [];
+let schedulerLogsBuffer: LogEntry[] = [];
+
+function isSchedulerLogMessage(message: string): boolean {
+  return (
+    message.includes("[SCHEDULER]") ||
+    message.includes("[SYNC]") ||
+    message.includes("Sequential") ||
+    message.includes("Beginning turn (Account") ||
+    message.includes("Turn (Account") ||
+    message.includes("Launching automated posting loop") ||
+    message.includes("Run finished") ||
+    message.includes("Schedule disabled") ||
+    message.includes("Schedule not due") ||
+    (/^\[[^\]]+\]\s+/.test(message) && (
+      message.includes("Successfully submitted comment") ||
+      message.includes("Queue verified:") ||
+      message.includes("Session verified as ACTIVE") ||
+      message.includes("[SESSION HALT]")
+    ))
+  );
+}
 
 let logSyncTimeout: NodeJS.Timeout | null = null;
 function triggerLogSync() {
@@ -805,13 +826,11 @@ function addLog(level: "info" | "success" | "warning" | "error", message: string
   while (logs.length > 200) {
     logs.shift();
   }
-  if (
-    message.includes("[SCHEDULER]") ||
-    message.includes("[SYNC]") ||
-    message.includes("Sequential") ||
-    message.includes("Turn (Account") ||
-    message.includes("Run finished")
-  ) {
+  if (isSchedulerLogMessage(message)) {
+    schedulerLogsBuffer.push(entry);
+    while (schedulerLogsBuffer.length > 300) {
+      schedulerLogsBuffer.shift();
+    }
     try {
       const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
       if (fs.existsSync(SCHEDULER_LOG_FILE)) {
@@ -6052,7 +6071,7 @@ async function fetchTrendingByScrape(): Promise<Coin[]> {
   });
 }
 
-async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: number }> {
+async function executeFetchTrending(options?: { skipSaveToActiveProfile?: boolean }): Promise<{ coins: Coin[]; creditCount: number }> {
   let coins: Coin[] = [];
   let creditCount = 0;
 
@@ -6174,12 +6193,14 @@ async function executeFetchTrending(): Promise<{ coins: Coin[]; creditCount: num
   const targetCount = typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0;
   const targetedCoins = targetCount > 0 ? resolvedCoins.slice(0, targetCount) : resolvedCoins;
 
-  await writeJsonFile(LAST_TRENDING_FILE, targetedCoins);
-  updateRealFetchTime();
-  // Clear obsolete comments from previous batch so data is never inconsistent
-  await writeJsonFile(GENERATED_MESSAGES_FILE, []);
-  saveBotProgress({ next_index: 0 });
-  currentPostingIndex = 0;
+  if (!options?.skipSaveToActiveProfile) {
+    await writeJsonFile(LAST_TRENDING_FILE, targetedCoins);
+    updateRealFetchTime();
+    // Clear obsolete comments from previous batch so data is never inconsistent
+    await writeJsonFile(GENERATED_MESSAGES_FILE, []);
+    saveBotProgress({ next_index: 0 });
+    currentPostingIndex = 0;
+  }
   return { coins: targetedCoins, creditCount };
 }
 
@@ -6797,7 +6818,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
     const botSettings = getLocalBotSettings();
     const targetCount = typeof botSettings.targetCoinsCount === "number" ? botSettings.targetCoinsCount : 0;
-    if (targetCount > 0 && messages.length > targetCount) {
+    if (!isSchedulerCall && targetCount > 0 && messages.length > targetCount) {
       logWithPrefix("info", `[TARGET CAP] Limiting queue to top ${targetCount} coins as specified by targetCoinsCount setting.`);
       messages = messages.slice(0, targetCount);
     }
@@ -8168,17 +8189,22 @@ async function runScheduledCycle(): Promise<void> {
 
     const initialSettings = getLocalBotSettings();
     const savedPos = initialSettings.schedulerSavedPosition;
+    const schedulerCoinsFile = path.join(OUTPUT_DIR, "scheduler_cycle_coins.json");
+    const schedulerMessagesFile = path.join(OUTPUT_DIR, "scheduler_cycle_messages.json");
+    const schedulerPartitionsFile = path.join(OUTPUT_DIR, "scheduler_cycle_partitions.json");
     let coins: Coin[] = [];
     let messages: GeneratedMessage[] = [];
     let dueAccounts: SchedulableProfile[] = [];
     let standbyPool: SchedulableProfile[] = [];
+    let savedPartitions: Record<string, { coins: Coin[]; messages: GeneratedMessage[] }> = {};
 
     if (savedPos && savedPos.currentAccountId && Array.isArray(savedPos.queue) && savedPos.queue.length > 0) {
       addLog("info", `[SCHEDULER] Resuming cycle from saved position: Account [${savedPos.currentAccountId}] paused at ${savedPos.pausedAt}`);
 
-      // Continue with existing coins & messages without re-fetching or generating
-      coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
-      messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+      // Continue with the full cycle coins, messages, and pre-sliced partitions without re-fetching or generating
+      coins = readJsonFile<Coin[]>(schedulerCoinsFile, readJsonFile<Coin[]>(LAST_TRENDING_FILE, []));
+      messages = readJsonFile<GeneratedMessage[]>(schedulerMessagesFile, readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []));
+      savedPartitions = readJsonFile<Record<string, { coins: Coin[]; messages: GeneratedMessage[] }>>(schedulerPartitionsFile, {});
       if (messages.length === 0 && savedPos.currentAccountId) {
         const accDir = path.join(OUTPUT_DIR, savedPos.currentAccountId);
         coins = readJsonFile<Coin[]>(path.join(accDir, "last_trending.json"), []);
@@ -8202,14 +8228,15 @@ async function runScheduledCycle(): Promise<void> {
         pruneOldAndCompletedData();
       } catch (_) {}
 
-      // 1. Fetch trending coins ONCE
+      // 1. Fetch trending coins ONCE (isolated from single-account manual queue)
       try {
         addLog("info", "[SCHEDULER] Fetching trending coins from CoinMarketCap for this cycle...");
-        const fetchRes = await executeFetchTrending();
+        const fetchRes = await executeFetchTrending({ skipSaveToActiveProfile: true });
         coins = fetchRes.coins;
         if (!coins || coins.length === 0) {
           throw new Error("No trending coins returned from fetch endpoint.");
         }
+        writeJsonFile(schedulerCoinsFile, coins);
       } catch (fetchErr) {
         addLog("error", `[SCHEDULER] Failed to fetch trending coins: ${(fetchErr as Error).message}. Marking cycle failed.`);
         botStatus = "Idle";
@@ -8231,6 +8258,7 @@ async function runScheduledCycle(): Promise<void> {
         if (!messages || messages.length === 0) {
           throw new Error("No comments were generated.");
         }
+        writeJsonFile(schedulerMessagesFile, messages);
       } catch (genErr) {
         addLog("error", `[SCHEDULER] Failed to generate comments: ${(genErr as Error).message}. Marking cycle failed.`);
         botStatus = "Idle";
@@ -8270,6 +8298,27 @@ async function runScheduledCycle(): Promise<void> {
         return;
       }
 
+      // Balanced partitioning of all fetched coins across due accounts (e.g. ~85-90 coins across 3 accounts => ~28-30 coins each)
+      const numAccs = dueAccounts.length;
+      const basePerAccount = Math.floor(messages.length / numAccs);
+      const remainderCoins = messages.length % numAccs;
+      let cursor = 0;
+      const partitionSummary: string[] = [];
+      for (let i = 0; i < numAccs; i++) {
+        const acc = dueAccounts[i];
+        const countForAcc = basePerAccount + (i < remainderCoins ? 1 : 0);
+        const sliceStart = cursor;
+        const sliceEnd = Math.min(messages.length, sliceStart + countForAcc);
+        cursor = sliceEnd;
+        savedPartitions[acc.id] = {
+          coins: coins.slice(sliceStart, sliceEnd),
+          messages: messages.slice(sliceStart, sliceEnd),
+        };
+        partitionSummary.push(`${acc.name}: ${ sliceEnd - sliceStart } coins (#${sliceStart + 1}-${sliceEnd})`);
+      }
+      writeJsonFile(schedulerPartitionsFile, savedPartitions);
+      addLog("info", `[SCHEDULER] Partitioned ${messages.length} coins across ${numAccs} accounts: ${partitionSummary.join(" | ")}`);
+
       // Standby reserve pool for automatic single-hop failover
       standbyPool = profiles.filter(
         p => !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
@@ -8306,10 +8355,11 @@ async function runScheduledCycle(): Promise<void> {
         break;
       }
 
+      const preSliced = savedPartitions[account.id];
       const startIdx = idx * perAccountTarget;
       const endIdx = Math.min(messages.length, startIdx + perAccountTarget);
-      const accountMessages = messages.slice(startIdx, endIdx);
-      const accountCoins = coins.slice(startIdx, endIdx);
+      const accountMessages = preSliced ? preSliced.messages : messages.slice(startIdx, endIdx);
+      const accountCoins = preSliced ? preSliced.coins : coins.slice(startIdx, endIdx);
 
       if (accountMessages.length === 0) {
         addLog("info", `[${account.name}] No assigned coins in queue for this cycle. Skipping.`);
@@ -8815,14 +8865,29 @@ app.get("/api/scheduler/file-download", (req, res) => {
 });
 
 app.get("/api/scheduler/logs", (req, res) => {
-  const schedLogs = logs.filter(l =>
-    l.message.includes("[SCHEDULER]") ||
-    l.message.includes("[SYNC]") ||
-    l.message.includes("Run finished") ||
-    l.message.includes("Sequential") ||
-    l.message.includes("Turn (Account")
-  );
-  res.json({ success: true, logs: schedLogs.slice(-150) });
+  if (schedulerLogsBuffer.length === 0 && fs.existsSync(SCHEDULER_LOG_FILE)) {
+    try {
+      const content = fs.readFileSync(SCHEDULER_LOG_FILE, "utf-8");
+      const lines = content.split("\n").filter(Boolean).slice(-200);
+      schedulerLogsBuffer = lines.map(line => {
+        const m = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)$/);
+        if (m) {
+          const timeStr = new Date(m[1]).toLocaleTimeString();
+          const lvl = m[2].toLowerCase();
+          return {
+            timestamp: timeStr !== "Invalid Date" ? timeStr : m[1],
+            level: (lvl === "success" || lvl === "warning" || lvl === "error") ? lvl : "info",
+            message: m[3],
+          } as LogEntry;
+        }
+        return { timestamp: new Date().toLocaleTimeString(), level: "info", message: line } as LogEntry;
+      });
+    } catch (_) {}
+  }
+  const combined = schedulerLogsBuffer.length > 0
+    ? schedulerLogsBuffer
+    : logs.filter(l => isSchedulerLogMessage(l.message));
+  res.json({ success: true, logs: combined.slice(-200) });
 });
 
 app.get("/api/scheduler/logs/download", (req, res) => {

@@ -2715,7 +2715,13 @@ export default function App() {
   const filteredLogs = logsList.filter(l => {
     let matchesLevel = logFilter === "all" || l.level === logFilter;
     if (logFilter === "scheduler") {
-      matchesLevel = l.message.includes("[SCHEDULER]") || l.message.includes("[SYNC]") || l.message.includes("Run finished") || l.message.includes("Sequential");
+      matchesLevel =
+        l.message.includes("[SCHEDULER]") ||
+        l.message.includes("[SYNC]") ||
+        l.message.includes("Run finished") ||
+        l.message.includes("Sequential") ||
+        l.message.includes("Beginning turn (Account") ||
+        l.message.includes("Launching automated posting loop");
     }
     const matchesQuery = !logSearchQuery.trim() || l.message.toLowerCase().includes(logSearchQuery.toLowerCase());
     return matchesLevel && matchesQuery;
@@ -4057,7 +4063,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
                   <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL Coins" : `Top ${targetCoinsCount}`}
+                    {targetCoinsCount === 0 ? "ALL Coins (~85–90)" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-1.5 mt-1">
@@ -4072,14 +4078,21 @@ export default function App() {
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
                       }`}
-                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
+                      title={count === 0 ? "Fetch all trending coins (~85-90 after DEX filter) and divide evenly across enabled accounts" : `Process top ${count} coins total across enabled accounts`}
                     >
                       {count === 0 ? "ALL" : `Top ${count}`}
                     </button>
                   ))}
                 </div>
                 <div className="text-xs text-slate-400">
-                  ALL = Default recommended (Cap: 300 posts/day)
+                  {(() => {
+                    const enabledAccs = Math.max(1, (schedulerData?.accounts || []).filter(a => a.schedule?.enabled).length);
+                    const estTotal = targetCoinsCount === 0 ? 87 : targetCoinsCount;
+                    const perAcc = Math.ceil(estTotal / enabledAccs);
+                    return targetCoinsCount === 0
+                      ? `Divided across ${enabledAccs} account${enabledAccs > 1 ? "s" : ""} (~${perAcc} coins/account)`
+                      : `${targetCoinsCount} coins ÷ ${enabledAccs} account${enabledAccs > 1 ? "s" : ""} (~${perAcc}/account)`;
+                  })()}
                 </div>
               </div>
 

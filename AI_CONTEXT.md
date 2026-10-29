@@ -14,6 +14,7 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `87d289b` — `docs: update AI_CONTEXT.md with process-lock safeguards and 1-click scheduler controls`
   - `04ac4e1` — `feat: lock Reset Storage during active processes, upgrade sequential scheduler & auto-loop controls, and polish zero-lag button transitions`
   - `2fbb78e` — `docs: update AI_CONTEXT.md with post verification and UI polish summary`
   - `9b034d4` — `feat: enforce real post verification, fix fake batch completion metrics, and polish UI transitions and image upload controls`
@@ -144,6 +145,10 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Updated `Run cycle now` on `/scheduler` so it is always clickable in 1 click when idle (`handleRunSchedulerNow` automatically enables sequential mode first if needed before starting the cycle).
       - Upgraded `Continuous Automation Loop` on the Dashboard `Control Center` with a live status badge (`ACTIVE • Xm GAP` vs `OFF`) and a prominent `Enable Auto-Loop` / `Stop Auto-Loop` button, and added live state labels to `Run Full Automated Bot Cycle`.
       - Added optimistic UI state updates (`handleToggleScheduler`, `handleRunSchedulerNow`, `toggleContinuousLoop`), instant view navigation (`behavior: "instant"`), and `transition-all duration-150 active:scale-[0.98]` feedback across buttons for zero-lag transitions.
+    - **Multi-Account Scheduler Cycle Isolation, Balanced Coin Partitioning & Persistent Scheduler Logs (`PASS`)**:
+      - Updated `executeFetchTrending({ skipSaveToActiveProfile: true })` and `runScheduledCycle` in `server.ts` so fetching ~85–90 coins (after DEX filtering) and generating comments once per cycle saves into dedicated `output/scheduler_cycle_coins.json`, `output/scheduler_cycle_messages.json`, and `output/scheduler_cycle_partitions.json` files without overwriting the manual single-account queue or losing partitions across Pause/Resume.
+      - Implemented balanced coin partitioning across due accounts (`basePerAccount + remainder`, e.g., 85 coins across 3 accounts → `29`, `28`, `28` coins sequentially) with detailed partition logs (`[SCHEDULER] Partitioned X coins across Y accounts...`) and avoided double-slicing inside `runPostingLoop` when `isSchedulerCall` is `true`.
+      - Added a dedicated `schedulerLogsBuffer` (backed by `output/scheduler.log`) so `GET /api/scheduler/logs` retains all scheduler cycle, turn, partition, and coin submission logs even when Playwright logs hundreds of browser lines.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
