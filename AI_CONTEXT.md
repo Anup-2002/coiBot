@@ -14,6 +14,9 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `047e741` — `feat: deep-clean UI modules, remove all duplicate sections/buttons, and isolate admin tabs`
+  - `a2124e9` — `docs: enforce mandatory auto-start of live server on localhost:3000 in GEMINI.md`
+  - `5f4aff7` — `docs: update AI_CONTEXT.md with UI placement and beginner guide verification`
   - `88e7626` — `feat: refine UI placement, remove duplicate sections, and upgrade beginner-friendly /guide`
   - `fbec426` — `fix: verify Playwright Chromium binary via headless launch on Windows`
   - `b4bf1c5` — `docs: create central AI_CONTEXT.md handoff file`
@@ -91,14 +94,26 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
 9. **Playwright Chromium-1248 & `/api/check-system` Windows Fix (`PASS`, commit `fbec426`)**:
    - Installed Playwright `1.61.1` browser bundle (`chromium-1248` / Chrome for Testing `156.0.8078.4`) into `./.cache/ms-playwright`.
    - Updated `/api/check-system` in `server.ts` so on Windows (`process.platform === "win32"`), it verifies the binary via headless Playwright launch (`chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] })`) instead of `chrome.exe --version` (which hangs in Windows AppContainer sandbox). Verified `/api/check-system` returns `success: true` and `launchStatus: "success"`.
-10. **UI Module Placement, Deduplication & Beginner-Friendly `/guide` (`PASS`, commit `88e7626`)**:
-    - **Header & Navigation**: Made the brand logo/title clickable (`navigateTo("dashboard")`), standardized the `Admin` header button so its label stays `"Admin"` with active ring highlight, and standardized the `Back to Dashboard` button across `/admin`, `/scheduler`, `/logs`, `/health`, and `/guide`.
-    - **Removed Duplicate Sections across Views**:
-      - Removed duplicate `Multi-Account Scheduler` sub-tab and Section 4 from `/admin` (lives on `/scheduler`).
-      - Removed duplicate/unpolled `Sequential Scheduler Execution Logs` terminal box at the bottom of `/scheduler` and added a `Scheduler Logs` header button that navigates directly to `/logs` (`Scheduler Logs` tab).
-      - Added `"Manage Accounts"` button to the `/scheduler` `Configured Accounts & Execution Order` header and empty table state.
-      - Removed redundant `6. Accounts Schedule` tab from the Dashboard `Storage & Report Explorer`.
-      - Reorganized Tab 5 (`Images Library`) so gallery selection/management buttons (`Select All`, `Delete Selected`, `Clear All`, `Reload images`) live in the `SpikeSignals Image Library` gallery toolbar above the image grid/list, and removed the duplicate `Upload more images` button in the `Source Agnostic` strip.
+10. **UI Module Placement, Deduplication & Beginner-Friendly `/guide` (`PASS`, commits `88e7626` & `047e741`)**:
+    - **Header & Navigation**:
+      - Made the brand logo/title clickable (`navigateTo("dashboard")`).
+      - Eliminated duplicate active email text in the header when `profilesList.length > 1` (`#navbar-login-btn` shows `Accounts (${profilesList.length})` when the `Active: [email ✓]` dropdown is visible next to it).
+      - Standardized the `Admin` header button so its label stays `"Admin"` with active ring highlight, and standardized the `Back to Dashboard` button across `/admin`, `/scheduler`, `/logs`, `/health`, and `/guide`.
+    - **Isolated `/admin` Modules (No Longer "Everything on One Page")**:
+      - Removed the `"all"` (`All Admin Tools`) mega-page mode and the duplicate `Configured Account Profiles` tab on `/admin`. `/admin` now displays **one focused tab at a time** (`1. System Diagnostics`, `2. API Keys & Storage`, `3. Emergency Alerts`, `4. Security & Sharing`), defaulting to `diagnostics`.
+      - Added a `Manage Profiles (${profilesList.length})` shortcut button inside `Auth & Cache Storage Maintenance`.
+    - **`/health` Cross-Navigation**:
+      - Added a `Runtime Diagnostics` button (`navigateTo("admin", "diagnostics")`) in the `/health` header bar next to `Back to Dashboard`.
+    - **Dashboard `Control Center`, `Progress` & `Storage & Report Explorer` Deduplication**:
+      - Moved `Reset Storage` (`#btn-clear-stats`) out of the `Continuous Automation Loop` box and into the `Control Center` top header bar next to the status badge.
+      - Removed duplicate timestamp text inside `Get trending coins` (`#btn-fetch`) and `Write comments` (`#btn-generate`) subtitles, removed duplicate `{continuousInterval}m` text next to the cooldown input, and removed duplicate `Coins: Xm ago / Comments: Xm ago` footer at the bottom of `Progress`.
+      - Made `Gallery (N)` button in `Marketing Image Upload` scroll smoothly to `#storage-explorer`.
+      - Added a single unified `Refresh Data` button in the `Storage & Report Explorer` header bar and removed the 4 duplicate per-tab refresh buttons inside Tabs 1, 2, 3, and 4.
+      - Replaced the duplicate `Active Automated Posting Queue` + `Failed / Unsuccessful Submissions` tables in **Tab 2 (`2. Generated Comments`)** with a single clean table of all **Generated AI Comments** (`messagesList`), eliminating duplication with Tab 3 (`3. Post Submissions`).
+      - Removed the redundant `Prune >7d` button in Tab 3 (since `Retention & Prune (7d)` opens the Retention modal with `Prune Now`).
+      - Removed the redundant `6. Accounts Schedule` tab from `Storage & Report Explorer` and reorganized Tab 5 (`Images Library`) toolbar.
+    - **Account & Session Modal (`showSessionModal`)**:
+      - Widened modal from `max-w-lg` to `max-w-2xl` so tabs and profile buttons never wrap or overlap, standardized the `<X />` close button with `title` and `aria-label`, and removed the redundant raw `Active state.json Cookies Content` `<textarea>` from Tab 3 (`3. Switch Accounts`).
     - **Destructive Action Safeguards**: Wrapped `Delete state.json`, `/admin` `Reset Storage`, `/logs` `Clear console`, and Dashboard `Reset Storage` (`#btn-clear-stats`) with `setInlineConfirmModal` confirmation dialogs.
     - **Beginner-Friendly `/guide` Page**: Added a 3-step visual workflow roadmap banner (*Step 1: Add a CoinMarketCap Account* ➔ *Step 2: Fetch Coins & Write AI Comments* ➔ *Step 3: Start Posting or Enable Scheduler*) with 1-click action buttons, numbered step circles (`1`–`5`), beginner tips, and direct navigation buttons on each of the 5 guide cards while preserving the 5 required headings and 25 plain-word bullets.
 
