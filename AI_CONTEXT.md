@@ -14,6 +14,7 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `87b2176` — `feat: open Automated Login (New) tab first when adding accounts and unify cookie import`
   - `047e741` — `feat: deep-clean UI modules, remove all duplicate sections/buttons, and isolate admin tabs`
   - `a2124e9` — `docs: enforce mandatory auto-start of live server on localhost:3000 in GEMINI.md`
   - `5f4aff7` — `docs: update AI_CONTEXT.md with UI placement and beginner guide verification`
