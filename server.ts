@@ -5438,76 +5438,99 @@ app.post("/api/set-continuous-loop", (req, res) => {
   res.json({ success: true, isContinuousLoopActive, nextCycleStartTime, continuousLoopIntervalMinutes });
 });
 
-// 4.6. Check system dependencies & Playwright health
+// 4.6. Check system dependencies & Playwright health (with automatic startup warm-up & fast cache)
+let cachedSystemCheckResult: any = null;
+let cachedSystemCheckAt = 0;
+
+async function runSystemDiagnosticsCheck(force = false): Promise<any> {
+  const now = Date.now();
+  if (!force && cachedSystemCheckResult && (now - cachedSystemCheckAt < 5 * 60 * 1000)) {
+    return cachedSystemCheckResult;
+  }
+
+  const playwrightInstalled = typeof chromium !== "undefined";
+  const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH || "Not configured";
+  
+  let executablePath = "N/A";
+  let executableExists = false;
+  let launchStatus: "success" | "failed" = "failed";
+  let message = "";
+  let missingLibraries: string[] = [];
+
+  if (playwrightInstalled) {
+    try {
+      executablePath = chromium.executablePath();
+      executableExists = fs.existsSync(executablePath);
+    } catch (err) {
+      message = `Failed to get executable path: ${(err as Error).message}`;
+    }
+  }
+
+  if (executableExists) {
+    try {
+      if (process.platform === "win32") {
+        const testBrowser = await chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] });
+        const ver = testBrowser.version();
+        await testBrowser.close().catch(() => {});
+        launchStatus = "success";
+        message = `Chromium binary verified successfully: Chrome for Testing ${ver}`;
+      } else {
+        const output = execSync(`"${executablePath}" --version`, { stdio: "pipe", timeout: 5000 }).toString().trim();
+        launchStatus = "success";
+        message = `Chromium binary verified successfully: ${output}`;
+      }
+    } catch (err) {
+      const errMsg = (err as Error).message || "";
+      const stderr = (err as any).stderr?.toString() || "";
+      const combinedError = `${errMsg} ${stderr}`;
+      
+      launchStatus = "failed";
+      
+      const libPattern = /lib[a-zA-Z0-9\.\-\_]+\.so\.[0-9]+/g;
+      const foundLibs = combinedError.match(libPattern) || [];
+      missingLibraries = Array.from(new Set(foundLibs));
+
+      if (missingLibraries.length > 0) {
+        message = `Missing required shared libraries: ${missingLibraries.join(", ")}`;
+      } else if (combinedError.includes("cannot open shared object file")) {
+        message = `Shared library error: ${combinedError}`;
+      } else {
+        message = `Launch verification failed: ${combinedError.substring(0, 300)}`;
+      }
+    }
+  } else {
+    message = "Chromium executable is not present on disk. It might need to be downloaded/installed.";
+  }
+
+  const result = {
+    success: launchStatus === "success",
+    playwrightInstalled,
+    browsersPath,
+    executablePath,
+    executableExists,
+    launchStatus,
+    message,
+    missingLibraries,
+    checkedAt: new Date(now).toISOString(),
+  };
+
+  cachedSystemCheckResult = result;
+  cachedSystemCheckAt = now;
+  return result;
+}
+
+// Automatically warm up system diagnostics on server startup (outside Vitest) so /admin loads instantaneously
+if (!process.env.VITEST) {
+  setTimeout(() => {
+    runSystemDiagnosticsCheck(true).catch(() => {});
+  }, 500);
+}
+
 app.get("/api/check-system", async (req, res) => {
   try {
-    const playwrightInstalled = typeof chromium !== "undefined";
-    const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH || "Not configured";
-    
-    let executablePath = "N/A";
-    let executableExists = false;
-    let launchStatus: "success" | "failed" = "failed";
-    let message = "";
-    let missingLibraries: string[] = [];
-
-    if (playwrightInstalled) {
-      try {
-        executablePath = chromium.executablePath();
-        executableExists = fs.existsSync(executablePath);
-      } catch (err) {
-        message = `Failed to get executable path: ${(err as Error).message}`;
-      }
-    }
-
-    if (executableExists) {
-      try {
-        if (process.platform === "win32") {
-          const testBrowser = await chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] });
-          const ver = testBrowser.version();
-          await testBrowser.close().catch(() => {});
-          launchStatus = "success";
-          message = `Chromium binary verified successfully: Chrome for Testing ${ver}`;
-        } else {
-          // Run a quick version check on the chromium binary
-          // If system dependencies are missing, this will fail with an error detailing the missing library
-          const output = execSync(`"${executablePath}" --version`, { stdio: "pipe", timeout: 5000 }).toString().trim();
-          launchStatus = "success";
-          message = `Chromium binary verified successfully: ${output}`;
-        }
-      } catch (err) {
-        const errMsg = (err as Error).message || "";
-        const stderr = (err as any).stderr?.toString() || "";
-        const combinedError = `${errMsg} ${stderr}`;
-        
-        launchStatus = "failed";
-        
-        // Extract missing shared libraries from error
-        const libPattern = /lib[a-zA-Z0-9\.\-\_]+\.so\.[0-9]+/g;
-        const foundLibs = combinedError.match(libPattern) || [];
-        missingLibraries = Array.from(new Set(foundLibs));
-
-        if (missingLibraries.length > 0) {
-          message = `Missing required shared libraries: ${missingLibraries.join(", ")}`;
-        } else if (combinedError.includes("cannot open shared object file")) {
-          message = `Shared library error: ${combinedError}`;
-        } else {
-          message = `Launch verification failed: ${combinedError.substring(0, 300)}`;
-        }
-      }
-    } else {
-      message = "Chromium executable is not present on disk. It might need to be downloaded/installed.";
-    }
-
-    res.json({
-      success: launchStatus === "success",
-      playwrightInstalled,
-      browsersPath,
-      executablePath,
-      executableExists,
-      launchStatus,
-      message,
-      missingLibraries,
-    });
+    const force = req.query.force === "true";
+    const result = await runSystemDiagnosticsCheck(force);
+    res.json(result);
   } catch (error) {
     res.status(500).json({
       success: false,

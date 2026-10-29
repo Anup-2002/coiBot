@@ -14,6 +14,7 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `5b0d388` — `feat: isolate scheduler cycle fetch/partitions across accounts and persist scheduler logs`
   - `87d289b` — `docs: update AI_CONTEXT.md with process-lock safeguards and 1-click scheduler controls`
   - `04ac4e1` — `feat: lock Reset Storage during active processes, upgrade sequential scheduler & auto-loop controls, and polish zero-lag button transitions`
   - `2fbb78e` — `docs: update AI_CONTEXT.md with post verification and UI polish summary`
@@ -149,6 +150,7 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Updated `executeFetchTrending({ skipSaveToActiveProfile: true })` and `runScheduledCycle` in `server.ts` so fetching ~85–90 coins (after DEX filtering) and generating comments once per cycle saves into dedicated `output/scheduler_cycle_coins.json`, `output/scheduler_cycle_messages.json`, and `output/scheduler_cycle_partitions.json` files without overwriting the manual single-account queue or losing partitions across Pause/Resume.
       - Implemented balanced coin partitioning across due accounts (`basePerAccount + remainder`, e.g., 85 coins across 3 accounts → `29`, `28`, `28` coins sequentially) with detailed partition logs (`[SCHEDULER] Partitioned X coins across Y accounts...`) and avoided double-slicing inside `runPostingLoop` when `isSchedulerCall` is `true`.
       - Added a dedicated `schedulerLogsBuffer` (backed by `output/scheduler.log`) so `GET /api/scheduler/logs` retains all scheduler cycle, turn, partition, and coin submission logs even when Playwright logs hundreds of browser lines.
+      - Enabled automatic background verification for **System Environment Diagnostics** (`/api/check-system`) on both server startup warm-up (`runSystemDiagnosticsCheck`) and frontend mount / `/admin` navigation (`checkSystemHealth`), eliminating the need to manually click `Re-Run Diagnostics` on first load.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)

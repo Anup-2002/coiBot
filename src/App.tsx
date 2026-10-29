@@ -2270,10 +2270,11 @@ export default function App() {
   };
 
   // Run System & Playwright Environment Diagnostic Check
-  const checkSystemHealth = async () => {
+  const checkSystemHealth = async (force = false) => {
     setIsCheckingSystem(true);
     try {
-      const res = await apiFetch(resolveUrl("/api/check-system"));
+      const url = force ? "/api/check-system?force=true" : "/api/check-system";
+      const res = await apiFetch(resolveUrl(url));
       if (res.ok) {
         const data = await res.json();
         setSystemCheckResult(data);
@@ -2302,6 +2303,17 @@ export default function App() {
       setIsCheckingSystem(false);
     }
   };
+
+  // Automatically verify system & Playwright diagnostics on app mount and when visiting /admin
+  useEffect(() => {
+    checkSystemHealth(false);
+  }, []);
+
+  useEffect(() => {
+    if (currentView === "admin" && !systemCheckResult && !isCheckingSystem) {
+      checkSystemHealth(false);
+    }
+  }, [currentView, systemCheckResult, isCheckingSystem]);
 
   // Lazy Load Data lists based on Active Tab
   useEffect(() => {
@@ -3162,9 +3174,13 @@ export default function App() {
                   <Activity className="h-4 w-4" />
                 </span>
                 <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                  systemCheckResult?.success ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-300"
+                  !systemCheckResult
+                    ? "bg-blue-500/20 text-blue-300"
+                    : systemCheckResult.success
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-red-500/20 text-red-300"
                 }`}>
-                  {systemCheckResult?.success ? "HEALTHY" : "CHECK"}
+                  {!systemCheckResult ? "CHECKING..." : systemCheckResult.success ? "HEALTHY" : "ISSUE"}
                 </span>
               </div>
               <div>
@@ -3250,18 +3266,23 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
               <div className="flex items-center gap-3">
                 <span className={`p-2 rounded-lg border flex items-center justify-center ${
-                  systemCheckResult?.success
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border-red-500/20"
+                  !systemCheckResult
+                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                    : systemCheckResult.success
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : "bg-red-500/10 text-red-400 border-red-500/20"
                 }`}>
                   <Activity className="h-5 w-5" />
                 </span>
                 <div>
                   <h2 className="font-bold text-white tracking-tight text-base flex items-center gap-2">
                     System Environment Diagnostics
-                    {isCheckingSystem ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                    ) : systemCheckResult?.success ? (
+                    {isCheckingSystem || !systemCheckResult ? (
+                      <span className="text-sm bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 font-medium flex items-center gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        Auto-Verifying...
+                      </span>
+                    ) : systemCheckResult.success ? (
                       <span className="text-sm bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-medium">
                         Healthy
                       </span>
@@ -3271,15 +3292,15 @@ export default function App() {
                       </span>
                     )}
                   </h2>
-                  <p className="text-sm text-slate-400">Verifies backend browser runtimes, executable existence, and system libraries</p>
+                  <p className="text-sm text-slate-400">Automatically verifies backend browser runtimes, executable existence, and system libraries</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={checkSystemHealth}
+                  onClick={() => checkSystemHealth(true)}
                   disabled={isCheckingSystem}
-                  className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-sm text-slate-300 font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                  className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-sm text-slate-300 font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isCheckingSystem ? "animate-spin" : ""}`} />
                   Re-Run Diagnostics
