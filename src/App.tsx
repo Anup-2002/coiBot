@@ -8116,18 +8116,23 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
       {/* MODAL: PASTE COOKIE SESSION OR LOGIN */}
       {showSessionModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
             
             {/* Header */}
-            <div className="p-5 pb-3 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
-                  <Key className="h-4 w-4" />
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+              <div className="flex items-center gap-3">
+                <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-sm">
+                  <Key className="h-5 w-5" />
                 </span>
-                <h3 className="font-bold text-white text-base">
-                  Add or Switch CoinMarketCap Account
-                </h3>
+                <div>
+                  <h3 className="font-bold text-white text-base tracking-tight">
+                    Add or Switch CoinMarketCap Account
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Connect a new account or switch between your saved profiles
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => {
@@ -8136,94 +8141,149 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 }}
                 title="Close modal"
                 aria-label="Close modal"
-                className="text-slate-400 hover:text-white transition p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Tab Selection */}
-            <div className="px-5 pt-3 flex items-center gap-6 border-b border-slate-800 bg-slate-950/20 overflow-x-auto">
-              <button
-                onClick={() => {
-                  setLoginTab("credentials");
-                  handleResetLoginState();
-                }}
-                disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                  loginTab === "credentials" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                1. Log In with Email (Recommended)
-              </button>
-              <button
-                onClick={() => setLoginTab("cookies")}
-                disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                  loginTab === "cookies" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                2. Import Login Cookies (Advanced)
-              </button>
-              <button
-                onClick={() => {
-                  setLoginTab("profiles");
-                  if (loginStep === "success") {
+            {/* 3-Column Segmented Tab Bar (Zero Horizontal Scrollbar) */}
+            <div className="px-6 pt-4 pb-3 border-b border-slate-800/80 bg-slate-950/30">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginTab("credentials");
                     handleResetLoginState();
-                  }
-                }}
-                disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                  loginTab === "profiles" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                3. Switch Accounts ({profilesList.length})
-              </button>
+                  }}
+                  disabled={isBusy || isContinuousLoopActive}
+                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                    loginTab === "credentials"
+                      ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
+                  }`}
+                >
+                  <span>1. Email Login</span>
+                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-300 font-mono uppercase">
+                    Best
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoginTab("cookies")}
+                  disabled={isBusy || isContinuousLoopActive}
+                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                    loginTab === "cookies"
+                      ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
+                  }`}
+                >
+                  <span>2. Import Cookies</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginTab("profiles");
+                    if (loginStep === "success") {
+                      handleResetLoginState();
+                    }
+                  }}
+                  disabled={isBusy || isContinuousLoopActive}
+                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                    loginTab === "profiles"
+                      ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
+                  }`}
+                >
+                  <span>3. Saved Accounts</span>
+                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 font-mono">
+                    {profilesList.length}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 max-h-[65vh] overflow-y-auto space-y-4">
+            <div className="p-6 max-h-[68vh] overflow-y-auto space-y-4">
 
               {loginTab === "credentials" && (
                 <div className="space-y-4 text-sm">
-                  <p className="text-slate-300 text-sm leading-relaxed">
-                    Sign in with your CoinMarketCap email and password. The bot will log in and save your account automatically.
-                  </p>
-
                   {loginStep === "idle" && (
-                    <div className="space-y-3.5">
-                      <div className="space-y-1.5">
-                        <label className="text-xs uppercase text-slate-400 font-mono tracking-widest font-bold">Email Address</label>
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleStartLogin();
-                          }}
-                          placeholder="your-email@example.com"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600"
-                        />
+                    <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-5 space-y-4 shadow-inner">
+                      <div className="flex items-start gap-3 pb-3 border-b border-slate-800/80">
+                        <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 mt-0.5">
+                          <Shield className="h-4 w-4" />
+                        </span>
+                        <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
+                          Sign in with your CoinMarketCap email and password. The bot will log in and save your account session automatically.
+                        </p>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs uppercase text-slate-400 font-mono tracking-widest font-bold">Password</label>
-                        <input
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleStartLogin();
-                          }}
-                          placeholder="••••••••••••"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600"
-                        />
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs uppercase text-slate-300 font-mono tracking-wider font-bold block">
+                            Email Address
+                          </label>
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleStartLogin();
+                            }}
+                            placeholder="your-email@example.com"
+                            className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 placeholder-slate-500"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs uppercase text-slate-300 font-mono tracking-wider font-bold block">
+                            Password
+                          </label>
+                          <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleStartLogin();
+                            }}
+                            placeholder="••••••••••••"
+                            className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 placeholder-slate-500"
+                          />
+                        </div>
                       </div>
-                      <button
-                        onClick={handleStartLogin}
-                        className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2"
-                      >
-                        Start Automated Login Process
-                      </button>
+
+                      <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800/80">
+                        <span className="text-xs text-slate-400">
+                          Already have accounts saved?{" "}
+                          <button
+                            type="button"
+                            onClick={() => setLoginTab("profiles")}
+                            className="text-emerald-400 hover:text-emerald-300 font-semibold underline cursor-pointer"
+                          >
+                            Switch Accounts ({profilesList.length})
+                          </button>
+                        </span>
+                        <div className="flex items-center justify-end gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowSessionModal(false);
+                              handleResetLoginState();
+                            }}
+                            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-semibold transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleStartLogin}
+                            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2"
+                          >
+                            <Key className="h-4 w-4" />
+                            <span>Sign In &amp; Save Account</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -8392,31 +8452,28 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               )}
 
               {loginTab === "cookies" && (
-                <div className="space-y-3.5 text-sm text-slate-300">
-                  <p>
-                    Directly paste your existing CoinMarketCap <strong>login cookie storage state</strong> JSON array if you prefer not to enter your credentials.
-                  </p>
-                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5 text-xs leading-relaxed text-slate-400">
-                    <span className="font-bold text-white block">How to obtain cookies manually:</span>
-                    1. Log into your account on CoinMarketCap in Chrome.<br />
+                <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-5 space-y-4 text-sm text-slate-300 shadow-inner">
+                  <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5 text-xs leading-relaxed text-slate-400">
+                    <span className="font-bold text-white block">How to import cookies manually:</span>
+                    1. Sign in to CoinMarketCap in Chrome.<br />
                     2. Use a browser cookie extension (such as "EditThisCookie") to copy your cookies as JSON.<br />
-                    3. Paste the complete JSON object below.
+                    3. Optional: set an account label, daily post cap, or proxy below, then paste the JSON.
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Profile Name (Optional)</label>
+                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Account Label (Optional)</label>
                       <input
                         type="text"
                         value={newProfileName}
                         disabled={isBusy || isContinuousLoopActive}
                         onChange={(e) => setNewProfileName(e.target.value)}
                         placeholder="e.g. Main Account"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600 text-sm disabled:opacity-40"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-2.5 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-500 text-sm disabled:opacity-40"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Daily Post Limit</label>
+                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Daily Post Limit</label>
                       <input
                         type="number"
                         min={1}
@@ -8424,31 +8481,31 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         value={newProfileLimit}
                         disabled={isBusy || isContinuousLoopActive}
                         onChange={(e) => setNewProfileLimit(Math.max(1, parseInt(e.target.value) || 500))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Proxy (Optional)</label>
+                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Proxy (Optional)</label>
                       <input
                         type="text"
                         value={newProfileProxy}
                         disabled={isBusy || isContinuousLoopActive}
                         onChange={(e) => setNewProfileProxy(e.target.value)}
                         placeholder="http://user:pass@ip:port"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40 placeholder-slate-600"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40 placeholder-slate-500"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] uppercase text-slate-400 font-mono tracking-widest font-bold">Paste exported login cookies</label>
+                    <label className="text-[11px] uppercase text-slate-300 font-mono tracking-wider font-bold">Paste exported login cookies</label>
                     <textarea
-                      rows={6}
+                      rows={5}
                       value={sessionJson}
                       disabled={isBusy || isContinuousLoopActive}
                       onChange={(e) => setSessionJson(e.target.value)}
                       placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
-                      className="w-full bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-xs text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3 font-mono text-xs text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>

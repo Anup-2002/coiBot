@@ -169,6 +169,7 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
     - **Modern Dark Dropdown Styling & Complete Removal of Technical Route Tooltips (`PASS`)**:
       - Added global dark-mode `<select>` and `<option>` styling (`color-scheme: dark`, `appearance: none`, custom SVG chevron indicator, `padding-right: 2.1rem`, indigo hover/focus ring, and dark `#0f172a` option popups) in `src/index.css` and unified all 6 dropdowns across `src/App.tsx` (Top Navbar Active Account switcher, Scheduler Order `#1` selector, Scheduler Posting Frequency selector, Activity Logs filter selector, Image Library Auto-Prune selector, and Image Library Page Size selector).
       - Removed all remaining technical route slugs (`(/logs)`, `(/admin)`, `(/health)`, `(/guide)`) and technical terms (`Console`, `Playwright`, `state.json`, `daemon`) from hover tooltips (`title="..."`), header titles (`CoinMarketCap Commenting Hub`, `Admin Settings`, `Live Activity and Posting History`), confirmation modals, and toast messages.
+      - Redesigned the **Add or Switch CoinMarketCap Account** modal (`showSessionModal`) with a 3-column equal-width segmented tab bar (`1. Email Login [Best]`, `2. Import Cookies`, `3. Saved Accounts [X]`) to eliminate horizontal scrollbars and aligned the email/password login form into a balanced 2-column card with a bottom action bar (`Switch Accounts` shortcut + `Cancel` + `Sign In & Save Account`).
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
