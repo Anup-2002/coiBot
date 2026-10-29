@@ -4,6 +4,7 @@
 > 1. **Read First:** Every AI coding assistant MUST read this file at the start of a session before inspecting or modifying code.
 > 2. **Single Source of Truth:** Do not create separate summary or handoff markdown files. Update this file (`AI_CONTEXT.md`) after every significant change and before ending any session.
 > 3. **Verify Everything:** Never mark a task as completed unless `npm run lint`, `npm test`, and `npm run build` have been executed and verified.
+> 4. **Always Keep Local Live Server Running with Real `.env`:** Always ensure the local server (`npm run dev` on `http://localhost:3000`) is running as a background daemon (`IsDaemon: true`) with all real `.env` credentials active (OpenAI, CoinMarketCap, Firebase RTDB, MongoDB Atlas, Playwright Chromium). Whenever a build or code change finishes—or if the server stops for any reason—immediately restart `npm run dev` and verify `http://localhost:3000/api/health` returns `"overall": "ok"`.
 
 ---
 
