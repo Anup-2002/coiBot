@@ -14,6 +14,7 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `9b034d4` — `feat: enforce real post verification, fix fake batch completion metrics, and polish UI transitions and image upload controls`
   - `87b2176` — `feat: open Automated Login (New) tab first when adding accounts and unify cookie import`
   - `047e741` — `feat: deep-clean UI modules, remove all duplicate sections/buttons, and isolate admin tabs`
   - `a2124e9` — `docs: enforce mandatory auto-start of live server on localhost:3000 in GEMINI.md`
@@ -117,6 +118,20 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Widened modal from `max-w-lg` to `max-w-2xl` so tabs and profile buttons never wrap or overlap, standardized the `<X />` close button with `title` and `aria-label`, and removed the redundant raw `Active state.json Cookies Content` `<textarea>` from Tab 3 (`3. Switch Accounts`).
     - **Destructive Action Safeguards**: Wrapped `Delete state.json`, `/admin` `Reset Storage`, `/logs` `Clear console`, and Dashboard `Reset Storage` (`#btn-clear-stats`) with `setInlineConfirmModal` confirmation dialogs.
     - **Beginner-Friendly `/guide` Page**: Added a 3-step visual workflow roadmap banner (*Step 1: Add a CoinMarketCap Account* ➔ *Step 2: Fetch Coins & Write AI Comments* ➔ *Step 3: Start Posting or Enable Scheduler*) with 1-click action buttons, numbered step circles (`1`–`5`), beginner tips, and direct navigation buttons on each of the 5 guide cards while preserving the 5 required headings and 25 plain-word bullets.
+11. **Strict Post Verification, Anti-Fake-Completion Metrics & UI Smoothness (`PASS`, commit `9b034d4`)**:
+    - **Eliminated False-Positive ("Fake") Post Successes (`server.ts`, `runRealPostingInternal`)**:
+      - Added an image upload completion wait loop after `setInputFiles()` so Playwright waits until any image upload spinner or disabled `Post` button clears before clicking submit.
+      - Attached a live `page.on("response")` listener during `Post` submission to inspect CoinMarketCap's post API responses (`HTTP 429`, `401/403`, or non-zero `error_code` in JSON body).
+      - Verified that the comment editor actually clears its typed text after clicking `Post` (retrying the `Post` click once if the text is still sitting in the editor) and checks whether the comment snippet appeared in the live community feed (`postedInFeedAfterClick`).
+      - If the comment text remains unsubmitted in the editor and neither the API nor the community feed confirms publication, `runRealPostingInternal` returns `status: "retry"` (triggering the 180s rate-limit cooldown) instead of falsely logging `"success"`.
+    - **Eliminated Fake 100% Batch Completion Metrics (`server.ts` & `src/App.tsx`)**:
+      - Scoped `/api/status` `postedCount` and `failedCount` to the current batch (`commentsGeneratedAt`) instead of lifetime history.
+      - Updated `runPostingLoop` so `saveBotProgress({ next_index: 0 })` only resets the queue pointer when `runFailed === 0`, preserving partial-failure visibility.
+      - Updated the Dashboard `Progress` card (`Verified Posted`, `Unposted / Left`, `X% Verified`, `Run Finished (21/30 Posted • 9 Unposted)`) and `/scheduler` `Last Run` column (`21 verified posted, 9 failed/unposted`) to calculate completion strictly from verified `"success"` submissions rather than the attempted loop index (`progressIndex`).
+    - **Smooth Transitions & Global Image Upload Controls (`src/App.tsx`)**:
+      - Mounted the hidden `<input type="file" ref={imageFileInputRef} />` globally at the root of `<App />` so `+ Upload Images` works from Dashboard, `/scheduler`, `/guide`, and `5. Images Library`.
+      - Added `Scheduled Cycle Image Attachment` controls (`Pause / Enable Image Upload`, `+ Upload Images`, `Open Image Library`) directly inside `/scheduler` and ordered `Marketing Image Upload` buttons (`1. Upload Images`, `2. Import Drive / S3`, `3. Image Library`).
+      - Upgraded `/admin` (4-card module selector deck), `/guide` (interactive topic filter stepper), and `/health` (5-card service diagnostics grid) and improved table/account-list font sizes.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
