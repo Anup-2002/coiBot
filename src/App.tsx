@@ -2870,7 +2870,8 @@ export default function App() {
             <div className="flex lg:hidden items-center gap-1.5">
               <button
                 onClick={() => {
-                  setLoginTab("profiles");
+                  handleResetLoginState();
+                  setLoginTab("credentials");
                   setShowSessionModal(true);
                 }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition duration-200 cursor-pointer ${
@@ -2881,10 +2882,10 @@ export default function App() {
                       : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
                     )
                 }`}
-                title="Manage Accounts and Cookie Sessions"
+                title="Add or Manage CoinMarketCap Accounts"
               >
                 <Users className="h-3 w-3" />
-                <span className="max-w-[90px] truncate">{activeProfile ? activeProfile.name : (sessionExists ? "Active" : "Login")}</span>
+                <span className="max-w-[90px] truncate">{activeProfile ? "+ Account" : (sessionExists ? "Active" : "Login")}</span>
               </button>
             </div>
           </div>
@@ -2894,7 +2895,8 @@ export default function App() {
             {/* Desktop Account / Session Button */}
             <button
               onClick={() => {
-                setLoginTab("profiles");
+                handleResetLoginState();
+                setLoginTab("credentials");
                 setShowSessionModal(true);
               }}
               className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
@@ -2905,13 +2907,13 @@ export default function App() {
                     : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
                   )
               }`}
-              title="Manage Accounts and Cookie Sessions"
+              title="Add a new CoinMarketCap account or manage saved accounts"
               id="navbar-login-btn"
             >
               <Users className="h-3.5 w-3.5" />
               <span>
                 {profilesList.length > 1
-                  ? `Accounts (${profilesList.length})`
+                  ? `+ Add / Accounts (${profilesList.length})`
                   : activeProfile
                     ? `Account: ${activeProfile.name}`
                     : sessionExists
@@ -4039,13 +4041,14 @@ export default function App() {
               </div>
               <button
                 onClick={() => {
-                  setLoginTab("profiles");
+                  handleResetLoginState();
+                  setLoginTab("credentials");
                   setShowSessionModal(true);
                 }}
                 className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shrink-0"
               >
                 <Users className="h-4 w-4 text-indigo-400" />
-                <span>Manage Accounts</span>
+                <span>+ Add / Manage Accounts</span>
               </button>
             </div>
 
@@ -4070,12 +4073,13 @@ export default function App() {
                           <span className="italic">No profiles found. Add or import an account profile to start scheduling.</span>
                           <button
                             onClick={() => {
-                              setLoginTab("profiles");
+                              handleResetLoginState();
+                              setLoginTab("credentials");
                               setShowSessionModal(true);
                             }}
                             className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
                           >
-                            <Users className="h-3.5 w-3.5" /> Add / Manage Accounts
+                            <Users className="h-3.5 w-3.5" /> + Add New Account
                           </button>
                         </div>
                       </td>
@@ -4428,12 +4432,13 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => {
-                      setLoginTab("profiles");
+                      handleResetLoginState();
+                      setLoginTab("credentials");
                       setShowSessionModal(true);
                     }}
                     className="w-full py-2 px-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Users className="h-3.5 w-3.5" /> Open Account Manager
+                    <Users className="h-3.5 w-3.5" /> + Add CoinMarketCap Account
                   </button>
                 </div>
 
@@ -4550,12 +4555,13 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => {
-                      setLoginTab("profiles");
+                      handleResetLoginState();
+                      setLoginTab("credentials");
                       setShowSessionModal(true);
                     }}
                     className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
-                    <Users className="h-3.5 w-3.5" /> Add Account
+                    <Users className="h-3.5 w-3.5" /> + Add Account
                   </button>
                 </div>
                 <ul className="space-y-2.5">
@@ -7517,7 +7523,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   <Key className="h-4 w-4" />
                 </span>
                 <h3 className="font-bold text-white text-base">
-                  Configure Playwright Session & Accounts
+                  Configure Playwright Session
                 </h3>
               </div>
               <button
@@ -7534,14 +7540,14 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* Tab Selection */}
-            <div className="px-5 pt-3 flex gap-4 border-b border-slate-800 bg-slate-950/20">
+            <div className="px-5 pt-3 flex items-center gap-6 border-b border-slate-800 bg-slate-950/20 overflow-x-auto">
               <button
                 onClick={() => {
                   setLoginTab("credentials");
                   handleResetLoginState();
                 }}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "credentials" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7550,7 +7556,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => setLoginTab("cookies")}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "cookies" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7564,7 +7570,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   }
                 }}
                 disabled={isBusy || isContinuousLoopActive}
-                className={`pb-3 text-sm font-bold transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`pb-3 text-sm font-bold whitespace-nowrap transition-all relative disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   loginTab === "profiles" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -7573,39 +7579,45 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 max-h-[60vh] overflow-y-auto space-y-4">
+            <div className="p-5 max-h-[65vh] overflow-y-auto space-y-4">
 
               {loginTab === "credentials" && (
                 <div className="space-y-4 text-sm">
-                  <p className="text-slate-300 text-[11px] leading-relaxed">
+                  <p className="text-slate-300 text-sm leading-relaxed">
                     Log in directly using your CoinMarketCap credentials. Our backend Playwright browser will run the login, handle security, and capture/save the <code className="text-emerald-400 font-mono">state.json</code> automatically!
                   </p>
 
                   {loginStep === "idle" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3.5">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono tracking-widest font-bold">Email Address</label>
+                        <label className="text-xs uppercase text-slate-400 font-mono tracking-widest font-bold">Email Address</label>
                         <input
                           type="email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleStartLogin();
+                          }}
                           placeholder="your-email@example.com"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono tracking-widest font-bold">Password</label>
+                        <label className="text-xs uppercase text-slate-400 font-mono tracking-widest font-bold">Password</label>
                         <input
                           type="password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleStartLogin();
+                          }}
                           placeholder="••••••••••••"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600"
                         />
                       </div>
                       <button
                         onClick={handleStartLogin}
-                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2"
+                        className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2"
                       >
                         Start Automated Login Process
                       </button>
@@ -7781,27 +7793,59 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   <p>
                     Directly paste your existing CoinMarketCap <strong>login cookie storage state</strong> JSON array if you prefer not to enter your credentials.
                   </p>
-                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5 text-[11px] leading-relaxed text-slate-400">
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5 text-xs leading-relaxed text-slate-400">
                     <span className="font-bold text-white block">How to obtain cookies manually:</span>
                     1. Log into your account on CoinMarketCap in Chrome.<br />
                     2. Use a browser extension like "EditThisCookie" or Playwright CLI to export cookies/storage as a JSON array.<br />
                     3. Paste the complete JSON object below.
                   </div>
 
-                  <div className="p-3 bg-indigo-950/40 border border-indigo-900/50 rounded-lg space-y-1 text-[11px] leading-relaxed text-indigo-300">
-                    <span className="font-bold text-white flex items-center gap-1">💡 Persistent Render Deployments:</span>
-                    Render containers reset local files on each redeployment or restart. To persist your login session permanently, add an Environment Variable on Render with Key <code className="bg-indigo-950 px-1 py-0.5 rounded text-white font-mono font-bold">AUTH_STATE_JSON</code> and paste this complete JSON string as the Value!
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Profile Name (Optional)</label>
+                      <input
+                        type="text"
+                        value={newProfileName}
+                        disabled={isBusy || isContinuousLoopActive}
+                        onChange={(e) => setNewProfileName(e.target.value)}
+                        placeholder="e.g. Main Account"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-600 text-sm disabled:opacity-40"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Daily Post Limit</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        value={newProfileLimit}
+                        disabled={isBusy || isContinuousLoopActive}
+                        onChange={(e) => setNewProfileLimit(Math.max(1, parseInt(e.target.value) || 500))}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Proxy (Optional)</label>
+                      <input
+                        type="text"
+                        value={newProfileProxy}
+                        disabled={isBusy || isContinuousLoopActive}
+                        onChange={(e) => setNewProfileProxy(e.target.value)}
+                        placeholder="http://user:pass@ip:port"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40 placeholder-slate-600"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="text-[11px] uppercase text-slate-400 font-mono tracking-widest font-bold">Paste state.json content</label>
                     <textarea
-                      rows={8}
+                      rows={6}
                       value={sessionJson}
                       disabled={isBusy || isContinuousLoopActive}
                       onChange={(e) => setSessionJson(e.target.value)}
                       placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
-                      className="w-full bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full bg-slate-950 border border-slate-800/80 rounded-xl p-3 font-mono text-xs text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -7817,7 +7861,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   )}
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-xs text-slate-400">
                       Save up to 5 CoinMarketCap account profiles and swap between them seamlessly.
                     </p>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -7827,91 +7871,21 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           setLoginTab("credentials");
                         }}
                         disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                        className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Log In Another Account"}
                       >
-                        🔑 Log In Another Account
+                        🔑 + Log In New Account
                       </button>
                       <button
-                        onClick={() => {
-                          if (!showProfileAddForm && profilesList.length >= 5) {
-                            showToast("Maximum of 5 profiles allowed. Please delete one first.", "error");
-                          } else {
-                            setShowProfileAddForm(!showProfileAddForm);
-                          }
-                        }}
+                        onClick={() => setLoginTab("cookies")}
                         disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                        className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-medium border border-slate-700 flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Paste JSON Profile"}
+                        className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Import Cookies JSON"}
                       >
-                        {showProfileAddForm ? "✕ Close Form" : "📋 Paste JSON Profile"}
+                        📋 Import Cookies JSON
                       </button>
                     </div>
                   </div>
-
-                  {showProfileAddForm && (
-                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3.5 opacity-[0.99]">
-                      <h4 className="font-bold text-white text-[11px] uppercase tracking-wider">New Account Profile</h4>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Profile Name / Owner</label>
-                        <input
-                          type="text"
-                          value={newProfileName}
-                          disabled={isBusy || isContinuousLoopActive}
-                          onChange={(e) => setNewProfileName(e.target.value)}
-                          placeholder="e.g. Anup Main Account, Vineet Bot"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 placeholder-slate-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Cookies JSON (state.json content)</label>
-                        <textarea
-                          rows={4}
-                          value={newProfileJson}
-                          disabled={isBusy || isContinuousLoopActive}
-                          onChange={(e) => setNewProfileJson(e.target.value)}
-                          placeholder='{ "cookies": [ { "name": "session_token", "value": "..." } ] }'
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono text-[10px] text-emerald-400 focus:outline-none focus:border-emerald-500 placeholder-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Daily Post Limit (posts/day)</label>
-                          <span className="text-[9px] font-mono text-emerald-400 font-bold">Default: 500</span>
-                        </div>
-                        <input
-                          type="number"
-                          min={1}
-                          max={10000}
-                          value={newProfileLimit}
-                          disabled={isBusy || isContinuousLoopActive}
-                          onChange={(e) => setNewProfileLimit(Math.max(1, parseInt(e.target.value) || 500))}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] uppercase text-slate-400 font-mono font-bold">Proxy (Optional)</label>
-                          <span className="text-[9px] font-mono text-slate-500">HTTP/SOCKS5</span>
-                        </div>
-                        <input
-                          type="text"
-                          value={newProfileProxy}
-                          disabled={isBusy || isContinuousLoopActive}
-                          onChange={(e) => setNewProfileProxy(e.target.value)}
-                          placeholder="http://user:pass@proxy-ip:port (optional)"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono disabled:opacity-40 placeholder-slate-700"
-                        />
-                      </div>
-                      <button
-                        onClick={() => handleSaveProfile(newProfileName, newProfileJson, newProfileLimit, newProfileProxy)}
-                        disabled={isBusy || isContinuousLoopActive}
-                        className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        Save Account Profile
-                      </button>
-                    </div>
-                  )}
 
                   <div className="space-y-2">
                     <h4 className="font-bold text-slate-400 font-mono text-[10px] uppercase tracking-wider">Saved Accounts Profiles</h4>
@@ -8123,12 +8097,20 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     setShowSessionModal(false);
                     handleResetLoginState();
                   }}
-                  className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold"
+                  className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveSession}
+                  onClick={async () => {
+                    if (newProfileName.trim()) {
+                      await handleSaveProfile(newProfileName, sessionJson, newProfileLimit, newProfileProxy);
+                      setSessionJson("");
+                      setShowSessionModal(false);
+                    } else {
+                      await handleSaveSession();
+                    }
+                  }}
                   className="py-2 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
                 >
                   Save & Load Session
