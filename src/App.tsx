@@ -510,7 +510,7 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "telegram" | "security">("all");
+  const [adminSection, setAdminSection] = useState<"diagnostics" | "secrets" | "telegram" | "security">("diagnostics");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
   const [telegramToken, setTelegramToken] = useState<string>("");
@@ -559,7 +559,7 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "all" | "diagnostics" | "secrets" | "profiles" | "telegram" | "security") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "diagnostics" | "secrets" | "telegram" | "security") => {
     setCurrentView(view);
     if (section) setAdminSection(section);
     let path = "/";
@@ -2910,10 +2910,13 @@ export default function App() {
             >
               <Users className="h-3.5 w-3.5" />
               <span>
-                {activeProfile 
-                  ? `Account: ${activeProfile.name}` 
-                  : (sessionExists ? "Account: Active" : "Login / Add Account")
-                }
+                {profilesList.length > 1
+                  ? `Accounts (${profilesList.length})`
+                  : activeProfile
+                    ? `Account: ${activeProfile.name}`
+                    : sessionExists
+                      ? "Account: Active"
+                      : "Login / Add Account"}
               </span>
             </button>
 
@@ -3077,61 +3080,40 @@ export default function App() {
             </div>
           </div>
 
-          {/* ADMIN SUB-NAVIGATION BAR */}
+          {/* ADMIN SUB-NAVIGATION BAR (One focused module per tab — not everything on one page) */}
           <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-sm shadow-md">
             <button
-              onClick={() => setAdminSection("all")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
-                adminSection === "all"
-                  ? "bg-slate-800 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-              }`}
-            >
-              All Admin Tools
-            </button>
-            <button
               onClick={() => setAdminSection("diagnostics")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 adminSection === "diagnostics"
-                  ? "bg-slate-800 text-white shadow-sm"
+                  ? "bg-slate-800 text-white shadow-sm border border-slate-700"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
               }`}
             >
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
-              <span>System Diagnostics</span>
+              <span>1. System Diagnostics</span>
             </button>
             <button
               onClick={() => setAdminSection("secrets")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 adminSection === "secrets"
-                  ? "bg-slate-800 text-white shadow-sm"
+                  ? "bg-slate-800 text-white shadow-sm border border-slate-700"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
               }`}
             >
               <Key className="h-3.5 w-3.5 text-blue-400" />
-              <span>API Keys & Storage</span>
-            </button>
-            <button
-              onClick={() => setAdminSection("profiles")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                adminSection === "profiles"
-                  ? "bg-slate-800 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-              }`}
-            >
-              <Users className="h-3.5 w-3.5 text-purple-400" />
-              <span>Accounts ({profilesList.length})</span>
+              <span>2. API Keys & Storage</span>
             </button>
             <button
               onClick={() => setAdminSection("telegram")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 adminSection === "telegram"
                   ? "bg-rose-600 text-white shadow-sm"
                   : "text-rose-400 hover:text-rose-200 hover:bg-slate-800/50"
               }`}
             >
               <Bell className="h-3.5 w-3.5" />
-              <span>Emergency Alerts</span>
+              <span>3. Emergency Alerts</span>
               <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
                 telegramEnabled
                   ? "bg-emerald-500/20 text-emerald-300"
@@ -3142,14 +3124,14 @@ export default function App() {
             </button>
             <button
               onClick={() => setAdminSection("security")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 adminSection === "security"
                   ? "bg-amber-600 text-white shadow-sm"
                   : "text-amber-400 hover:text-amber-200 hover:bg-slate-800/50"
               }`}
             >
-              <Key className="h-3.5 w-3.5" />
-              <span>Security & Sharing</span>
+              <Lock className="h-3.5 w-3.5" />
+              <span>4. Security & Sharing</span>
               <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
                 adminAuthRequired
                   ? "bg-emerald-500/20 text-emerald-300"
@@ -3161,7 +3143,7 @@ export default function App() {
           </div>
 
           {/* 1. SYSTEM ENVIRONMENT DIAGNOSTICS CARD */}
-          {(adminSection === "all" || adminSection === "diagnostics") && (
+          {adminSection === "diagnostics" && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
               <div className="flex items-center gap-3">
@@ -3307,7 +3289,7 @@ export default function App() {
           )}
 
           {/* 2. TWO-COLUMN GRID: API SECRETS MATRIX & STORAGE CACHE MAINTENANCE */}
-          {(adminSection === "all" || adminSection === "secrets") && (
+          {adminSection === "secrets" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Active Secrets Key Matrix - High-Density Modern Deck */}
             <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-slate-700/80 transition-all duration-300">
@@ -3499,81 +3481,24 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400">
-                <span className="font-semibold text-white">Notice:</span> Browser contexts and cookies are stored securely on the backend container.
+              <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                <span><strong className="text-white">Notice:</strong> Browser contexts and cookies are stored securely on the backend container.</span>
+                <button
+                  onClick={() => {
+                    setLoginTab("profiles");
+                    setShowSessionModal(true);
+                  }}
+                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg font-bold transition cursor-pointer shrink-0"
+                >
+                  Manage Profiles ({profilesList.length})
+                </button>
               </div>
             </section>
           </div>
           )}
 
-          {/* 3. MULTI-ACCOUNT PROFILES OVERVIEW */}
-          {(adminSection === "all" || adminSection === "profiles") && (
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-emerald-400" />
-                <h2 className="font-bold text-white text-base">Configured Account Profiles ({profilesList.length}/5)</h2>
-              </div>
-              <button
-                onClick={() => {
-                  setLoginTab("profiles");
-                  setShowSessionModal(true);
-                }}
-                className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition cursor-pointer"
-              >
-                Manage Profiles
-              </button>
-            </div>
-
-            {profilesList.length === 0 ? (
-              <div className="text-slate-500 text-sm italic py-4 text-center">No account profiles saved yet. Click "Manage Profiles" to add one.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {profilesList.map((p) => (
-                  <div key={p.id} className={`p-3.5 rounded-xl border transition ${p.isActive ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-slate-950/60 border-slate-800'}`}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-bold text-white text-sm truncate max-w-[180px]">{p.name}</span>
-                      {p.isActive ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold font-mono">
-                          ACTIVE
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => promptSwitchProfile(p)}
-                          disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
-                          className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition"
-                          title={
-                            (isBusy || isPostingActive || isContinuousLoopActive)
-                              ? "Cannot switch accounts while posting or automation is active. Click 'Stop Posting' first."
-                              : `Switch to ${p.name}`
-                          }
-                        >
-                          {switchingProfileId === p.id ? (
-                            <>
-                              <RefreshCw className="h-2.5 w-2.5 animate-spin text-emerald-400" />
-                              <span>Switching...</span>
-                            </>
-                          ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
-                            <>
-                              <span>🔒</span>
-                              <span>Locked</span>
-                            </>
-                          ) : (
-                            "Activate"
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-mono truncate">ID: {p.id}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          )}
-
-          {/* 4. TELEGRAM EMERGENCY ALERTS SYSTEM */}
-          {(adminSection === "all" || adminSection === "telegram") && (
+          {/* 3. TELEGRAM EMERGENCY ALERTS SYSTEM */}
+          {adminSection === "telegram" && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-5">
@@ -3710,8 +3635,8 @@ export default function App() {
           </section>
           )}
 
-          {/* 6. COMPANY ADMIN ACCESS & TEAM SHARING CARD */}
-          {(adminSection === "all" || adminSection === "security") && (
+          {/* 4. COMPANY ADMIN ACCESS & TEAM SHARING CARD */}
+          {adminSection === "security" && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80 space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
               <div className="flex items-center gap-3">
@@ -5029,9 +4954,18 @@ export default function App() {
                 <p className="text-sm text-slate-400">Service diagnostics and readiness checks</p>
               </div>
             </div>
-            <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
-              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => navigateTo("admin", "diagnostics")}
+                className="px-3.5 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
+                title="Open Playwright & Environment Diagnostics (/admin)"
+              >
+                <Shield className="h-4 w-4 text-blue-400" /> Runtime Diagnostics
+              </button>
+              <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
+                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              </button>
+            </div>
           </div>
 
           {/* Top Overall Status Banner */}
@@ -5197,16 +5131,35 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 shadow-sm">
-                  <span className={`w-2 h-2 rounded-full ${
-                    status === "Posting" ? "bg-emerald-400 animate-ping" :
-                    status === "Generating" ? "bg-purple-400 animate-pulse" :
-                    status === "Fetching" ? "bg-blue-400 animate-pulse" :
-                    status === "Authenticating" ? "bg-amber-400 animate-pulse" : "bg-slate-500"
-                  }`} />
-                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-200">
-                    {status}
-                  </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      setInlineConfirmModal({
+                        isOpen: true,
+                        title: "Reset Active Account Queue",
+                        message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
+                        onConfirm: () => runCommand("/api/clear-all", "clear")
+                      })
+                    }
+                    disabled={isPending.clear}
+                    className="text-red-400/80 hover:text-red-300 text-xs font-semibold flex items-center gap-1 transition-colors px-2.5 py-1.5 rounded-xl bg-slate-950/80 hover:bg-red-500/10 border border-slate-800 hover:border-red-500/20 disabled:opacity-40 cursor-pointer"
+                    id="btn-clear-stats"
+                    title="Reset storage and clear local data"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Reset Storage
+                  </button>
+
+                  <div className="flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 shadow-sm">
+                    <span className={`w-2 h-2 rounded-full ${
+                      status === "Posting" ? "bg-emerald-400 animate-ping" :
+                      status === "Generating" ? "bg-purple-400 animate-pulse" :
+                      status === "Fetching" ? "bg-blue-400 animate-pulse" :
+                      status === "Authenticating" ? "bg-amber-400 animate-pulse" : "bg-slate-500"
+                    }`} />
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-200">
+                      {status}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -5277,11 +5230,7 @@ export default function App() {
                     </span>
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">Get trending coins</h3>
-                      <p className="text-[10px] text-slate-400">
-                        {coinsList.length > 0
-                          ? (coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).text}` : "Fetched: Prev session")
-                          : "Load top coin list"}
-                      </p>
+                      <p className="text-[10px] text-slate-400">Load top coin list</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -5329,11 +5278,7 @@ export default function App() {
                     </span>
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">Write comments</h3>
-                      <p className="text-[10px] text-slate-400">
-                        {messagesList.length > 0
-                          ? (commentsGeneratedAt ? `Gen: ${formatTimeAgo(commentsGeneratedAt).text}` : "Gen: Prev session")
-                          : "AI gpt-4o-mini"}
-                      </p>
+                      <p className="text-[10px] text-slate-400">AI gpt-4o-mini</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -5511,23 +5456,6 @@ export default function App() {
                       <span className="text-[10px] text-slate-400 block">Auto-restarts cycle after cooldown gap</span>
                     </div>
                   </div>
-
-                  <button
-                    onClick={() =>
-                      setInlineConfirmModal({
-                        isOpen: true,
-                        title: "Reset Active Account Queue",
-                        message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
-                        onConfirm: () => runCommand("/api/clear-all", "clear")
-                      })
-                    }
-                    disabled={isPending.clear}
-                    className="text-red-400/80 hover:text-red-300 text-[10px] font-semibold flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500/20 disabled:opacity-40 cursor-pointer"
-                    id="btn-clear-stats"
-                    title="Reset storage and clear local data"
-                  >
-                    <Trash2 className="h-3 w-3" /> Reset Storage
-                  </button>
                 </div>
 
                 {/* Interval slider & Quick preset buttons */}
@@ -5552,7 +5480,6 @@ export default function App() {
                           {preset}m
                         </button>
                       ))}
-                      <span className="text-emerald-400 font-mono font-bold ml-1">{continuousInterval}m</span>
                     </div>
                   </div>
 
@@ -5624,7 +5551,10 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => setActiveTab("images")}
+                    onClick={() => {
+                      setActiveTab("images");
+                      document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
+                    }}
                     className="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-indigo-500/10 border border-indigo-500/20 transition cursor-pointer"
                   >
                     Gallery ({marketingImages.length})
@@ -5856,20 +5786,6 @@ export default function App() {
                 <span>Success Rate: <strong className="text-slate-300 font-semibold">{postedCount + failedCount > 0 ? Math.round((postedCount / (postedCount + failedCount)) * 100) : 100}%</strong></span>
                 <span>Active Profile: <strong className="text-emerald-400 font-semibold">{activeProfile?.name || "Active"}</strong></span>
               </div>
-
-              {coinsList.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-400 pt-1.5 border-t border-slate-800/60">
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3 text-slate-500" />
-                    Coins: <strong className={formatTimeAgo(coinsFetchedAt).isStale ? "text-amber-400" : "text-emerald-400"}>{formatTimeAgo(coinsFetchedAt).text}</strong>
-                  </span>
-                  {messagesList.length > 0 && (
-                    <span className="flex items-center gap-1">
-                      Comments: <strong className={formatTimeAgo(commentsGeneratedAt).isStale ? "text-amber-400" : "text-purple-400"}>{formatTimeAgo(commentsGeneratedAt).text}</strong>
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
           </section>
 
@@ -5885,55 +5801,67 @@ export default function App() {
               Storage & Report Explorer
             </h2>
 
-            {/* Exporter selector tabs */}
-            <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            {/* Exporter selector tabs + Unified Refresh Button */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setActiveTab("coins")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                    activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  1. Trending Coins ({coinsList.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab("comments")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                    activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  2. Generated Comments ({messagesList.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab("results")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                    activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {(() => {
+                    const activePid = activeProfileIdRef.current || activeProfile?.id;
+                    const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
+                    return `3. Post Submissions (${count})`;
+                  })()}
+                </button>
+                <button
+                  onClick={() => setActiveTab("reports")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                    activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  4. CSV Exports & Reports
+                </button>
+                <button
+                  onClick={() => setActiveTab("images")}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                  <span>5. Images Library ({marketingImages.length})</span>
+                  <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+                    {imageUploadEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+              </div>
+
               <button
-                onClick={() => setActiveTab("coins")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
-                  activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
+                onClick={handleManualRefresh}
+                disabled={isRefreshingData}
+                className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                title="Refresh trending coins, generated comments, and submission results"
               >
-                1. Trending Coins
-              </button>
-              <button
-                onClick={() => setActiveTab("comments")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
-                  activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                2. Generated Comments
-              </button>
-              <button
-                onClick={() => setActiveTab("results")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
-                  activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {(() => {
-                  const activePid = activeProfileIdRef.current || activeProfile?.id;
-                  const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
-                  return `3. Post Submissions (${count})`;
-                })()}
-              </button>
-              <button
-                onClick={() => setActiveTab("reports")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all ${
-                  activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                4. CSV Exports & Reports
-              </button>
-              <button
-                onClick={() => setActiveTab("images")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
-                <span>5. Images Library ({marketingImages.length})</span>
-                <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
-                  {imageUploadEnabled ? 'ON' : 'OFF'}
-                </span>
+                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                <span>Refresh Data</span>
               </button>
             </div>
           </div>
@@ -5966,14 +5894,6 @@ export default function App() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={handleManualRefresh}
-                    disabled={isRefreshingData}
-                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                    Refresh Coins
-                  </button>
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
@@ -6065,238 +5985,103 @@ export default function App() {
             )}
 
             {/* TAB 2: GENERATED COMMENTS */}
-            {activeTab === "comments" && (() => {
-              const activePid = activeProfileIdRef.current || activeProfile?.id;
-              const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
-              const matchSymbol = (a?: string, b?: string) => String(a || "").replace(/^\$/, "").trim().toLowerCase() === String(b || "").replace(/^\$/, "").trim().toLowerCase();
-              const pendingCoins = messagesList.filter(msgItem => !profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol)));
-              const failedCoins = messagesList.filter(msgItem => profileResults.some(r => matchSymbol(r.symbol, msgItem.symbol) && r.status !== "success"));
-              return (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <span className="text-sm text-slate-400 font-mono">
-                        Showing {messagesList.length} generated comments ({pendingCoins.length} pending, {failedCoins.length} failed)
+            {activeTab === "comments" && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="text-sm text-slate-400 font-mono">
+                      Showing {messagesList.length} AI-generated comments for the active profile
+                    </span>
+                    {messagesList.length > 0 && (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-semibold ${
+                        commentsGeneratedAt
+                          ? (formatTimeAgo(commentsGeneratedAt).isVeryStale
+                              ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                              : formatTimeAgo(commentsGeneratedAt).isStale
+                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                : "bg-purple-500/10 text-purple-400 border-purple-500/20")
+                          : "bg-slate-800/80 text-slate-400 border-slate-700/80"
+                      }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Write comments to generate fresh commentary with live timer."}>
+                        <Clock className="h-3 w-3" />
+                        {commentsGeneratedAt 
+                          ? `Generated: ${formatTimeAgo(commentsGeneratedAt).text} (${formatTimeAgo(commentsGeneratedAt).full})`
+                          : "Generated: Previous Session (Click Write comments to update)"}
                       </span>
-                      {messagesList.length > 0 && (
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-semibold ${
-                          commentsGeneratedAt
-                            ? (formatTimeAgo(commentsGeneratedAt).isVeryStale
-                                ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                : formatTimeAgo(commentsGeneratedAt).isStale
-                                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                  : "bg-purple-500/10 text-purple-400 border-purple-500/20")
-                            : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                        }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Write comments to generate fresh commentary with live timer."}>
-                          <Clock className="h-3 w-3" />
-                          {commentsGeneratedAt 
-                            ? `Generated: ${formatTimeAgo(commentsGeneratedAt).text} (${formatTimeAgo(commentsGeneratedAt).full})`
-                            : "Generated: Previous Session (Click Write comments to update)"}
-                        </span>
-                      )}
+                    )}
+                  </div>
+                </div>
+
+                {messagesList.length === 0 ? (
+                  <div className="p-12 bg-slate-950/60 border border-slate-800 rounded-2xl text-center text-slate-400 space-y-3">
+                    <div className="text-slate-500 font-medium">No generated comments found in storage for this profile.</div>
+                    <div className="text-sm text-slate-400 max-w-md mx-auto">
+                      Comments must be generated before they can be posted. Click <strong className="text-emerald-400">"Refresh Data"</strong> above, or trigger <strong className="text-purple-400">"Write comments"</strong> in the Control Center.
                     </div>
                     <button
                       onClick={handleManualRefresh}
                       disabled={isRefreshingData}
-                      className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                      className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition inline-flex items-center gap-1.5 cursor-pointer"
                     >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                      Refresh Comments
+                      <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
+                      Refresh Now
                     </button>
                   </div>
-
-                  {messagesList.length === 0 ? (
-                    <div className="p-12 bg-slate-950/60 border border-slate-800 rounded-2xl text-center text-slate-400 space-y-3">
-                      <div className="text-slate-500 font-medium">No generated comments found in storage for this profile.</div>
-                      <div className="text-sm text-slate-400 max-w-md mx-auto">
-                        Comments must be generated before they can be posted. If you recently switched profiles or expect data, click the <strong className="text-emerald-400">"Refresh Comments"</strong> button above, or trigger <strong className="text-purple-400">"Write comments"</strong> in the Control Center.
-                      </div>
-                      <button
-                        onClick={handleManualRefresh}
-                        disabled={isRefreshingData}
-                        className="mt-2 py-1.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition inline-flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${isRefreshingData ? "animate-spin" : ""}`} />
-                        Refresh Now
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-8">
-                      {/* Active Automated Posting Queue */}
-                      <div className="space-y-3">
-                        <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                          Active Automated Posting Queue ({pendingCoins.length} coins pending)
-                        </h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
-                      <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[750px]">
-                        <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
-                          <tr>
-                            <th className="py-3 px-4 w-[100px] border-r border-slate-700/80 whitespace-nowrap">Sequence</th>
-                            <th className="py-3 px-4 w-[150px] border-r border-slate-700/80 whitespace-nowrap">Asset</th>
-                            <th className="py-3 px-4 w-[120px] border-r border-slate-700/80 whitespace-nowrap">Sentiment</th>
-                            <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Comment Message</th>
-                            <th className="py-3 px-4 text-right w-[150px] whitespace-nowrap">Link</th>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
+                    <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[750px]">
+                      <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
+                        <tr>
+                          <th className="py-3 px-4 w-[100px] border-r border-slate-700/80 whitespace-nowrap">Sequence</th>
+                          <th className="py-3 px-4 w-[160px] border-r border-slate-700/80 whitespace-nowrap">Asset</th>
+                          <th className="py-3 px-4 w-[120px] border-r border-slate-700/80 whitespace-nowrap">Sentiment</th>
+                          <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Generated Comment Message</th>
+                          <th className="py-3 px-4 text-right w-[130px] whitespace-nowrap">Link</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
+                        {messagesList.map((item, index) => (
+                          <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
+                            <td className="py-3.5 px-4 font-mono border-r border-slate-800/80">
+                              <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 font-bold">
+                                #{index + 1}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-white border-r border-slate-800/80">
+                              <div className="leading-none">{item.name}</div>
+                              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{item.symbol}</span>
+                            </td>
+                            <td className="py-3.5 px-4 border-r border-slate-800/80">
+                              {item.sentiment === "bearish" ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider font-bold">
+                                  Bearish
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider font-bold">
+                                  Bullish
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-slate-300 leading-relaxed italic border-r border-slate-800/80">
+                              "{item.message}"
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-purple-400 hover:text-purple-300 hover:underline inline-flex items-center gap-1 font-semibold"
+                              >
+                                Open <ChevronRight className="h-3 w-3" />
+                              </a>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
-                          {pendingCoins.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="py-6 text-center text-slate-500 italic">
-                                No pending coins in queue. All coins have been processed!
-                              </td>
-                            </tr>
-                          ) : (
-                            pendingCoins.map((item, index) => (
-                              <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
-                                <td className="py-4 px-4 font-mono border-r border-slate-800/80">
-                                  <span className="text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20 font-bold">
-                                    Seq #{index + 1}
-                                  </span>
-                                </td>
-                                <td className="py-4 px-4 font-bold text-white border-r border-slate-800/80">
-                                  <div className="leading-none">{item.name}</div>
-                                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{item.symbol}</span>
-                                </td>
-                                <td className="py-4 px-4 border-r border-slate-800/80">
-                                  {item.sentiment === "bearish" ? (
-                                    <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider font-bold">
-                                      Bearish
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider font-bold">
-                                      Bullish
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-4 px-4 font-mono text-slate-300 leading-relaxed italic border-r border-slate-800/80">
-                                  "{item.message}"
-                                </td>
-                                <td className="py-4 px-4 text-right">
-                                  <a
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
-                                  >
-                                    Open <ChevronRight className="h-3 w-3" />
-                                  </a>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-
-                  {/* Failed/Unsuccessful Submissions */}
-                  <div className="space-y-3 pt-4 border-t border-slate-800">
-                    <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                      Failed / Unsuccessful Submissions ({failedCoins.length} failures)
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-rose-900/50 shadow-md bg-slate-950/70">
-                      <table className="w-full text-left text-sm border border-rose-900/40 border-collapse min-w-[750px]">
-                        <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-rose-900/50 font-mono font-bold">
-                          <tr>
-                            <th className="py-3 px-4 w-[150px] border-r border-rose-900/40 whitespace-nowrap">Asset</th>
-                            <th className="py-3 px-4 w-[120px] border-r border-rose-900/40 whitespace-nowrap">Sentiment</th>
-                            <th className="py-3 px-4 border-r border-rose-900/40 whitespace-nowrap">Error/Status Details</th>
-                            <th className="py-3 px-4 text-center w-[150px] border-r border-rose-900/40 whitespace-nowrap">Interactive Control</th>
-                            <th className="py-3 px-4 text-right w-[150px] whitespace-nowrap">Link</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/80 bg-slate-900/40">
-                          {failedCoins.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="py-6 text-center text-slate-500 italic">
-                                No unsuccessful submissions found. Smooth sailing!
-                              </td>
-                            </tr>
-                          ) : (
-                            failedCoins.map((item, index) => {
-                              const resEntry = profileResults.find(r => r.symbol.toLowerCase() === item.symbol.toLowerCase());
-                              return (
-                                <tr key={index} className="hover:bg-slate-800/40 transition-colors bg-rose-500/[0.03]">
-                                  <td className="py-4 px-4 font-bold text-white border-r border-slate-800/80">
-                                    <div className="leading-none">{item.name}</div>
-                                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{item.symbol}</span>
-                                  </td>
-                                  <td className="py-4 px-4 border-r border-slate-800/80">
-                                    {item.sentiment === "bearish" ? (
-                                      <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider font-bold">
-                                        Bearish
-                                      </span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider font-bold">
-                                        Bullish
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-4 px-4 text-slate-300 font-mono text-[11px] border-r border-slate-800/80">
-                                    <div className="text-rose-400 font-bold mb-1 flex items-center gap-1.5">
-                                      <AlertTriangle className="h-3.5 w-3.5" />
-                                      {resEntry ? resEntry.status.toUpperCase() : "FAILED"}
-                                    </div>
-                                    <div className="text-slate-400 italic">
-                                      {resEntry ? resEntry.message : "Submission failed"}
-                                    </div>
-                                  </td>
-                                  <td className="py-4 px-4 text-center border-r border-slate-800/80">
-                                    <div className="flex items-center justify-center gap-1.5">
-                                      <button
-                                        onClick={() => handleRetrySingle(item.symbol)}
-                                        disabled={individualLoading[item.symbol] !== null || isBusy}
-                                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-emerald-500/25 transition flex items-center gap-1.5 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
-                                        title="Bot auto-posts this coin via Playwright browser"
-                                      >
-                                        {individualLoading[item.symbol] === "retry" ? (
-                                          <RefreshCw className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                          <Play className="h-3 w-3 fill-current" />
-                                        )}
-                                        Auto Retry
-                                      </button>
-                                      <a
-                                        href={item.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={() => {
-                                          const msgEntry = messagesList.find(m => m.symbol.toLowerCase() === item.symbol.toLowerCase());
-                                          handleCopyAndOpenCMC(item.url, msgEntry ? msgEntry.message : item.message, item.symbol);
-                                        }}
-                                        className="px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-blue-500/25 transition flex items-center gap-1 cursor-pointer"
-                                        title="Copies comment to clipboard and opens CoinMarketCap to post manually"
-                                      >
-                                        <ExternalLink className="h-3 w-3" />
-                                        Manual Post
-                                      </a>
-                                    </div>
-                                  </td>
-                                  <td className="py-4 px-4 text-right">
-                                    <a
-                                      href={item.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-rose-400 hover:text-rose-300 hover:underline inline-flex items-center gap-1 font-semibold"
-                                    >
-                                      Open <ChevronRight className="h-3 w-3" />
-                                    </a>
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+                )}
+              </div>
+            )}
 
             {/* TAB 3: SUBMISSION RESULTS */}
             {activeTab === "results" && (() => {
@@ -6358,16 +6143,7 @@ export default function App() {
                         title="Configure automatic data retention and completed batch auto-pruning"
                       >
                         <Clock className="h-3.5 w-3.5" />
-                        Retention: {retentionDays}d
-                      </button>
-                      <button
-                        onClick={() => handlePruneOldData(retentionDays)}
-                        disabled={isPruningData || profileResults.length === 0}
-                        className="py-1.5 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-bold border border-amber-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                        title={`Prune records older than ${retentionDays} days into long-term archive`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        {isPruningData ? "Pruning..." : `Prune >${retentionDays}d`}
+                        Retention & Prune ({retentionDays}d)
                       </button>
                       <button
                         onClick={() => setShowResetQueueConfirm(true)}
@@ -6377,14 +6153,6 @@ export default function App() {
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
                         Archive & Restart ({profileResults.length})
-                      </button>
-                      <button
-                        onClick={handleManualRefresh}
-                        disabled={isRefreshingData}
-                        className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                        Refresh
                       </button>
                     </div>
                   </div>
@@ -6637,14 +6405,6 @@ export default function App() {
                   <span className="text-sm text-slate-400 font-mono">
                     Download analytical reports and raw data sheets for external use
                   </span>
-                  <button
-                    onClick={handleManualRefresh}
-                    disabled={isRefreshingData}
-                    className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
-                    Refresh Reports
-                  </button>
                 </div>
 
                 <div className="space-y-8">
@@ -7748,7 +7508,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
       {/* MODAL: PASTE COOKIE SESSION OR LOGIN */}
       {showSessionModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col justify-between animate-in fade-in zoom-in-95 duration-150">
             
             {/* Header */}
             <div className="p-5 pb-3 border-b border-slate-800 flex items-center justify-between">
@@ -7757,7 +7517,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   <Key className="h-4 w-4" />
                 </span>
                 <h3 className="font-bold text-white text-base">
-                  Configure Playwright Session
+                  Configure Playwright Session & Accounts
                 </h3>
               </div>
               <button
@@ -7765,9 +7525,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   setShowSessionModal(false);
                   handleResetLoginState();
                 }}
-                className="text-slate-400 hover:text-white transition font-bold font-mono text-base"
+                title="Close modal"
+                aria-label="Close modal"
+                className="text-slate-400 hover:text-white transition p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
               >
-                ✕
+                <X className="h-5 w-5" />
               </button>
             </div>
 
@@ -8348,31 +8110,6 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       </div>
                     )}
                   </div>
-
-                  {activeSessionContent && (
-                    <div className="pt-3 border-t border-slate-800/80 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono font-bold tracking-wider">
-                          Active state.json Cookies Content
-                        </label>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(activeSessionContent);
-                            showToast("Active state.json successfully copied to clipboard!", "success");
-                          }}
-                          className="text-[10px] text-emerald-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
-                        >
-                          📋 Copy Active Session State
-                        </button>
-                      </div>
-                      <textarea
-                        rows={4}
-                        readOnly
-                        value={activeSessionContent}
-                        className="w-full bg-slate-950 border border-slate-800/80 rounded-lg p-2 font-mono text-[9px] text-slate-400 focus:outline-none"
-                      />
-                    </div>
-                  )}
                 </div>
               )}
 
