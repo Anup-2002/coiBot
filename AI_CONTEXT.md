@@ -13,6 +13,9 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `88e7626` — `feat: refine UI placement, remove duplicate sections, and upgrade beginner-friendly /guide`
+  - `fbec426` — `fix: verify Playwright Chromium binary via headless launch on Windows`
+  - `b4bf1c5` — `docs: create central AI_CONTEXT.md handoff file`
   - `204c38c` — `feat: add aria-label and title to all icon-only buttons (Step 7)`
   - `6b51a28` — `perf: deduplicate session/profile cloud saves and eliminate idle DB calls (Step 6)`
   - `0529bf9` — `feat: update header items and /health chips and messages (Step 3)`
@@ -84,9 +87,19 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
    - `0` direct `fetch()`, `0` `alert()`, `0` `confirm()` calls in `src/App.tsx`.
    - `ErrorBoundary` exported from `src/App.tsx` and wrapping `<App />` in `src/main.tsx`.
    - Every icon-only button in `src/App.tsx` has both `title` and `aria-label`.
-9. **Playwright Chromium-1248 & `/api/check-system` Windows Fix (`PASS`)**:
+9. **Playwright Chromium-1248 & `/api/check-system` Windows Fix (`PASS`, commit `fbec426`)**:
    - Installed Playwright `1.61.1` browser bundle (`chromium-1248` / Chrome for Testing `156.0.8078.4`) into `./.cache/ms-playwright`.
    - Updated `/api/check-system` in `server.ts` so on Windows (`process.platform === "win32"`), it verifies the binary via headless Playwright launch (`chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] })`) instead of `chrome.exe --version` (which hangs in Windows AppContainer sandbox). Verified `/api/check-system` returns `success: true` and `launchStatus: "success"`.
+10. **UI Module Placement, Deduplication & Beginner-Friendly `/guide` (`PASS`, commit `88e7626`)**:
+    - **Header & Navigation**: Made the brand logo/title clickable (`navigateTo("dashboard")`), standardized the `Admin` header button so its label stays `"Admin"` with active ring highlight, and standardized the `Back to Dashboard` button across `/admin`, `/scheduler`, `/logs`, `/health`, and `/guide`.
+    - **Removed Duplicate Sections across Views**:
+      - Removed duplicate `Multi-Account Scheduler` sub-tab and Section 4 from `/admin` (lives on `/scheduler`).
+      - Removed duplicate/unpolled `Sequential Scheduler Execution Logs` terminal box at the bottom of `/scheduler` and added a `Scheduler Logs` header button that navigates directly to `/logs` (`Scheduler Logs` tab).
+      - Added `"Manage Accounts"` button to the `/scheduler` `Configured Accounts & Execution Order` header and empty table state.
+      - Removed redundant `6. Accounts Schedule` tab from the Dashboard `Storage & Report Explorer`.
+      - Reorganized Tab 5 (`Images Library`) so gallery selection/management buttons (`Select All`, `Delete Selected`, `Clear All`, `Reload images`) live in the `SpikeSignals Image Library` gallery toolbar above the image grid/list, and removed the duplicate `Upload more images` button in the `Source Agnostic` strip.
+    - **Destructive Action Safeguards**: Wrapped `Delete state.json`, `/admin` `Reset Storage`, `/logs` `Clear console`, and Dashboard `Reset Storage` (`#btn-clear-stats`) with `setInlineConfirmModal` confirmation dialogs.
+    - **Beginner-Friendly `/guide` Page**: Added a 3-step visual workflow roadmap banner (*Step 1: Add a CoinMarketCap Account* ➔ *Step 2: Fetch Coins & Write AI Comments* ➔ *Step 3: Start Posting or Enable Scheduler*) with 1-click action buttons, numbered step circles (`1`–`5`), beginner tips, and direct navigation buttons on each of the 5 guide cards while preserving the 5 required headings and 25 plain-word bullets.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
