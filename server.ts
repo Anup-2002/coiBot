@@ -5281,11 +5281,19 @@ app.get("/api/check-system", async (req, res) => {
 
     if (executableExists) {
       try {
-        // Run a quick version check on the chromium binary
-        // If system dependencies are missing, this will fail with an error detailing the missing library
-        const output = execSync(`"${executablePath}" --version`, { stdio: "pipe", timeout: 5000 }).toString().trim();
-        launchStatus = "success";
-        message = `Chromium binary verified successfully: ${output}`;
+        if (process.platform === "win32") {
+          const testBrowser = await chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] });
+          const ver = testBrowser.version();
+          await testBrowser.close().catch(() => {});
+          launchStatus = "success";
+          message = `Chromium binary verified successfully: Chrome for Testing ${ver}`;
+        } else {
+          // Run a quick version check on the chromium binary
+          // If system dependencies are missing, this will fail with an error detailing the missing library
+          const output = execSync(`"${executablePath}" --version`, { stdio: "pipe", timeout: 5000 }).toString().trim();
+          launchStatus = "success";
+          message = `Chromium binary verified successfully: ${output}`;
+        }
       } catch (err) {
         const errMsg = (err as Error).message || "";
         const stderr = (err as any).stderr?.toString() || "";

@@ -84,6 +84,9 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
    - `0` direct `fetch()`, `0` `alert()`, `0` `confirm()` calls in `src/App.tsx`.
    - `ErrorBoundary` exported from `src/App.tsx` and wrapping `<App />` in `src/main.tsx`.
    - Every icon-only button in `src/App.tsx` has both `title` and `aria-label`.
+9. **Playwright Chromium-1248 & `/api/check-system` Windows Fix (`PASS`)**:
+   - Installed Playwright `1.61.1` browser bundle (`chromium-1248` / Chrome for Testing `156.0.8078.4`) into `./.cache/ms-playwright`.
+   - Updated `/api/check-system` in `server.ts` so on Windows (`process.platform === "win32"`), it verifies the binary via headless Playwright launch (`chromium.launch({ headless: true, chromiumSandbox: false, args: ["--no-sandbox"] })`) instead of `chrome.exe --version` (which hangs in Windows AppContainer sandbox). Verified `/api/check-system` returns `success: true` and `launchStatus: "success"`.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
@@ -102,3 +105,4 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
 3. **After any future code change**:
    - Run `npm run lint`, `npm test`, and `npm run build`.
    - Update this `AI_CONTEXT.md` file with the latest state and commit hashes.
+
