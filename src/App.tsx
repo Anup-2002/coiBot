@@ -3055,30 +3055,6 @@ export default function App() {
               <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
               <span>Guide</span>
             </button>
-
-            {/* Quick Share Team Link & Lock Button */}
-            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-sm">
-              <button
-                onClick={handleCopyShareLink}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-bold transition cursor-pointer border border-indigo-500/20"
-                title="Copy 1-Click Company Team Access Link to clipboard"
-                aria-label="Copy team access link"
-              >
-                <Share2 className="h-3 w-3 text-indigo-400" />
-                <span className="hidden xl:inline">Share Link</span>
-              </button>
-              {adminAuthRequired && (
-                <button
-                  onClick={handleAdminLogout}
-                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 text-xs font-medium transition cursor-pointer"
-                  title="Lock Dashboard / Sign Out of Company Admin"
-                  aria-label="Lock dashboard"
-                >
-                  <LogOut className="h-3 w-3" />
-                  <span className="hidden xl:inline">Lock</span>
-                </button>
-              )}
-            </div>
           </div>
         </div>
       </header>
@@ -5197,125 +5173,107 @@ export default function App() {
             </div>
           )}
 
-          {/* 5 SYSTEM HEALTH CHIPS */}
+          {/* 5 SYSTEM HEALTH CHIPS (Cut from Header) */}
           <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl">
-            {/* Server Chip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
-              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.server?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
-              <span className="text-slate-400 font-mono text-xs">Server:</span>
-              <span className="font-bold text-slate-200">
-                {healthData?.checks?.server?.status === "ok" ? "Online" : "Degraded"}
-              </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
+              Server: <span className="font-semibold text-emerald-400">ONLINE</span>
             </div>
 
-            {/* OpenAI Chip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
-              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.openai?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
-              <span className="text-slate-400 font-mono text-xs">OpenAI:</span>
-              <span className="font-bold text-slate-200">
-                {healthData?.checks?.openai?.status === "ok" ? (apiStatus.openai ? "Active" : "Gemini Fallback") : (apiStatus.openaiError ? "Quota Limit" : "Missing Key")}
-              </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
+              <span className="text-slate-400 font-mono">OpenAI:</span>
+              {apiStatus.openai ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> Enabled
+                </span>
+              ) : (
+                <span className="text-amber-400 font-bold flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" /> Rule-Based
+                </span>
+              )}
             </div>
 
-            {/* CMC Chip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
-              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.cmc?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
-              <span className="text-slate-400 font-mono text-xs">CMC:</span>
-              <span className="font-bold text-slate-200">
-                {healthData?.checks?.cmc?.status === "ok" ? "Ready" : "Browser Missing"}
-              </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
+              <span className="text-slate-400 font-mono">CMC:</span>
+              {apiStatus.cmc ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> Connected
+                </span>
+              ) : (
+                <span className="text-blue-400 font-bold flex items-center gap-1">
+                  <Globe className="h-3 w-3" /> CG Public
+                </span>
+              )}
             </div>
 
-            {/* DB Chip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm">
-              <span className={`w-2 h-2 rounded-full ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
-              <span className="text-slate-400 font-mono text-xs">DB:</span>
-              <span className="font-bold text-slate-200">
-                {healthData?.checks?.database?.details || healthData?.checks?.db?.details || "Connected"}
-              </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
+              <span className="text-slate-400 font-mono">DB:</span>
+              {storageInfo.isFirebaseDisabled ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
+                  <Database className="h-3 w-3 text-emerald-400" /> Mongo (Quota Safe)
+                </span>
+              ) : storageInfo.isMongoConnected ? (
+                <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
+                  <Database className="h-3 w-3 text-cyan-400" /> Mongo + Cloud
+                </span>
+              ) : (
+                <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
+                  <Database className="h-3 w-3 text-amber-400" /> Firebase
+                </span>
+              )}
             </div>
 
-            {/* Alerts Toggle Chip */}
+            {/* NOTIFICATION ALERTS TOGGLE BUTTON */}
             <button
-              onClick={() => handleToggleTelegram(!telegramEnabled)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold transition cursor-pointer ${
-                telegramEnabled
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                  : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
+              onClick={toggleNotifications}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+                notificationsEnabled
+                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
               }`}
-              title="Toggle Emergency Telegram Alerts"
+              title={notificationsEnabled ? "Notification toasts are active. Click to mute." : "Notification toasts are muted. Click to turn ON."}
             >
-              <Bell className="h-4 w-4" />
-              <span>Alerts: {telegramEnabled ? "ON" : "OFF"}</span>
+              {notificationsEnabled ? (
+                <Bell className="h-3.5 w-3.5 text-emerald-400" />
+              ) : (
+                <BellOff className="h-3.5 w-3.5 text-amber-400" />
+              )}
+              <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
             </button>
           </div>
 
-          {/* DIAGNOSTIC CHECK DETAILS WITH PLAIN SENTENCE GUIDANCE */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Server Card */}
-            <div className={`p-5 rounded-2xl border ${healthData?.checks?.server?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-base">Server Express API</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.server?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                  {healthData?.checks?.server?.status || "ok"}
-                </span>
+          {/* PLAIN SENTENCE UNDER EACH CHECK THAT IS NOT OK */}
+          <div className="space-y-3">
+            {healthData?.checks?.server && healthData.checks.server.status !== "ok" && (
+              <div className="p-4 rounded-2xl border bg-rose-950/20 border-rose-500/40 text-sm text-slate-200">
+                <strong className="text-white mr-2">Server:</strong>
+                {healthData.checks.server.message}
               </div>
-              <p className="text-sm text-slate-300">
-                {healthData?.checks?.server?.message || "Node.js Express backend server is healthy and responding."}
-              </p>
-            </div>
-
-            {/* OpenAI Card */}
-            <div className={`p-5 rounded-2xl border ${healthData?.checks?.openai?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-base">OpenAI / AI Models</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.openai?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                  {healthData?.checks?.openai?.status || (apiStatus.openai ? "ok" : "error")}
-                </span>
+            )}
+            {healthData?.checks?.openai && healthData.checks.openai.status !== "ok" && (
+              <div className="p-4 rounded-2xl border bg-rose-950/20 border-rose-500/40 text-sm text-slate-200">
+                <strong className="text-white mr-2">OpenAI:</strong>
+                {healthData.checks.openai.message}
               </div>
-              <p className="text-sm text-slate-300">
-                {healthData?.checks?.openai?.message || (apiStatus.openai ? "OpenAI primary model is operational." : "OPENAI_API_KEY is not configured. Add OPENAI_API_KEY to your environment variables to enable comment generation.")}
-              </p>
-            </div>
-
-            {/* CMC Browser Card */}
-            <div className={`p-5 rounded-2xl border ${healthData?.checks?.cmc?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-base">Playwright Chromium</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.cmc?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                  {healthData?.checks?.cmc?.status || "ok"}
-                </span>
+            )}
+            {healthData?.checks?.cmc && healthData.checks.cmc.status !== "ok" && (
+              <div className="p-4 rounded-2xl border bg-rose-950/20 border-rose-500/40 text-sm text-slate-200">
+                <strong className="text-white mr-2">CMC Browser:</strong>
+                {healthData.checks.cmc.message}
               </div>
-              <p className="text-sm text-slate-300">
-                {healthData?.checks?.cmc?.message || "Headless Chromium browser engine is ready for automation."}
-              </p>
-            </div>
-
-            {/* Database Card */}
-            <div className={`p-5 rounded-2xl border ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2`}>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-base">Database Storage</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.database?.status === "ok" || healthData?.checks?.db?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                  {healthData?.checks?.database?.status || healthData?.checks?.db?.status || "ok"}
-                </span>
+            )}
+            {(healthData?.checks?.database || healthData?.checks?.db) && (healthData?.checks?.database?.status || healthData?.checks?.db?.status) !== "ok" && (
+              <div className="p-4 rounded-2xl border bg-rose-950/20 border-rose-500/40 text-sm text-slate-200">
+                <strong className="text-white mr-2">Database:</strong>
+                {healthData?.checks?.database?.message || healthData?.checks?.db?.message}
               </div>
-              <p className="text-sm text-slate-300">
-                {healthData?.checks?.database?.message || healthData?.checks?.db?.message || "Persistent data storage connection is healthy."}
-              </p>
-            </div>
-
-            {/* Account Session Card */}
-            <div className={`p-5 rounded-2xl border ${healthData?.checks?.account?.status === "ok" ? "bg-slate-900 border-slate-800" : "bg-rose-950/20 border-rose-500/40"} space-y-2 md:col-span-2`}>
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-base">CoinMarketCap Account Session</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase ${healthData?.checks?.account?.status === "ok" ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                  {healthData?.checks?.account?.status || "degraded"}
-                </span>
+            )}
+            {healthData?.checks?.account && healthData.checks.account.status !== "ok" && (
+              <div className="p-4 rounded-2xl border bg-rose-950/20 border-rose-500/40 text-sm text-slate-200">
+                <strong className="text-white mr-2">Account:</strong>
+                {healthData.checks.account.message}
               </div>
-              <p className="text-sm text-slate-300">
-                {healthData?.checks?.account?.message || "Active account session check. Ensure at least one account is logged in."}
-              </p>
-            </div>
+            )}
           </div>
         </main>
       ) : (
