@@ -166,6 +166,9 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Removed over-complicated `"Verified Posted"` / `"100% Verified"` / `"verified on CMC"` UI claims in favor of clean **`Posted`** / **`Completed`** labels.
       - Compacted inline button badges across the Control Center (`#btn-login`, `#btn-fetch`, `#btn-generate`, `#btn-start`, `#btn-full-flow`) with `min-w-0 flex-1 truncate` on titles and `shrink-0 whitespace-nowrap` on pills so relative timestamps never stretch or overlap button labels.
       - Highlighted the **24/7 Multi-Account Auto-Scheduler** as the primary feature via a top Dashboard spotlight banner (`Open 24/7 Scheduler`) and a prominent navbar button.
+    - **Modern Dark Dropdown Styling & Complete Removal of Technical Route Tooltips (`PASS`)**:
+      - Added global dark-mode `<select>` and `<option>` styling (`color-scheme: dark`, `appearance: none`, custom SVG chevron indicator, `padding-right: 2.1rem`, indigo hover/focus ring, and dark `#0f172a` option popups) in `src/index.css` and unified all 6 dropdowns across `src/App.tsx` (Top Navbar Active Account switcher, Scheduler Order `#1` selector, Scheduler Posting Frequency selector, Activity Logs filter selector, Image Library Auto-Prune selector, and Image Library Page Size selector).
+      - Removed all remaining technical route slugs (`(/logs)`, `(/admin)`, `(/health)`, `(/guide)`) and technical terms (`Console`, `Playwright`, `state.json`, `daemon`) from hover tooltips (`title="..."`), header titles (`CoinMarketCap Commenting Hub`, `Admin Settings`, `Live Activity and Posting History`), confirmation modals, and toast messages.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)

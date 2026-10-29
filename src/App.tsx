@@ -2398,11 +2398,11 @@ export default function App() {
     if (endpoint.includes("check-login")) processLabel = "Verifying CoinMarketCap session with real browser...";
     else if (endpoint.includes("fetch-trending")) processLabel = "Fetching live trending coins from CoinMarketCap...";
     else if (endpoint.includes("generate-messages")) processLabel = "Generating tailored crypto comments using AI...";
-    else if (endpoint.includes("post-chat")) processLabel = "Launching Playwright to submit comments...";
+    else if (endpoint.includes("post-chat")) processLabel = "Opening CoinMarketCap browser to post comments...";
     else if (endpoint.includes("stop-posting")) processLabel = "Stopping posting sequence...";
     else if (endpoint.includes("full-flow")) processLabel = "Starting full automated bot cycle...";
     else if (endpoint.includes("clear-all")) processLabel = "Resetting local storage and clearing data...";
-    else if (endpoint.includes("clear-session")) processLabel = "Deleting auth/state.json session file...";
+    else if (endpoint.includes("clear-session")) processLabel = "Removing saved account login session...";
 
     showToast(processLabel, "process");
 
@@ -2806,7 +2806,7 @@ export default function App() {
                 <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-slate-400">
                   <span className="flex items-center gap-1">
                     <Shield className="h-3 w-3 text-emerald-400" />
-                    Background daemon runs 24/7 until failure or admin stop
+                    Automatic scheduler runs 24/7 until stopped
                   </span>
                   <span className="text-emerald-400 font-mono font-semibold">Protected</span>
                 </div>
@@ -2885,7 +2885,7 @@ export default function App() {
                 ) : (
                   <>
                     <Lock className="h-4 w-4 text-slate-950" />
-                    <span>Sign In to Bot Console</span>
+                    <span>Sign In to Dashboard</span>
                   </>
                 )}
               </button>
@@ -2897,7 +2897,7 @@ export default function App() {
           </div>
 
           <div className="text-center mt-6 text-sm text-slate-500 font-mono">
-            CMC Operations Console &bull; Security Level: High
+            CoinMarketCap Marketing Portal
           </div>
         </div>
       </div>
@@ -2931,7 +2931,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-base sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2">
-                  CoinMarketCap Bot Console
+                  CoinMarketCap Commenting Hub
                 </h1>
                 <p className="text-[11px] text-slate-400 hidden sm:block">Automated Community Commenting and Growth Driver</p>
               </div>
@@ -2995,15 +2995,15 @@ export default function App() {
 
             {/* Quick Account Switcher Dropdown - responsive across all screens */}
             {profilesList.length > 1 && (
-              <div className={`flex items-center bg-slate-950 border rounded-lg px-2.5 py-1 sm:py-1.5 text-sm shadow-inner transition ${
+              <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-sm shadow-inner transition ${
                 (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
               }`}>
-                <span className="text-sm text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
+                <span className="text-xs text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
                   {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
                   Active:
                 </span>
                 {switchingProfileId ? (
-                  <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                  <span className="flex items-center gap-1 text-emerald-400 font-bold text-sm px-2 py-0.5">
                     <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
                     Switching...
                   </span>
@@ -3015,11 +3015,11 @@ export default function App() {
                       const target = profilesList.find(p => p.id === e.target.value);
                       if (target) promptSwitchProfile(target);
                     }}
-                    className="bg-transparent text-emerald-400 font-bold focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[120px] sm:max-w-[140px] truncate"
+                    className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2.5 py-1 text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[150px] sm:max-w-[190px] truncate shadow-sm"
                     title={
                       (isBusy || isPostingActive || isContinuousLoopActive)
                         ? "Account switching locked: Click 'Stop Posting' before switching accounts"
-                        : "Switch active CoinMarketCap account (asks for confirmation)"
+                        : "Switch active CoinMarketCap account"
                     }
                   >
                     {profilesList.map(p => (
@@ -3032,7 +3032,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PRIMARY FEATURE: 24/7 Scheduler Screen Link Button (/scheduler) */}
+            {/* PRIMARY FEATURE: 24/7 Scheduler Screen Link Button */}
             <button
               onClick={() => navigateTo(currentView === "scheduler" ? "dashboard" : "scheduler")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shadow-md shrink-0 whitespace-nowrap ${
@@ -3073,13 +3073,13 @@ export default function App() {
                   ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open Admin & System Diagnostics Console (/admin)"
+              title="Open Admin Settings"
             >
               <Shield className="h-3.5 w-3.5 text-blue-400" />
               <span>Admin</span>
             </button>
 
-            {/* Logs Link Button (/logs) */}
+            {/* Logs Link Button */}
             <button
               onClick={() => navigateTo(currentView === "logs" ? "dashboard" : "logs")}
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
@@ -3087,13 +3087,13 @@ export default function App() {
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open Activity Logs Console (/logs)"
+              title="Open Activity History"
             >
               <TerminalIcon className="h-3.5 w-3.5 text-emerald-400" />
               <span>Logs</span>
             </button>
 
-            {/* Health Link Button (/health) */}
+            {/* Health Link Button */}
             <button
               onClick={() => navigateTo(currentView === "health" ? "dashboard" : "health")}
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
@@ -3101,7 +3101,7 @@ export default function App() {
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open System Health & Diagnostics (/health)"
+              title="Open System Status"
             >
               <span className={`w-2 h-2 rounded-full inline-block ${healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
@@ -3116,7 +3116,7 @@ export default function App() {
                   ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open Quick Start Operating Guide (/guide)"
+              title="Open User Guide"
             >
               <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
               <span>Guide</span>
@@ -3137,7 +3137,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  Admin & System Console
+                  Admin Settings
                 </h1>
                 <p className="text-sm text-slate-400">Select an administrative module below to inspect or configure</p>
               </div>
@@ -3904,7 +3904,7 @@ export default function App() {
                   navigateTo("logs");
                 }}
                 className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
-                title="View live Scheduler Execution Logs (/logs)"
+                title="View Scheduler Activity History"
               >
                 <TerminalIcon className="h-4 w-4 text-indigo-400" /> Scheduler Logs
               </button>
@@ -4373,7 +4373,7 @@ export default function App() {
                                   disabled={isSchedulerRunning}
                                   value={acc.schedule.order}
                                   onChange={(e) => handleDirectOrderInput(acc.id, parseInt(e.target.value) || 1)}
-                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500 rounded px-1.5 py-0.5 text-sm font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-2.5 py-1 text-sm font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                                   title={isSchedulerRunning ? "Locked while scheduler is running" : "Click to pick position number directly"}
                                 >
                                   {sortedArr.map((_, pIdx) => (
@@ -4501,7 +4501,7 @@ export default function App() {
                                       ...(e.target.value === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {})
                                     })
                                   }
-                                  className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-100 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                                 >
                                   <option value="every_cycle">Every cycle</option>
                                   <option value="daily">Daily (24h)</option>
@@ -5027,7 +5027,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Activity Logs
                 </h1>
-                <p className="text-sm text-slate-400">System Activity and Console Output</p>
+                <p className="text-sm text-slate-400">Live Activity and Posting History</p>
               </div>
             </div>
 
@@ -5084,15 +5084,15 @@ export default function App() {
                     onClick={() =>
                       setInlineConfirmModal({
                         isOpen: true,
-                        title: "Clear System Activity & Storage",
-                        message: "Clear local console logs and queued coins/comments for the active account? Posted submission history is preserved.",
+                        title: "Clear Activity Logs & Queue",
+                        message: "Clear activity logs and queued coins/comments for this account? Your posted history stays safe.",
                         onConfirm: () => runCommand("/api/clear-all", "clear")
                       })
                     }
                     disabled={isPending.clear}
                     className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500 cursor-pointer"
-                    title="Clear console"
-                    aria-label="Clear console"
+                    title="Clear activity logs"
+                    aria-label="Clear activity logs"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -5104,7 +5104,7 @@ export default function App() {
                     placeholder="Filter logs by keyword..."
                     value={logSearchQuery}
                     onChange={(e) => setLogSearchQuery(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 placeholder-slate-600 font-mono"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 placeholder-slate-600 font-mono"
                   />
 
                   <button
@@ -5115,7 +5115,7 @@ export default function App() {
                         terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
                       }
                     }}
-                    className={`px-2 py-1 text-[10px] font-bold rounded border transition flex items-center gap-1 cursor-pointer ${
+                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
                       autoScroll
                         ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
                         : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
@@ -5130,14 +5130,14 @@ export default function App() {
                   <select
                     value={logFilter}
                     onChange={(e) => setLogFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] font-semibold text-slate-400 cursor-pointer focus:outline-none focus:border-emerald-500"
+                    className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 cursor-pointer focus:outline-none shadow-sm"
                     aria-label="Filter logs by level"
                   >
-                    <option value="all">ALL LOGS</option>
-                    <option value="info">INFO</option>
-                    <option value="success">SUCCESS</option>
-                    <option value="warning">WARNING</option>
-                    <option value="error">ERROR</option>
+                    <option value="all">All Activity</option>
+                    <option value="info">Info</option>
+                    <option value="success">Success</option>
+                    <option value="warning">Warnings</option>
+                    <option value="error">Errors</option>
                   </select>
                 </div>
               </div>
@@ -5148,7 +5148,7 @@ export default function App() {
                 className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-[11px] space-y-1.5 leading-relaxed shadow-inner"
               >
                 {filteredLogs.length === 0 ? (
-                  <div className="text-slate-600 italic text-center pt-12">No console messages matching filter.</div>
+                  <div className="text-slate-600 italic text-center pt-12">No activity messages matching filter.</div>
                 ) : (
                   filteredLogs.slice(-100).map((log, index) => {
                     let colorClass = "text-slate-300";
@@ -5245,9 +5245,9 @@ export default function App() {
               <button
                 onClick={() => navigateTo("admin", "diagnostics")}
                 className="px-3.5 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
-                title="Open Playwright & Environment Diagnostics (/admin)"
+                title="Open System Settings"
               >
-                <Shield className="h-4 w-4 text-blue-400" /> Runtime Diagnostics
+                <Shield className="h-4 w-4 text-blue-400" /> System Check
               </button>
               <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
                 <ArrowLeft className="h-4 w-4" /> Back to Dashboard
@@ -5607,7 +5607,7 @@ export default function App() {
                       setInlineConfirmModal({
                         isOpen: true,
                         title: "Clear Active Account Queue",
-                        message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
+                        message: "Clear queued trending coins, generated comments, and activity logs for this account? Your posted submission history and cookies will remain safe.",
                         onConfirm: () => runCommand("/api/clear-all", "clear")
                       });
                     }}
@@ -6963,7 +6963,7 @@ export default function App() {
                                           onClick={() => handleRetrySingle(msgItem.symbol)}
                                           disabled={individualLoading[msgItem.symbol] !== null || isBusy}
                                           className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-emerald-500/25 transition flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
-                                          title="Bot auto-posts this coin via Playwright browser"
+                                          title="Automatically post this comment on CoinMarketCap"
                                         >
                                           {individualLoading[msgItem.symbol] === "retry" ? (
                                             <RefreshCw className="h-2.5 w-2.5 animate-spin" />
@@ -7051,7 +7051,7 @@ export default function App() {
                       </div>
                       <h3 className="font-bold text-white text-base">Generated Comments CSV</h3>
                       <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Complete listing of generated custom comments ready for automated Playwright commenting.
+                        Complete list of AI-generated comments ready to post on CoinMarketCap.
                       </p>
                     </div>
                     <a
@@ -7395,7 +7395,7 @@ export default function App() {
                     <select
                       value={autoPruneLimit}
                       onChange={(e) => handleToggleAutoPrune(autoPruneEnabled, Number(e.target.value))}
-                      className="flex-1 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-sm font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="flex-1 bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-200 focus:outline-none cursor-pointer shadow-sm"
                     >
                       <option value={10}>Keep latest 10 images</option>
                       <option value={20}>Keep latest 20 images</option>
@@ -7543,7 +7543,7 @@ export default function App() {
                         setImagePageSize(Number(e.target.value));
                         setImagePage(1);
                       }}
-                      className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-200 focus:outline-none cursor-pointer shadow-sm"
                       title="Items per page"
                     >
                       <option value={12}>12 / page</option>
@@ -8239,13 +8239,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       </div>
                       <div className="w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 text-[10px] text-slate-400 space-y-1.5 text-left font-mono">
                         <div className="flex items-center gap-2 text-emerald-400 font-semibold">
-                          <CheckCircle className="h-3 w-3" /> Secure Playwright browser context launched
+                          <CheckCircle className="h-3 w-3" /> Secure CoinMarketCap browser opened
                         </div>
                         <div className="flex items-center gap-2 text-emerald-400 font-semibold">
                           <CheckCircle className="h-3 w-3" /> Credentials submitted to CoinMarketCap
                         </div>
                         <div className="flex items-center gap-2 text-amber-400 animate-pulse font-semibold">
-                          <RefreshCw className="h-3 w-3 animate-spin" /> Capturing cookies, tokens, & anti-bot clearance...
+                          <RefreshCw className="h-3 w-3 animate-spin" /> Saving login session...
                         </div>
                       </div>
                     </div>
@@ -8399,7 +8399,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5 text-xs leading-relaxed text-slate-400">
                     <span className="font-bold text-white block">How to obtain cookies manually:</span>
                     1. Log into your account on CoinMarketCap in Chrome.<br />
-                    2. Use a browser extension like "EditThisCookie" or Playwright CLI to export cookies/storage as a JSON array.<br />
+                    2. Use a browser cookie extension (such as "EditThisCookie") to copy your cookies as JSON.<br />
                     3. Paste the complete JSON object below.
                   </div>
 
@@ -8989,7 +8989,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <ul className="space-y-2 text-[11px] text-slate-400">
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 flex-shrink-0"></span>
-                  <span><strong className="text-slate-200">Active Browser Identity:</strong> The active session in <code className="text-emerald-400 bg-slate-950 px-1 py-0.5 rounded font-mono">auth/state.json</code> will be swapped with <strong>{confirmSwitchProfile.name}</strong>'s authentication cookies. Subsequent automated posts or manual triggers will run under this identity.</span>
+                  <span><strong className="text-slate-200">Active Account Session:</strong> Your active login session will switch to <strong>{confirmSwitchProfile.name}</strong>. All posts and actions will use this account.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></span>
@@ -9175,7 +9175,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
           <div className="flex-1 pr-1 leading-snug">
             <span className="font-semibold text-slate-100">{toast.message}</span>
             {toast.isProcess && (
-              <span className="block text-[10px] text-blue-400 font-mono mt-0.5 animate-pulse">Running live Playwright browser in background...</span>
+              <span className="block text-[10px] text-blue-400 font-mono mt-0.5 animate-pulse">Posting to CoinMarketCap in background...</span>
             )}
           </div>
 
