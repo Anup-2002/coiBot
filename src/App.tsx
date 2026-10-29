@@ -510,7 +510,7 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security">("all");
+  const [adminSection, setAdminSection] = useState<"all" | "diagnostics" | "secrets" | "profiles" | "telegram" | "security">("all");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
   const [telegramToken, setTelegramToken] = useState<string>("");
@@ -559,7 +559,7 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "all" | "diagnostics" | "secrets" | "profiles" | "scheduler" | "telegram" | "security") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "all" | "diagnostics" | "secrets" | "profiles" | "telegram" | "security") => {
     setCurrentView(view);
     if (section) setAdminSection(section);
     let path = "/";
@@ -581,23 +581,6 @@ export default function App() {
     }
     return true;
   });
-
-  const [showQuickGuide, setShowQuickGuide] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      const dismissed = localStorage.getItem("cmc_dismiss_quick_guide");
-      return dismissed !== "true";
-    }
-    return true;
-  });
-
-  const dismissQuickGuide = (neverShowAgain = false) => {
-    setShowQuickGuide(false);
-    if (neverShowAgain && typeof window !== "undefined") {
-      localStorage.setItem("cmc_dismiss_quick_guide", "true");
-    }
-  };
-
-  const [guideSlide, setGuideSlide] = useState<number>(0);
 
   const [toast, setToast] = useState<{
     message: string;
@@ -2867,12 +2850,16 @@ export default function App() {
         <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Brand & Left Actions */}
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="p-2 sm:p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5 animate-pulse flex-shrink-0">
+            <div
+              onClick={() => navigateTo("dashboard")}
+              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
+              title="Go to Dashboard"
+            >
+              <div className="p-2 sm:p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5 animate-pulse flex-shrink-0 group-hover:border-emerald-500/40 transition">
                 <Activity className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2">
                   CoinMarketCap Bot Console
                 </h1>
                 <p className="text-[11px] text-slate-400 hidden sm:block">Automated Community Commenting and Growth Driver</p>
@@ -3005,13 +2992,13 @@ export default function App() {
               onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
                 currentView === "admin"
-                  ? "bg-blue-500/20 border-blue-500/40 text-blue-400"
+                  ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
               title="Open Admin & System Diagnostics Console (/admin)"
             >
-              <Shield className="h-3.5 w-3.5" />
-              <span>{currentView === "admin" ? "Dashboard" : "Admin"}</span>
+              <Shield className="h-3.5 w-3.5 text-blue-400" />
+              <span>Admin</span>
             </button>
 
             {/* Logs Link Button (/logs) */}
@@ -3083,7 +3070,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
               >
                 <ArrowLeft className="h-4 w-4" /> Back to Dashboard
               </button>
@@ -3134,30 +3121,6 @@ export default function App() {
             >
               <Users className="h-3.5 w-3.5 text-purple-400" />
               <span>Accounts ({profilesList.length})</span>
-            </button>
-            <button
-              onClick={() => setAdminSection("scheduler")}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                adminSection === "scheduler"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-indigo-400 hover:text-indigo-200 hover:bg-slate-800/50"
-              }`}
-            >
-              <Clock className="h-3.5 w-3.5" />
-              <span>Multi-Account Scheduler</span>
-              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
-                schedulerData?.cycleRunning
-                  ? "bg-indigo-400 text-slate-950 animate-pulse"
-                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    : "bg-slate-800 text-slate-400"
-              }`}>
-                {schedulerData?.cycleRunning
-                  ? "Running"
-                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                    ? "Paused"
-                    : "Stopped"}
-              </span>
             </button>
             <button
               onClick={() => setAdminSection("telegram")}
@@ -3503,7 +3466,14 @@ export default function App() {
                     </button>
                     {sessionExists && (
                       <button
-                        onClick={() => runCommand("/api/clear-session", "login")}
+                        onClick={() =>
+                          setInlineConfirmModal({
+                            isOpen: true,
+                            title: "Delete Session Cookies?",
+                            message: "This will remove auth/state.json and sign out the current active browser session.",
+                            onConfirm: () => runCommand("/api/clear-session", "login"),
+                          })
+                        }
                         disabled={isBusy || isContinuousLoopActive}
                         className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
                       >
@@ -3511,7 +3481,14 @@ export default function App() {
                       </button>
                     )}
                     <button
-                      onClick={() => runCommand("/api/clear-all", "clear")}
+                      onClick={() =>
+                        setInlineConfirmModal({
+                          isOpen: true,
+                          title: "Reset Active Storage?",
+                          message: "This will clear the active profile's trending coins, generated comments, and console logs. Saved accounts and cookies remain intact.",
+                          onConfirm: () => runCommand("/api/clear-all", "clear"),
+                        })
+                      }
                       disabled={isPending.clear}
                       className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
                     >
@@ -3595,229 +3572,7 @@ export default function App() {
           </section>
           )}
 
-          {/* 4. SEQUENTIAL MULTI-ACCOUNT SCHEDULER ADMIN CONTROLLER */}
-          {(adminSection === "all" || adminSection === "scheduler") && (
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5 transition-all duration-350 hover:border-slate-700/80">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <span className={`p-2 rounded-lg border flex items-center justify-center ${
-                  schedulerData?.cycleRunning
-                    ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse"
-                    : schedulerData?.enabled
-                      ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                }`}>
-                  <Clock className={`h-5 w-5 ${schedulerData?.cycleRunning ? "animate-spin text-indigo-400" : ""}`} />
-                </span>
-                <div>
-                  <h2 className="font-bold text-white tracking-tight text-base flex items-center gap-2">
-                    <span>Sequential Multi-Account Scheduler</span>
-                    <span className={`text-xs px-2.5 py-0.5 rounded font-mono font-bold uppercase ${
-                      schedulerData?.cycleRunning
-                        ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse"
-                        : schedulerData?.enabled
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : "bg-slate-800 text-slate-400 border border-slate-700"
-                    }`}>
-                      {schedulerData?.cycleRunning ? "Cycle Running" : (schedulerData?.enabled ? "Scheduler Enabled" : "Scheduler Disabled")}
-                    </span>
-                  </h2>
-                  <p className="text-sm text-slate-400 mt-0.5">
-                    Controls continuous automated multi-account rotation. Strictly one account at a time in order.
-                  </p>
-                </div>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => navigateTo("scheduler")}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  <span>Open Dedicated Scheduler Screen (/scheduler)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Controls Grid */}
-            {isSchedulerRunning && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-sm font-medium">
-                Settings are locked while the scheduler is running. Pause or stop to change them.
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Master Switch */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-300">Run Accounts in Sequence</span>
-                  <button
-                    type="button"
-                    disabled={isSchedulerActionPending}
-                    onClick={() => handleToggleScheduler()}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-2">
-                  When enabled, the bot iterates through accounts in the queue every {schedulerData?.intervalMinutes || 20} minutes.
-                </p>
-              </div>
-
-              {/* Cycle Trigger & Stop */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-sm font-bold text-slate-300 mb-2">Cycle Execution Controls</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
-                    onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
-                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle" : "Run sequential cycle now")}
-                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    <span>{schedulerData?.savedPosition ? "Resume" : "Run Cycle Now"}</span>
-                  </button>
-                  <button
-                    disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
-                    onClick={handlePauseScheduler}
-                    className="py-1.5 px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Pause className="h-3.5 w-3.5" />
-                    <span>Pause</span>
-                  </button>
-                  <button
-                    disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
-                    onClick={handleStopScheduler}
-                    className="py-1.5 px-3 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                    <span>Stop</span>
-                  </button>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-2 text-center font-mono">
-                  Current: {schedulerData?.cycleRunning ? "RUNNING" : "IDLE"}
-                </div>
-              </div>
-
-              {/* Interval Setting */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-300">Cycle Interval</span>
-                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 20} mins</span>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    disabled={isSchedulerActionPending || isSchedulerRunning}
-                    value={schedulerIntervalInput}
-                    onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
-                    disabled={isSchedulerActionPending || isSchedulerRunning}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Save
-                  </button>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1">Runtime is deducted automatically so 4 cycles complete within 24h</p>
-              </div>
-
-              {/* Target Batch Limit (Coins / Run) */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-300">Target Batch Limit</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-1 mt-2">
-                  {[10, 30, 50, 0].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      disabled={isSchedulerActionPending || isSchedulerRunning}
-                      onClick={() => handleUpdateTargetCoins(count)}
-                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                        targetCoinsCount === count
-                          ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
-                          : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
-                      }`}
-                      title={count === 0 ? "Process all trending coins (Default recommended - 300 posts/day cap)" : `Process top ${count} coins`}
-                    >
-                      {count === 0 ? "ALL" : `Top ${count}`}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1">ALL = Default recommended (Safety cap: 300 posts/day)</p>
-              </div>
-            </div>
-
-            {/* Current Sequence Preview */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                  <span>Execution Sequence Queue ({schedulerData?.accounts?.length || 0} accounts)</span>
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Accounts run strictly in numerical order
-                </span>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
-                  <span className="text-sm text-slate-500 italic">No accounts configured yet.</span>
-                ) : (
-                  [...schedulerData.accounts]
-                    .sort((a, b) => a.schedule.order - b.schedule.order)
-                    .map((acc, idx) => {
-                      const isCurrent = acc.id === schedulerData.currentAccountId;
-                      return (
-                        <div
-                          key={acc.id}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition ${
-                            isCurrent
-                              ? "bg-indigo-500/20 border-indigo-500 text-white font-bold ring-2 ring-indigo-500/40"
-                              : "bg-slate-900 border-slate-800 text-slate-300"
-                          }`}
-                        >
-                          <span className="font-mono text-indigo-400 font-bold">#{acc.schedule.order}</span>
-                          <span className="font-semibold">{acc.name}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">({acc.schedule.frequency})</span>
-                          {acc.schedule.useForNow && (
-                            <span className="text-[9px] px-1 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">Checked</span>
-                          )}
-                          {isCurrent && (
-                            <span className="text-[9px] px-1 bg-indigo-500 text-slate-950 font-bold rounded animate-pulse">RUNNING</span>
-                          )}
-                          {idx < schedulerData.accounts.length - 1 && (
-                            <span className="text-slate-600 ml-1">➔</span>
-                          )}
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-            </div>
-
-            {/* Quick Files & Logs Links */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-sm text-slate-400">
-              <span>View live scheduler files & detailed logs in the Logs tab.</span>
-            </div>
-          </section>
-          )}
-
-          {/* 5. TELEGRAM EMERGENCY ALERTS SYSTEM */}
+          {/* 4. TELEGRAM EMERGENCY ALERTS SYSTEM */}
           {(adminSection === "all" || adminSection === "telegram") && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
             {/* Header */}
@@ -4129,7 +3884,17 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => {
+                  setLogsTab("scheduler");
+                  navigateTo("logs");
+                }}
+                className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
+                title="View live Scheduler Execution Logs (/logs)"
+              >
+                <TerminalIcon className="h-4 w-4 text-indigo-400" /> Scheduler Logs
+              </button>
               <button
                 onClick={() => navigateTo("dashboard")}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
@@ -4335,16 +4100,28 @@ export default function App() {
 
           {/* ACCOUNTS SCHEDULE TABLE */}
           <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h4 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Configured Accounts & Execution Order</span>
-                <span className="text-sm font-normal text-slate-400">
-                  ({schedulerData?.accounts?.length || 0} accounts)
+            <div className="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Configured Accounts & Execution Order</span>
+                  <span className="text-sm font-normal text-slate-400">
+                    ({schedulerData?.accounts?.length || 0} accounts)
+                  </span>
+                </h4>
+                <span className="text-sm text-slate-400">
+                  Accounts run strictly sequentially: Account 1, then Account 2, then Account 3.
                 </span>
-              </h4>
-              <span className="text-sm text-slate-400">
-                Accounts run strictly sequentially: Account 1, then Account 2, then Account 3.
-              </span>
+              </div>
+              <button
+                onClick={() => {
+                  setLoginTab("profiles");
+                  setShowSessionModal(true);
+                }}
+                className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shrink-0"
+              >
+                <Users className="h-4 w-4 text-indigo-400" />
+                <span>Manage Accounts</span>
+              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -4363,8 +4140,19 @@ export default function App() {
                 <tbody className="divide-y divide-slate-800/60 font-medium">
                   {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
-                        No profiles found. Create or import profiles in the Profiles section of the Admin screen.
+                      <td colSpan={7} className="py-8 text-center text-slate-500">
+                        <div className="flex flex-col items-center gap-2.5">
+                          <span className="italic">No profiles found. Add or import an account profile to start scheduling.</span>
+                          <button
+                            onClick={() => {
+                              setLoginTab("profiles");
+                              setShowSessionModal(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                          >
+                            <Users className="h-3.5 w-3.5" /> Add / Manage Accounts
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -4650,100 +4438,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* SCHEDULER LIVE LOGS VIEWER */}
-          <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl space-y-0">
-            <div className="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
-                  <TerminalIcon className="h-4 w-4" />
-                </span>
-                <div>
-                  <h4 className="text-base font-bold text-white flex items-center gap-2">
-                    <span>Sequential Scheduler Execution Logs</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 font-mono font-semibold">
-                      {schedulerLogs.length} events
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Live stream of trending fetch, AI comment generation, account session checks, and posting loop steps
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <div className="relative">
-                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Filter scheduler logs..."
-                    value={schedulerLogQuery}
-                    onChange={(e) => setSchedulerLogQuery(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
-                  />
-                  {schedulerLogQuery && (
-                    <button
-                      onClick={() => setSchedulerLogQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-sm cursor-pointer"
-                      title="Clear scheduler log filter"
-                      aria-label="Clear scheduler log filter"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Log Terminal Screen */}
-            <div className="p-4 bg-slate-950 font-mono text-xs max-h-80 overflow-y-auto space-y-1.5 border-t border-slate-900">
-              {schedulerLogs.length === 0 ? (
-                <div className="text-slate-500 italic py-6 text-center">
-                  No scheduler events recorded yet. Run a cycle or enable the scheduler to stream live sequential execution events.
-                </div>
-              ) : (
-                schedulerLogs.map((l, lIdx) => {
-                  const isErr = l.level === "error";
-                  const isWarn = l.level === "warning";
-                  const isSucc = l.level === "success";
-                  return (
-                    <div
-                      key={lIdx}
-                      className={`flex items-start gap-2.5 leading-relaxed py-0.5 px-1.5 rounded transition ${
-                        isErr
-                          ? "bg-rose-950/20 text-rose-300"
-                          : isWarn
-                            ? "bg-amber-950/20 text-amber-300"
-                            : isSucc
-                              ? "bg-emerald-950/20 text-emerald-300"
-                              : "text-slate-300 hover:bg-slate-900/40"
-                      }`}
-                    >
-                      <span className="text-[10px] text-slate-500 shrink-0 font-mono select-none">
-                        {l.timestamp}
-                      </span>
-                      <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
-                        isErr
-                          ? "bg-rose-500/20 text-rose-300"
-                          : isWarn
-                            ? "bg-amber-500/20 text-amber-300"
-                            : isSucc
-                              ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-slate-800 text-slate-400"
-                      }`}>
-                        {l.level}
-                      </span>
-                      <span className="break-all whitespace-pre-wrap">{l.message}</span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
         </main>
       ) : currentView === "guide" ? (
         /* DEDICATED OPERATING GUIDE SCREEN (/guide) */
         <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+          {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
@@ -4751,91 +4450,233 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  Operating Guide
+                  Beginner & Operating Guide
                   <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
                     /guide
                   </span>
                 </h1>
                 <p className="text-sm text-slate-400">
-                  Quick start guide and operational workflows for automated CoinMarketCap posting
+                  Step-by-step walkthrough for setting up accounts, generating AI comments, and running automated CoinMarketCap posting
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
-              >
-                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-              </button>
+            <button
+              onClick={() => navigateTo("dashboard")}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md self-start sm:self-auto"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+            </button>
+          </div>
+
+          {/* BEGINNER 3-STEP QUICK WORKFLOW BANNER */}
+          <div className="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-bold uppercase tracking-wider">
+                    New User Quick Start
+                  </span>
+                  <h3 className="text-base font-bold text-white">
+                    How the Bot Works in 3 Simple Steps
+                  </h3>
+                </div>
+                <span className="text-sm text-slate-400">
+                  Follow these 3 steps in order for your first run
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Step A */}
+                <div className="bg-slate-950/80 border border-slate-800 hover:border-indigo-500/40 rounded-xl p-4 flex flex-col justify-between gap-3 transition">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Step 1 • Connect
+                      </span>
+                      <Users className="h-4 w-4 text-indigo-400" />
+                    </div>
+                    <h4 className="text-base font-bold text-white pt-1">Add a CoinMarketCap Account</h4>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Log in with your email/password or import cookies so the browser can post comments on your behalf.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setLoginTab("profiles");
+                      setShowSessionModal(true);
+                    }}
+                    className="w-full py-2 px-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Users className="h-3.5 w-3.5" /> Open Account Manager
+                  </button>
+                </div>
+
+                {/* Step B */}
+                <div className="bg-slate-950/80 border border-slate-800 hover:border-blue-500/40 rounded-xl p-4 flex flex-col justify-between gap-3 transition">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold uppercase px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        Step 2 • Prepare Queue
+                      </span>
+                      <Search className="h-4 w-4 text-blue-400" />
+                    </div>
+                    <h4 className="text-base font-bold text-white pt-1">Fetch Coins & Write AI Comments</h4>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      On the Dashboard, click <strong>Get trending coins</strong> and then <strong>Write comments</strong> (or click <strong>Run Full Automated Bot Cycle</strong>).
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => navigateTo("dashboard")}
+                    className="w-full py-2 px-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Play className="h-3.5 w-3.5" /> Go to Control Center
+                  </button>
+                </div>
+
+                {/* Step C */}
+                <div className="bg-slate-950/80 border border-slate-800 hover:border-emerald-500/40 rounded-xl p-4 flex flex-col justify-between gap-3 transition">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Step 3 • Automate 24/7
+                      </span>
+                      <Clock className="h-4 w-4 text-emerald-400" />
+                    </div>
+                    <h4 className="text-base font-bold text-white pt-1">Start Posting or Enable Scheduler</h4>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Post immediately with <strong>Start Posting</strong>, or use the <strong>Scheduler</strong> to rotate through multiple accounts automatically.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => navigateTo("scheduler")}
+                    className="w-full py-2 px-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Clock className="h-3.5 w-3.5" /> Open Multi-Account Scheduler
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
+
           {/* 5-SECTION OPERATIONAL GUIDE */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 1. Getting started */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-                <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
-                  <Zap className="h-5 w-5" />
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                      <Zap className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold block">
+                        Section 1 • Readiness Checklist
+                      </span>
+                      <h2 className="text-base font-bold text-white">Getting started</h2>
+                      <p className="text-sm text-slate-400">Core requirements before your first run</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigateTo("health")}
+                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-blue-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Activity className="h-3.5 w-3.5" /> Check Health
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">Getting started</h2>
-                  <p className="text-sm text-slate-400">Core requirements and initial configuration</p>
-                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    "Connect at least one active CoinMarketCap account before running automated workflows.",
+                    "Configure your OpenAI or Gemini API key in the environment to generate authentic comments.",
+                    "Review your daily post limit and cooldown gap settings to prevent spam rate limits.",
+                    "Verify that your database connection is active to preserve persistent session states.",
+                    "Monitor the Health page to ensure all dependencies and credentials are green."
+                  ].map((bullet, idx) => (
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-2.5">
-                {[
-                  "Connect at least one active CoinMarketCap account before running automated workflows.",
-                  "Configure your OpenAI or Gemini API key in the environment to generate authentic comments.",
-                  "Review your daily post limit and cooldown gap settings to prevent spam rate limits.",
-                  "Verify that your database connection is active to preserve persistent session states.",
-                  "Monitor the Health page to ensure all dependencies and credentials are green."
-                ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
-                    <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Check the green dot on the top <strong>Health</strong> button first.</span>
+              </div>
             </div>
 
             {/* 2. Adding an account */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-                <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
-                  <Users className="h-5 w-5" />
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                      <Users className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-bold block">
+                        Section 2 • Accounts & Cookies
+                      </span>
+                      <h2 className="text-base font-bold text-white">Adding an account</h2>
+                      <p className="text-sm text-slate-400">Profile management and session isolation</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setLoginTab("profiles");
+                      setShowSessionModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Users className="h-3.5 w-3.5" /> Add Account
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">Adding an account</h2>
-                  <p className="text-sm text-slate-400">Profile management and session isolation</p>
-                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    "Click the Account button in the top header bar to open the account management dialog.",
+                    "Enter your email and password for automatic browser login with Playwright.",
+                    "Alternatively, import existing cookies or storage state JSON from an authenticated browser.",
+                    "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
+                    "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
+                  ].map((bullet, idx) => (
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
+                      <span className="w-5 h-5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-2.5">
-                {[
-                  "Click 'Login / Add Account' in the top bar to open the account management dialog.",
-                  "Enter your email and password for automatic browser login with Playwright.",
-                  "Alternatively, import existing cookies or storage state JSON from an authenticated browser.",
-                  "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
-                  "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
-                ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
-                    <CheckCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-indigo-400 shrink-0" />
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Each account has its own isolated cookies, coin list, and post history.</span>
+              </div>
             </div>
 
             {/* 3. Running the scheduler (start, pause, stop, resume) */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-                <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
-                  <Clock className="h-5 w-5" />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold block">
+                      Section 3 • Multi-Account Automation
+                    </span>
+                    <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
+                    <p className="text-sm text-slate-400">Sequential account rotation, saved progress, and live controls</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
-                  <p className="text-sm text-slate-400">Sequential cycling, state persistence, and control operations</p>
-                </div>
+                <button
+                  onClick={() => navigateTo("scheduler")}
+                  className="px-3.5 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                >
+                  <Clock className="h-4 w-4" /> Open Scheduler
+                </button>
               </div>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
@@ -4846,8 +4687,10 @@ export default function App() {
                   "Position and progress are automatically saved across server restarts and page refreshes.",
                   "Settings are locked while running; pause or stop the scheduler to adjust intervals or accounts."
                 ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
-                    <CheckCircle className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
+                  <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-slate-800/60">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
                     <span>{bullet}</span>
                   </li>
                 ))}
@@ -4855,56 +4698,97 @@ export default function App() {
             </div>
 
             {/* 4. Images */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-                <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
-                  <ImageIcon className="h-5 w-5" />
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                      <ImageIcon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400 font-bold block">
+                        Section 4 • Chart & Graphic Attachments
+                      </span>
+                      <h2 className="text-base font-bold text-white">Images</h2>
+                      <p className="text-sm text-slate-400">Attaching graphics and rotation rules</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActiveTab("images");
+                      navigateTo("dashboard");
+                    }}
+                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" /> Images Library
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">Images</h2>
-                  <p className="text-sm text-slate-400">Attaching graphics and rotation rules</p>
-                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    "Upload promotional marketing graphics in PNG, JPG, or WEBP format in the Images section.",
+                    "Enable 'Marketing Image Upload' to attach strictly one branded graphic with each comment.",
+                    "Choose 'Cycle' mode to rotate through images sequentially or 'Random' mode for variety.",
+                    "Use Auto-Prune to retain the latest uploaded graphics and automatically clean older files."
+                  ].map((bullet, idx) => (
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
+                      <span className="w-5 h-5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-2.5">
-                {[
-                  "Upload promotional marketing graphics in PNG, JPG, or WEBP format in the Images section.",
-                  "Enable 'Auto-Attach' to include strictly one branded graphic with each posted comment.",
-                  "Choose 'Cycle' mode to rotate through images sequentially or 'Random' mode for variety.",
-                  "Use Auto-Prune to retain the latest uploaded graphics and automatically clean older files."
-                ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
-                    <CheckCircle className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-purple-400 shrink-0" />
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Image attachment is optional—keep it OFF if you want text-only posts.</span>
+              </div>
             </div>
 
             {/* 5. If something goes wrong */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-                <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
-                  <AlertTriangle className="h-5 w-5" />
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-bold block">
+                        Section 5 • Help & Recovery
+                      </span>
+                      <h2 className="text-base font-bold text-white">If something goes wrong</h2>
+                      <p className="text-sm text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigateTo("logs")}
+                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <TerminalIcon className="h-3.5 w-3.5" /> View Logs
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">If something goes wrong</h2>
-                  <p className="text-sm text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
-                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    "Check the Health page (/health) to immediately identify degraded services or missing keys.",
+                    "If an account session expires, click Check login and re-authenticate or re-import cookies.",
+                    "If comment generation fails, verify your OpenAI credit balance or switch to Gemini.",
+                    "Review real-time diagnostic output in the Activity Logs (/logs) to view error traces.",
+                    "Failed coins are automatically queued for retry without disrupting the remaining queue."
+                  ].map((bullet, idx) => (
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
+                      <span className="w-5 h-5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-2.5">
-                {[
-                  "Check the Health page (/health) to immediately identify degraded services or missing keys.",
-                  "If an account session expires, click Check login and re-authenticate or re-import cookies.",
-                  "If comment generation fails, verify your OpenAI credit balance or switch to Gemini.",
-                  "Review real-time diagnostic output in the Activity Logs (/logs) to view error traces.",
-                  "Failed coins are automatically queued for retry without disrupting the remaining queue."
-                ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
-                    <CheckCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Use <strong>Auto Retry</strong> in the Post Submissions tab to retry any failed coin.</span>
+              </div>
             </div>
           </div>
 
@@ -4982,7 +4866,14 @@ export default function App() {
                     </span>
                   </div>
                   <button
-                    onClick={() => runCommand("/api/clear-all", "clear")}
+                    onClick={() =>
+                      setInlineConfirmModal({
+                        isOpen: true,
+                        title: "Clear System Activity & Storage",
+                        message: "Clear local console logs and queued coins/comments for the active account? Posted submission history is preserved.",
+                        onConfirm: () => runCommand("/api/clear-all", "clear")
+                      })
+                    }
                     disabled={isPending.clear}
                     className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500 cursor-pointer"
                     title="Clear console"
@@ -5622,7 +5513,14 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => runCommand("/api/clear-all", "clear")}
+                    onClick={() =>
+                      setInlineConfirmModal({
+                        isOpen: true,
+                        title: "Reset Active Account Queue",
+                        message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
+                        onConfirm: () => runCommand("/api/clear-all", "clear")
+                      })
+                    }
                     disabled={isPending.clear}
                     className="text-red-400/80 hover:text-red-300 text-[10px] font-semibold flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500/20 disabled:opacity-40 cursor-pointer"
                     id="btn-clear-stats"
@@ -6036,34 +5934,6 @@ export default function App() {
                 <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
                   {imageUploadEnabled ? 'ON' : 'OFF'}
                 </span>
-              </button>
-              <button
-                onClick={() => navigateTo("scheduler")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                  (currentView as string) === "scheduler"
-                    ? "bg-indigo-600/40 text-white border border-indigo-500 shadow"
-                    : schedulerData?.enabled
-                      ? "text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30"
-                      : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Open dedicated Sequential Multi-Account Scheduler (/scheduler)"
-              >
-                <Clock className={`h-3.5 w-3.5 ${schedulerData?.cycleRunning ? "text-indigo-400 animate-spin" : (schedulerData?.enabled ? "text-indigo-400" : "text-indigo-500/70")}`} />
-                <span>6. Accounts Schedule</span>
-                <span className={`px-1.5 py-0.5 text-[9px] rounded font-mono font-bold ${
-                  schedulerData?.cycleRunning
-                    ? "bg-indigo-500 text-slate-950 animate-pulse"
-                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      : "bg-slate-800 text-slate-400"
-                }`}>
-                  {schedulerData?.cycleRunning
-                    ? "Running"
-                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                      ? "Paused"
-                      : "Stopped"}
-                </span>
-                <ArrowRight className="h-3 w-3 text-slate-500" />
               </button>
             </div>
           </div>
@@ -6618,7 +6488,7 @@ export default function App() {
                                 <div className="space-y-3 max-w-md mx-auto">
                                   <p className="text-slate-500 font-medium">No generated comments loaded for the current cycle.</p>
                                   <p className="text-[11px] text-slate-400">
-                                    Click <strong>"Refresh Submissions"</strong> above, or trigger <strong>"Write comments"</strong> in the Control Center to populate the queue.
+                                    Click <strong>"Refresh"</strong> above, or trigger <strong>"Write comments"</strong> in the Control Center to populate the queue.
                                   </p>
                                   <button
                                     onClick={handleManualRefresh}
@@ -7062,28 +6932,14 @@ export default function App() {
                     <span>Replace Old Batch</span>
                   </label>
 
-                  {/* Select All / Deselect All */}
-                  {marketingImages.length > 0 && (
-                    <button
-                      onClick={handleSelectAllImages}
-                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 text-sm font-semibold transition cursor-pointer"
-                    >
-                      {selectedImageFilenames.length === marketingImages.length
-                        ? "Deselect All"
-                        : `Select All (${marketingImages.length})`}
-                    </button>
-                  )}
-
-                  {/* Batch Delete Selected button */}
-                  {selectedImageFilenames.length > 0 && (
-                    <button
-                      onClick={handleBatchDeleteSelectedImages}
-                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/20"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete Selected ({selectedImageFilenames.length})
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setIsExternalImportModalOpen(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
+                    title="Import images from Google Drive, S3, or public image URLs"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Import Drive / S3
+                  </button>
 
                   {/* Master Toggle */}
                   <button
@@ -7097,35 +6953,6 @@ export default function App() {
                   >
                     <ImageIcon className="h-4 w-4" />
                     {imageUploadEnabled ? "Image Uploading: ACTIVE" : "Image Uploading: PAUSED"}
-                  </button>
-
-                  {marketingImages.length > 0 && (
-                    <button
-                      onClick={handleClearAllMarketingImages}
-                      className="px-3 py-2 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-xl border border-slate-800 hover:border-red-500/30 text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
-                      title="Remove all images"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Clear All
-                    </button>
-                  )}
-
-                  <button
-                    onClick={fetchMarketingImages}
-                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition cursor-pointer"
-                    title="Reload images"
-                    aria-label="Reload images"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    onClick={() => setIsExternalImportModalOpen(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
-                    title="Import images from Google Drive, S3, or public image URLs"
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    Import Drive / S3
                   </button>
                 </div>
               </div>
@@ -7218,22 +7045,15 @@ export default function App() {
               </div>
 
               {/* ARCHITECTURE & FUTURE SOURCE NOTE */}
-              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-sm">
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2.5 text-slate-300">
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider shrink-0">
                     Source Agnostic
                   </span>
                   <span className="text-slate-400">
                     Images can be provided via dashboard upload, local drop, daily S3 bucket sync, or external API feed anytime without breaking posting logic.
                   </span>
                 </div>
-                <button
-                  onClick={() => imageFileInputRef.current?.click()}
-                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-sm flex items-center gap-1 cursor-pointer shrink-0"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload more images
-                </button>
               </div>
 
               {/* SCALABLE MEDIA GALLERY TOOLBAR */}
@@ -7249,8 +7069,50 @@ export default function App() {
                     </h4>
                   </div>
 
-                  {/* SEARCH & VIEW SWITCHER */}
+                  {/* GALLERY SELECTION, SEARCH & VIEW SWITCHER */}
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Select All / Deselect All */}
+                    {marketingImages.length > 0 && (
+                      <button
+                        onClick={handleSelectAllImages}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 text-sm font-semibold transition cursor-pointer"
+                      >
+                        {selectedImageFilenames.length === marketingImages.length
+                          ? "Deselect All"
+                          : `Select All (${marketingImages.length})`}
+                      </button>
+                    )}
+
+                    {/* Batch Delete Selected button */}
+                    {selectedImageFilenames.length > 0 && (
+                      <button
+                        onClick={handleBatchDeleteSelectedImages}
+                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete Selected ({selectedImageFilenames.length})
+                      </button>
+                    )}
+
+                    {marketingImages.length > 0 && (
+                      <button
+                        onClick={handleClearAllMarketingImages}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-lg border border-slate-800 hover:border-red-500/30 text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
+                        title="Remove all images"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Clear All
+                      </button>
+                    )}
+
+                    <button
+                      onClick={fetchMarketingImages}
+                      className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition cursor-pointer"
+                      title="Reload images"
+                      aria-label="Reload images"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
                     {/* Search Input */}
                     <div className="relative">
                       <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
