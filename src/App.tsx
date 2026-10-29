@@ -573,7 +573,7 @@ export default function App() {
       window.history.pushState({}, "", path);
     }
     try {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     } catch (_) {}
   };
 
@@ -1118,8 +1118,13 @@ export default function App() {
   }, [currentView]);
 
   const handleToggleScheduler = async (explicitVal?: boolean | unknown) => {
+    if (isSchedulerRunning) {
+      showToast("Scheduler cycle is currently running. Use Pause or Stop in Cycle Execution Controls first.", "warning");
+      return;
+    }
     setIsSchedulerActionPending(true);
-    const nextVal = typeof explicitVal === "boolean" ? explicitVal : !Boolean(schedulerData?.enabled);
+    const prevVal = Boolean(schedulerData?.enabled);
+    const nextVal = typeof explicitVal === "boolean" ? explicitVal : !prevVal;
     
     if (nextVal && schedulerData && Array.isArray(schedulerData.accounts) && schedulerData.accounts.length > 0) {
       const hasAuth = schedulerData.accounts.some(a => a.hasValidSession);
@@ -1130,16 +1135,20 @@ export default function App() {
       }
     }
 
+    // Optimistic UI update for zero-lag transition
+    setSchedulerData(prev => prev ? { ...prev, enabled: nextVal } : null);
+
     try {
       const res = await api.setSchedulerSettings({ enabled: nextVal });
       if (res.success) {
-        setSchedulerData(prev => prev ? { ...prev, enabled: nextVal } : null);
         showToast(`Sequential scheduler set to: ${nextVal ? "ENABLED" : "DISABLED"}`, "success");
         await fetchSchedulerStatus();
       } else {
+        setSchedulerData(prev => prev ? { ...prev, enabled: prevVal } : null);
         showToast(res.error || "Failed to update scheduler", "error");
       }
     } catch (err) {
+      setSchedulerData(prev => prev ? { ...prev, enabled: prevVal } : null);
       showToast("Error updating scheduler: " + (err as Error).message, "error");
     } finally {
       setIsSchedulerActionPending(false);
@@ -1176,15 +1185,23 @@ export default function App() {
       }
     }
     try {
+      // Auto-enable sequential mode if not already enabled so 1-click "Run cycle now" always works seamlessly
+      if (!schedulerData?.enabled) {
+        setSchedulerData(prev => prev ? { ...prev, enabled: true } : null);
+        await api.setSchedulerSettings({ enabled: true });
+      }
+      setSchedulerData(prev => prev ? { ...prev, enabled: true, cycleRunning: true, status: "running" } : null);
       const res = await api.runSchedulerNow();
       if (res.success) {
         showToast("Sequential scheduled cycle started successfully!", "success");
         await fetchSchedulerStatus();
       } else {
         showToast(res.error || "Could not run scheduled cycle", "error");
+        await fetchSchedulerStatus();
       }
     } catch (err) {
       showToast("Error starting cycle: " + (err as Error).message, "error");
+      await fetchSchedulerStatus();
     } finally {
       setIsSchedulerActionPending(false);
     }
@@ -2197,7 +2214,14 @@ export default function App() {
   };
 
   const toggleContinuousLoop = async (active: boolean, intervalMins?: number) => {
+    if (isSchedulerRunning) {
+      showToast("Cannot change continuous loop while the multi-account scheduler is running.", "warning");
+      return;
+    }
+    const prevActive = isContinuousLoopActive;
     const targetMins = intervalMins !== undefined ? intervalMins : continuousInterval;
+    // Instant optimistic UI transition
+    setIsContinuousLoopActive(active);
     showToast(
       active ? `Continuous automation activated (${targetMins}m gap)` : "Continuous automation halted",
       active ? "success" : "info",
@@ -2216,8 +2240,14 @@ export default function App() {
         if (data.continuousLoopIntervalMinutes !== undefined) {
           setContinuousInterval(data.continuousLoopIntervalMinutes);
         }
+      } else {
+        setIsContinuousLoopActive(prevActive);
+        const errData = await parseResponseJson(res, { error: "Could not update continuous loop" });
+        showToast(errData.error || "Could not update continuous loop", "error");
       }
-    } catch (_) {}
+    } catch (_) {
+      setIsContinuousLoopActive(prevActive);
+    }
   };
 
   const saveIntervalToServer = async (mins: number) => {
@@ -3486,21 +3516,21 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button
                       onClick={() => {
                         setLoginTab("cookies");
                         setShowSessionModal(true);
                       }}
-                      disabled={isBusy || isContinuousLoopActive}
-                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-50"
+                      disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Upload className="h-3.5 w-3.5" /> Configure Cookies
                     </button>
                     <button
                       onClick={() => runCommand("/api/check-login", "login")}
-                      disabled={isPending.login || isBusy || isContinuousLoopActive}
-                      className="py-2.5 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-50"
+                      disabled={isPending.login || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                      className="py-2.5 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isPending.login ? (
                         <>
@@ -3522,27 +3552,12 @@ export default function App() {
                             onConfirm: () => runCommand("/api/clear-session", "login"),
                           })
                         }
-                        disabled={isBusy || isContinuousLoopActive}
-                        className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
+                        disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                        className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete state.json
                       </button>
                     )}
-                    <button
-                      onClick={() =>
-                        setInlineConfirmModal({
-                          isOpen: true,
-                          title: "Reset Active Storage?",
-                          message: "This will clear the active profile's trending coins, generated comments, and console logs. Saved accounts and cookies remain intact.",
-                          onConfirm: () => runCommand("/api/clear-all", "clear"),
-                        })
-                      }
-                      disabled={isPending.clear}
-                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isPending.clear ? "animate-spin text-emerald-400" : ""}`} />
-                      {isPending.clear ? "Resetting..." : "Reset Storage"}
-                    </button>
                   </div>
                 </div>
               </div>
@@ -3912,24 +3927,58 @@ export default function App() {
                 </p>
               </div>
 
-              {/* Master Switch: Run accounts in sequence */}
-              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2.5 rounded-xl border border-slate-800">
-                <span className="text-sm font-semibold text-slate-200">
-                  Run accounts in sequence
-                </span>
+              {/* Master Switch: Run accounts in sequence (Prominent, Easily Detectable Action Bar) */}
+              <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-all duration-150 ${
+                schedulerData?.enabled
+                  ? "bg-indigo-950/50 border-indigo-500/40 shadow-md shadow-indigo-500/10"
+                  : "bg-slate-900/90 border-slate-700/80"
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${
+                    schedulerData?.enabled ? "bg-emerald-400 animate-pulse" : "bg-slate-500"
+                  }`} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-white">
+                        Run accounts in sequence
+                      </span>
+                      <span className={`px-2 py-0.5 text-[11px] font-mono font-bold rounded-md border ${
+                        schedulerData?.enabled
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                      }`}>
+                        {schedulerData?.enabled ? "ENABLED • 24/7 ACTIVE" : "DISABLED"}
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-400 block">
+                      {schedulerData?.enabled
+                        ? "Multi-account sequential queue is armed and ready"
+                        : "Click to arm automatic multi-account rotation"}
+                    </span>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  disabled={isSchedulerActionPending}
+                  disabled={isSchedulerActionPending || isSchedulerRunning}
                   onClick={() => handleToggleScheduler()}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    schedulerData?.enabled ? "bg-indigo-600" : "bg-slate-700"
+                  title={isSchedulerRunning ? "Pause or stop the active cycle before disabling sequential mode" : (schedulerData?.enabled ? "Click to disable sequential scheduler" : "Click to enable sequential scheduler")}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${
+                    schedulerData?.enabled
+                      ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20"
+                      : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20"
                   }`}
                 >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      schedulerData?.enabled ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
+                  {isSchedulerActionPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : schedulerData?.enabled ? (
+                    <CheckCircle className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  <span>
+                    {schedulerData?.enabled ? "Sequential Mode ON (Disable)" : "Enable Sequential Mode"}
+                  </span>
                 </button>
               </div>
             </div>
@@ -4036,25 +4085,42 @@ export default function App() {
 
               {/* Cycle Action Buttons */}
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  Cycle Execution Controls
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Cycle Execution Controls
+                  </span>
+                  {schedulerData?.cycleRunning && (
+                    <span className="text-[11px] font-mono font-bold text-indigo-400 flex items-center gap-1">
+                      <RefreshCw className="h-3 w-3 animate-spin" /> Active
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={isSchedulerActionPending || !schedulerData?.enabled || schedulerData?.cycleRunning || isBusy}
+                    disabled={isSchedulerActionPending || schedulerData?.cycleRunning || isBusy}
                     onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
-                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Run sequential cycle now")}
-                    className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Start sequential cycle immediately (auto-enables scheduler if needed)")}
+                    className="flex-1 px-3.5 py-2.5 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Play className="h-3.5 w-3.5" />
-                    <span>{schedulerData?.savedPosition ? "Resume" : "Run cycle now"}</span>
+                    {isSchedulerActionPending && !schedulerData?.cycleRunning ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 fill-white" />
+                    )}
+                    <span>
+                      {schedulerData?.cycleRunning
+                        ? "Cycle Running..."
+                        : schedulerData?.savedPosition
+                          ? "Resume Cycle"
+                          : "Run cycle now"}
+                    </span>
                   </button>
                   <button
                     type="button"
                     disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
                     onClick={handlePauseScheduler}
-                    className="px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="px-3 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Pause className="h-3.5 w-3.5" />
                     <span>Pause</span>
@@ -4063,14 +4129,14 @@ export default function App() {
                     type="button"
                     disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
                     onClick={handleStopScheduler}
-                    className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="px-3 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Square className="h-3.5 w-3.5" />
                     <span>Stop</span>
                   </button>
                 </div>
                 <div className="text-xs text-slate-400 text-center">
-                  Live state updates automatically every 3 seconds
+                  1-click start • Live state updates every 3s
                 </div>
               </div>
             </div>
@@ -5411,20 +5477,42 @@ export default function App() {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() =>
+                    onClick={() => {
+                      if (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) {
+                        showToast("Cannot reset storage while an active process is running. Please stop the active process first.", "warning");
+                        return;
+                      }
                       setInlineConfirmModal({
                         isOpen: true,
                         title: "Reset Active Account Queue",
                         message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
                         onConfirm: () => runCommand("/api/clear-all", "clear")
-                      })
-                    }
-                    disabled={isPending.clear}
-                    className="text-red-400/80 hover:text-red-300 text-xs font-semibold flex items-center gap-1 transition-colors px-2.5 py-1.5 rounded-xl bg-slate-950/80 hover:bg-red-500/10 border border-slate-800 hover:border-red-500/20 disabled:opacity-40 cursor-pointer"
+                      });
+                    }}
+                    disabled={isPending.clear || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                    className={`text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] px-2.5 py-1.5 rounded-xl border ${
+                      (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning)
+                        ? "bg-slate-950/60 text-slate-500 border-slate-800/80 opacity-50 cursor-not-allowed"
+                        : "text-red-400/90 hover:text-red-300 bg-slate-950/80 hover:bg-red-500/10 border-slate-800 hover:border-red-500/20 cursor-pointer"
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
                     id="btn-clear-stats"
-                    title="Reset storage and clear local data"
+                    title={
+                      (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning)
+                        ? "Locked: Stop the active bot process before resetting storage"
+                        : "Reset storage and clear local queue data"
+                    }
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Reset Storage
+                    {(isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) ? (
+                      <>
+                        <Lock className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Reset Locked</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>{isPending.clear ? "Resetting..." : "Reset Storage"}</span>
+                      </>
+                    )}
                   </button>
 
                   <div className="flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 shadow-sm">
@@ -5734,48 +5822,91 @@ export default function App() {
             <div className="mt-4 pt-3 flex flex-col gap-3 relative z-10">
               <button
                 onClick={() => runCommand("/api/full-flow", "full", { continuous: isContinuousLoopActive, intervalMinutes: continuousInterval })}
-                disabled={isPending.full || isBusy || isContinuousLoopActive}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 transition-all duration-200 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-[0.99] flex items-center justify-center gap-2 font-black text-sm shadow-md disabled:opacity-40 cursor-pointer"
+                disabled={isPending.full || isBusy || isContinuousLoopActive || isSchedulerRunning}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 transition-all duration-150 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-[0.98] flex items-center justify-center gap-2 font-black text-sm shadow-md disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 id="btn-full-flow"
+                title={
+                  (isBusy || isContinuousLoopActive || isSchedulerRunning)
+                    ? "Locked while another bot or scheduler process is active"
+                    : "Fetch trending coins, write AI comments, and post automatically in 1 click"
+                }
               >
                 {isPending.full ? (
-                  <RefreshCw className="h-4 w-4 animate-spin text-slate-950" />
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-slate-950" />
+                    <span>Running Full Automated Cycle...</span>
+                  </>
+                ) : (isBusy || isContinuousLoopActive || isSchedulerRunning) ? (
+                  <>
+                    <Lock className="h-4 w-4 text-slate-950" />
+                    <span>Run Full Automated Bot Cycle (Process Active)</span>
+                  </>
                 ) : (
-                  <Activity className="h-4 w-4" />
+                  <>
+                    <Play className="h-4 w-4 fill-slate-950" />
+                    <span>Run Full Automated Bot Cycle</span>
+                  </>
                 )}
-                Run Full Automated Bot Cycle
               </button>
 
-              {/* CONTINUOUS LOOP REFINED CONTROLLER - SEAMLESS DESIGN */}
-              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/60 flex flex-col gap-3 shadow-inner">
+              {/* CONTINUOUS LOOP REFINED CONTROLLER - PROMINENT & EASILY DETECTABLE */}
+              <div className={`p-3.5 rounded-xl border flex flex-col gap-3 shadow-inner transition-all duration-150 ${
+                isContinuousLoopActive
+                  ? "bg-emerald-950/30 border-emerald-500/40"
+                  : "bg-slate-950/60 border-slate-800/60"
+              }`}>
                 {isSchedulerRunning && (
                   <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-sm font-medium">
                     Settings are locked while the scheduler is running. Pause or stop to change them.
                   </div>
                 )}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2.5">
-                    <label className={`relative inline-flex items-center ${(isBusy && !isContinuousLoopActive) || isSchedulerRunning ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                      <input
-                        type="checkbox"
-                        checked={isContinuousLoopActive}
-                        disabled={(isBusy && !isContinuousLoopActive) || isSchedulerRunning}
-                        onChange={(e) => toggleContinuousLoop(e.target.checked, continuousInterval)}
-                        className="sr-only peer"
-                        id="chk-continuous"
-                      />
-                      <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 peer-checked:after:bg-slate-950 peer-checked:after:border-transparent peer-disabled:opacity-40 shadow-inner"></div>
-                    </label>
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      isContinuousLoopActive ? "bg-emerald-400 animate-ping" : "bg-slate-500"
+                    }`} />
                     <div>
-                      <span className="text-sm font-bold text-slate-200 flex items-center gap-1.5">
-                        Continuous Automation Loop
-                        {isContinuousLoopActive && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                        )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-200">
+                          Continuous Automation Loop
+                        </span>
+                        <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                          isContinuousLoopActive
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                            : "bg-slate-900 text-slate-400 border-slate-800"
+                        }`}>
+                          {isContinuousLoopActive ? `ACTIVE • ${continuousInterval}m GAP` : "OFF"}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 block">
+                        Auto-restarts full posting cycle after cooldown gap
                       </span>
-                      <span className="text-[10px] text-slate-400 block">Auto-restarts cycle after cooldown gap</span>
                     </div>
                   </div>
+
+                  <button
+                    type="button"
+                    id="chk-continuous"
+                    disabled={(isBusy && !isContinuousLoopActive) || isSchedulerRunning}
+                    onClick={() => toggleContinuousLoop(!isContinuousLoopActive, continuousInterval)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${
+                      isContinuousLoopActive
+                        ? "bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40"
+                        : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20"
+                    }`}
+                  >
+                    {isContinuousLoopActive ? (
+                      <>
+                        <Square className="h-3.5 w-3.5" />
+                        <span>Stop Auto-Loop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5 fill-slate-950" />
+                        <span>Enable Auto-Loop</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* Interval slider & Quick preset buttons */}
@@ -6505,9 +6636,13 @@ export default function App() {
                       </button>
                       <button
                         onClick={() => setShowResetQueueConfirm(true)}
-                        disabled={isResettingDailyQueue || profileResults.length === 0}
-                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
-                        title="Archive completed submissions into 7-day database and restart queue from Coin #1 (accounts and cookies preserved)"
+                        disabled={isResettingDailyQueue || profileResults.length === 0 || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                        className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-bold border border-indigo-500/20 flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer"
+                        title={
+                          (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning)
+                            ? "Locked: Stop the active bot process before archiving or resetting the queue"
+                            : "Archive completed submissions into 7-day database and restart queue from Coin #1 (accounts and cookies preserved)"
+                        }
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
                         Archive & Restart ({profileResults.length})
@@ -7209,7 +7344,9 @@ export default function App() {
                     {selectedImageFilenames.length > 0 && (
                       <button
                         onClick={handleBatchDeleteSelectedImages}
-                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold transition-all duration-150 active:scale-[0.98] flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) ? "Locked while posting is active" : "Delete selected images"}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete Selected ({selectedImageFilenames.length})
@@ -7219,8 +7356,9 @@ export default function App() {
                     {marketingImages.length > 0 && (
                       <button
                         onClick={handleClearAllMarketingImages}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 rounded-lg border border-slate-800 hover:border-red-500/30 text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
-                        title="Remove all images"
+                        disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg border border-slate-800 hover:border-red-500/30 text-sm font-bold transition-all duration-150 active:scale-[0.98] flex items-center gap-1.5 cursor-pointer"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) ? "Locked while posting is active" : "Remove all images"}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Clear All
@@ -8504,11 +8642,17 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               </button>
               <button
                 onClick={async () => {
+                  if (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) {
+                    showToast("Cannot reset and refetch while a bot process is running.", "warning");
+                    setShowConfirmFetchModal(false);
+                    return;
+                  }
                   setShowConfirmFetchModal(false);
-                  await runCommand("/api/clear-all", "clear");
+                  await runCommand("/api/clear-all", "clear", { force: true });
                   await runCommand("/api/fetch-trending", "fetch");
                 }}
-                className="py-2 px-5 bg-blue-500 hover:bg-blue-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
+                disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                className="py-2 px-5 bg-blue-500 hover:bg-blue-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
               >
                 Yes, Reset & Fetch
               </button>
@@ -8582,8 +8726,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               </button>
               <button
                 onClick={() => handleResetDailyQueue(false)}
-                disabled={isResettingDailyQueue}
-                className="py-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                disabled={isResettingDailyQueue || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
+                className="py-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isResettingDailyQueue ? (
                   <>

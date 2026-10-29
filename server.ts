@@ -7405,7 +7405,21 @@ app.post("/api/full-flow", async (req, res) => {
 
 // 11. Clear Logs & Stats
 app.post("/api/clear-all", async (req, res) => {
-  // Always allow user to reset storage as the ultimate recovery action
+  const forceReset = Boolean(req.body?.force);
+  const processRunning =
+    isPostingRunning ||
+    isSinglePostingRunning ||
+    isSchedulerCycleRunning ||
+    isGeneratingRunning ||
+    isContinuousLoopActive ||
+    (isBusy() && activeSystemProcess !== "none");
+
+  if (processRunning && !forceReset) {
+    return res.status(409).json({
+      error: "Cannot reset storage while an active bot process is running. Please stop the active process first.",
+    });
+  }
+
   cancelNextAutomationCycle();
   isContinuousLoopActive = false;
   isPostingRunning = false;
@@ -7471,6 +7485,19 @@ app.post("/api/clear-all", async (req, res) => {
 
 // 11b. Safe Reset Today's Queue & Submissions (Safely archives submissions to 7-day retention; preserves logins, cookies, and profiles)
 app.post("/api/queue/reset-daily", async (req, res) => {
+  if (
+    isPostingRunning ||
+    isSinglePostingRunning ||
+    isSchedulerCycleRunning ||
+    isGeneratingRunning ||
+    isContinuousLoopActive ||
+    (isBusy() && activeSystemProcess !== "none")
+  ) {
+    return res.status(409).json({
+      success: false,
+      error: "Cannot reset or archive the queue while a bot process is running. Please stop the active process first.",
+    });
+  }
   try {
     const activeId = getActiveProfileId();
     const { resetDailyCap } = req.body || {};
