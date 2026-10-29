@@ -3504,18 +3504,29 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       return { status: "failed", message: `Moderation filter triggered: ${moderationMsg.slice(0, 80)}` };
     }
 
-    // Check if comment now appears in the community feed on the page
+    // Check if comment now appears in the published community feed (STRICTLY EXCLUDING the comment editor input box!)
     const postedInFeedAfterClick = await page.evaluate((snip: string) => {
       if (!snip || snip.length < 6) return false;
-      const feed = document.querySelector('.community-feed, [class*="feed" i], [class*="post-list" i], main');
-      const targetText = feed ? (feed as HTMLElement).innerText : document.body.innerText;
-      return targetText.includes(snip);
+      const editors = Array.from(
+        document.querySelectorAll('[contenteditable="true"], textarea, [role="textbox"], [data-test="comment-input"]')
+      );
+      const feedCandidates = Array.from(
+        document.querySelectorAll(
+          '[class*="community-post" i], [class*="post-item" i], [class*="comment-item" i], [class*="feed-item" i], [data-test*="post" i], article'
+        )
+      );
+      for (const el of feedCandidates) {
+        // Skip if this element is or contains the active comment editor
+        if (editors.some((ed) => el === ed || el.contains(ed) || ed.contains(el))) continue;
+        const txt = (el as HTMLElement).innerText || "";
+        if (txt.includes(snip)) return true;
+      }
+      return false;
     }, snippetToVerify).catch(() => false);
 
-    // STRICT POST VERIFICATION GUARD:
-    // Never mark a post as "success" if the comment text is still sitting unsubmitted inside the editor box
-    // and neither the post API nor the community feed confirmed publication!
-    if (editorStillUnposted && !postApiSucceeded && !postedInFeedAfterClick) {
+    // STRICT 4-POINT POST ("COMMIT") VERIFICATION GUARD (Applies to Single Retry, Manual Batch, Auto-Loop, and Scheduler):
+    // 1. If the comment text is still sitting inside the editor box and the CMC POST API did not confirm success, reject it.
+    if (editorStillUnposted && !postApiSucceeded) {
       addLog("warning", `Submission verification failed: Comment text remained inside the editor after clicking Post (CoinMarketCap silently rejected or rate-limited the submission).`);
       await saveDebugScreenshot(page, "unverified_post_editor_not_cleared");
       return {
@@ -3524,7 +3535,8 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       };
     }
 
-    if (postApiObserved && !postApiSucceeded && !postedInFeedAfterClick) {
+    // 2. If a POST API call was observed and returned an error or non-zero status code, reject it.
+    if (postApiObserved && !postApiSucceeded) {
       addLog("warning", `Submission API did not return success (${postApiErrorMsg || "unconfirmed response"}).`);
       await saveDebugScreenshot(page, "unverified_post_api_response");
       return {
@@ -3532,8 +3544,26 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
         message: postApiErrorMsg || "CoinMarketCap API did not confirm post publication"
       };
     }
-    
-    addLog("success", "Successfully submitted post via Playwright browser context!");
+
+    // 3. Require at least one positive commit signal: API 200 OK, or editor cleared + zero error toasts
+    const commitVerifiedVia = postApiSucceeded
+      ? "CMC Post API (200 OK)"
+      : postedInFeedAfterClick
+        ? "Live Community Feed + Editor Cleared"
+        : !editorStillUnposted
+          ? "Editor Cleared + Zero Error Toasts"
+          : "";
+
+    if (!commitVerifiedVia) {
+      addLog("warning", "Submission verification failed: No commit confirmation from API, feed, or editor state.");
+      await saveDebugScreenshot(page, "unverified_post_no_signal");
+      return {
+        status: "retry",
+        message: "Post commit could not be verified on CoinMarketCap"
+      };
+    }
+
+    addLog("success", `Successfully submitted & verified post (${commitVerifiedVia})!`);
     await saveDebugScreenshot(page, "success_post_screenshot");
 
     // Save refreshed storageState back to maintain session longevity
@@ -8112,10 +8142,10 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     const targetIntervalMs = targetIntervalMins * 60 * 1000;
     
     // Deduct the actual execution duration of the completed cycle
-    // e.g. If posting 30 coins took 25 minutes, sleep 335 minutes so cycle + cooldown = exactly 360 minutes (6 hours)
+    // e.g. If posting ~85 coins across 3 accounts took 88 minutes, sleep 272 minutes so cycle + rest gap = 360 minutes (6 hours = 4 cycles in 24h)
     if (lastSchedulerCycleStartTime) {
       const cycleDurationMs = Math.max(0, Date.now() - lastSchedulerCycleStartTime);
-      gapMs = Math.max(5 * 60 * 1000, targetIntervalMs - cycleDurationMs);
+      gapMs = Math.max(15 * 60 * 1000, targetIntervalMs - cycleDurationMs);
       const cycleDurationMins = Math.round(cycleDurationMs / 60000);
       const remainingCooldownMins = Math.round(gapMs / 60000);
       sessionDesc = `Next cycle in ${remainingCooldownMins}m (${targetIntervalMins}m slot - ${cycleDurationMins}m execution duration)`;
@@ -8356,6 +8386,58 @@ async function runScheduledCycle(): Promise<void> {
     let totalCyclePosted = 0;
     let totalCycleFailed = 0;
 
+    // Helper: Redistribute unposted coins from a failed/partial account evenly across upcoming accounts in the cycle queue
+    const redistributeUnpostedToUpcoming = (
+      unpostedCoins: Coin[],
+      unpostedMessages: GeneratedMessage[],
+      failedAccName: string,
+      currentIdx: number
+    ) => {
+      if (unpostedMessages.length === 0) return;
+      let upcomingAccounts = dueAccounts.slice(currentIdx + 1);
+      // If the last account in the queue failed and a standby backup account is available, append standby to the queue
+      if (upcomingAccounts.length === 0 && standbyPool.length > 0 && !stopSchedulerRequested && !isStopping) {
+        const standby = standbyPool.shift()!;
+        dueAccounts.push(standby);
+        schedulerQueue.push(standby.id);
+        savedPartitions[standby.id] = { coins: [], messages: [] };
+        upcomingAccounts = [standby];
+        addLog("info", `[SCHEDULER] Added standby account [${standby.name}] to end of queue to handle ${unpostedMessages.length} remaining unposted coins from [${failedAccName}].`);
+      }
+      if (upcomingAccounts.length === 0) {
+        addLog("warning", `[SCHEDULER] No remaining accounts available in this cycle to absorb ${unpostedMessages.length} unposted coins from [${failedAccName}].`);
+        return;
+      }
+
+      const countUpcoming = upcomingAccounts.length;
+      const baseExtra = Math.floor(unpostedMessages.length / countUpcoming);
+      const remExtra = unpostedMessages.length % countUpcoming;
+      let extraCursor = 0;
+      const redistLog: string[] = [];
+
+      for (let u = 0; u < countUpcoming; u++) {
+        const targetAcc = upcomingAccounts[u];
+        const addCount = baseExtra + (u < remExtra ? 1 : 0);
+        if (addCount <= 0) continue;
+        const extraCoinsSlice = unpostedCoins.slice(extraCursor, extraCursor + addCount);
+        const extraMsgsSlice = unpostedMessages.slice(extraCursor, extraCursor + addCount);
+        extraCursor += addCount;
+
+        const existingPart = savedPartitions[targetAcc.id] || { coins: [], messages: [] };
+        savedPartitions[targetAcc.id] = {
+          coins: [...existingPart.coins, ...extraCoinsSlice],
+          messages: [...existingPart.messages, ...extraMsgsSlice],
+        };
+        redistLog.push(`${targetAcc.name} (+${addCount} -> ${savedPartitions[targetAcc.id].messages.length} coins)`);
+      }
+
+      writeJsonFile(schedulerPartitionsFile, savedPartitions);
+      addLog(
+        "info",
+        `[SCHEDULER] Redistributed ${unpostedMessages.length} unposted coins from [${failedAccName}] across ${countUpcoming} remaining account(s): ${redistLog.join(" | ")}`
+      );
+    };
+
     // 4. Run each due account sequentially, awaiting each one fully before the next
     for (let idx = 0; idx < dueAccounts.length; idx++) {
       let account = dueAccounts[idx];
@@ -8390,7 +8472,7 @@ async function runScheduledCycle(): Promise<void> {
       }
 
       addLog("info", `--------------------------------------------------`);
-      addLog("info", `[${account.name}] Beginning turn (Account ${idx + 1}/${dueAccounts.length})...`);
+      addLog("info", `[${account.name}] Beginning turn (Account ${idx + 1}/${dueAccounts.length}) • Assigned ${accountMessages.length} coins...`);
 
       // b. Verify primary account session cookies
       let preCheckOk = false;
@@ -8427,8 +8509,9 @@ async function runScheduledCycle(): Promise<void> {
         }
       }
 
-      // If primary account pre-check failed, record status and attempt single-hop standby failover
+      // If primary account pre-check failed, record status, try standby failover, or redistribute its coins to remaining accounts
       if (!preCheckOk) {
+        const failedPrimaryName = account.name;
         updateProfileLastRun(account.id, {
           at: new Date().toISOString(),
           status: skipStatus,
@@ -8436,6 +8519,7 @@ async function runScheduledCycle(): Promise<void> {
           failed: 0,
         });
 
+        let standbyReady = false;
         if (standbyPool.length > 0 && !stopSchedulerRequested && !isStopping) {
           const standby = standbyPool.shift()!;
           addLog("info", `[SCHEDULER] Auto-Failover: Primary account [${account.name}] was skipped (${skipStatus}). Deploying standby account [${standby.name}] for this partition of ${accountMessages.length} coins...`);
@@ -8447,38 +8531,41 @@ async function runScheduledCycle(): Promise<void> {
             addLog("info", `[${account.name}] Verifying standby account session...`);
             const sCheck = await checkLoginReal();
             if (sCheck.status === "captcha" || sCheck.status === "expired" || sCheck.status === "failed") {
-              addLog("warning", `[${account.name}] Standby account session check failed (${sCheck.message || sCheck.status}). Single-hop limit reached; proceeding to next slot.`);
+              addLog("warning", `[${account.name}] Standby account session check failed (${sCheck.message || sCheck.status}). Redistributing coins to remaining accounts.`);
               updateProfileLastRun(account.id, {
                 at: new Date().toISOString(),
                 status: sCheck.status === "captcha" ? "stopped_captcha" : "skipped_expired",
                 posted: 0,
                 failed: 0,
               });
-              continue;
-            }
-            const sLimit = getAccountDailyPostLimit(account.id);
-            const sProg = readBotProgress(account.id);
-            if ((sProg.daily_post_count || 0) >= sLimit) {
-              addLog("warning", `[${account.name}] Standby account reached daily limit. Single-hop limit reached; proceeding to next slot.`);
-              updateProfileLastRun(account.id, {
-                at: new Date().toISOString(),
-                status: "stopped_daily_limit",
-                posted: 0,
-                failed: 0,
-              });
-              continue;
+            } else {
+              const sLimit = getAccountDailyPostLimit(account.id);
+              const sProg = readBotProgress(account.id);
+              if ((sProg.daily_post_count || 0) >= sLimit) {
+                addLog("warning", `[${account.name}] Standby account reached daily limit. Redistributing coins to remaining accounts.`);
+                updateProfileLastRun(account.id, {
+                  at: new Date().toISOString(),
+                  status: "stopped_daily_limit",
+                  posted: 0,
+                  failed: 0,
+                });
+              } else {
+                standbyReady = true;
+              }
             }
           } catch (stErr) {
-            addLog("error", `[${account.name}] Standby activation error: ${(stErr as Error).message}. Single-hop limit reached; proceeding.`);
+            addLog("error", `[${account.name}] Standby activation error: ${(stErr as Error).message}. Redistributing coins to remaining accounts.`);
             updateProfileLastRun(account.id, {
               at: new Date().toISOString(),
               status: "failed",
               posted: 0,
               failed: 0,
             });
-            continue;
           }
-        } else {
+        }
+
+        if (!standbyReady) {
+          redistributeUnpostedToUpcoming(accountCoins, accountMessages, failedPrimaryName, idx);
           continue;
         }
       }
@@ -8552,6 +8639,26 @@ async function runScheduledCycle(): Promise<void> {
       }
 
       addLog("success", `[${account.name}] Run finished: ${summary.posted} posted, ${summary.failed} failed. Status: ${finalStatus}.`);
+
+      // If this account stopped early or failed part of its partition (not paused/stopped by user),
+      // redistribute its remaining unposted coins to the remaining accounts in this cycle!
+      if (!pauseSchedulerRequested && !stopSchedulerRequested && !isStopping && summary.posted < accountMessages.length) {
+        const updatedAccResults = getIsolatedResults(account.id);
+        const normSym = (s?: string) => String(s || "").replace(/^\$/, "").trim().toLowerCase();
+        const postedSymsInThisTurn = new Set(
+          updatedAccResults
+            .filter(r => {
+              const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+              return r.status === "success" && (!isNaN(rTime) ? rTime >= (lastSchedulerCycleStartTime - 60000) : true);
+            })
+            .map(r => normSym(r.symbol))
+        );
+        const unpostedMsgsForAcc = accountMessages.filter(m => !postedSymsInThisTurn.has(normSym(m.symbol)));
+        const unpostedCoinsForAcc = accountCoins.filter(c => !postedSymsInThisTurn.has(normSym(c.symbol)));
+        if (unpostedMsgsForAcc.length > 0) {
+          redistributeUnpostedToUpcoming(unpostedCoinsForAcc, unpostedMsgsForAcc, account.name, idx);
+        }
+      }
 
       if (pauseSchedulerRequested || stopSchedulerRequested || isStopping) {
         const remQueue = schedulerQueue.slice(idx + (summary.stopReason === "completed" ? 1 : 0));

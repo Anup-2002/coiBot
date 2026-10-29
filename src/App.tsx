@@ -3136,9 +3136,6 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Admin & System Console
-                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
-                    /admin
-                  </span>
                 </h1>
                 <p className="text-sm text-slate-400">Select an administrative module below to inspect or configure</p>
               </div>
@@ -3184,8 +3181,8 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">1. System Diagnostics</div>
-                <div className="text-xs text-slate-400 mt-0.5">Playwright & Chromium binary check</div>
+                <div className="text-sm font-bold text-white">1. Browser & System Check</div>
+                <div className="text-xs text-slate-400 mt-0.5">Verify posting browser is ready</div>
               </div>
             </button>
 
@@ -3206,8 +3203,8 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">2. API Keys & Storage</div>
-                <div className="text-xs text-slate-400 mt-0.5">OpenAI, Gemini, CMC & session cache</div>
+                <div className="text-sm font-bold text-white">2. AI Keys & Account Session</div>
+                <div className="text-xs text-slate-400 mt-0.5">OpenAI, Gemini, CMC & active login</div>
               </div>
             </button>
 
@@ -3503,25 +3500,22 @@ export default function App() {
                     <span className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
                       <HardDrive className="h-4 w-4" />
                     </span>
-                    Auth & Cache Storage Maintenance
+                    Active Account Login Session
                   </h2>
                   <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded border ${
                     sessionExists ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-bold" : "bg-amber-500/10 border-amber-500/20 text-amber-400 font-bold"
                   }`}>
-                    {sessionExists ? "State Active" : "Unconfigured"}
+                    {sessionExists ? "Signed In" : "Not Signed In"}
                   </span>
                 </div>
 
                 <div className="space-y-4">
                   <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-2 text-sm">
-                    <div className="text-[11px] text-slate-400">Storage Location:</div>
-                    <div className="font-mono text-emerald-400 text-[11px]">auth/state.json</div>
-
                     {sessionExists && sessionDetails ? (
-                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80 text-[10px]">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="text-slate-500 block">File Size:</span>
-                          <span className="text-slate-300 font-medium font-mono">{(sessionDetails.sizeBytes / 1024).toFixed(2)} KB</span>
+                          <span className="text-slate-500 block">Active Account Profile:</span>
+                          <span className="text-emerald-400 font-bold text-sm">{activeProfile?.name || "Connected Account"}</span>
                         </div>
                         <div>
                           <span className="text-slate-500 block">Last Saved:</span>
@@ -3529,16 +3523,10 @@ export default function App() {
                             {new Date(sessionDetails.updatedAt).toLocaleTimeString()}
                           </span>
                         </div>
-                        {activeProfile && (
-                          <div className="col-span-2 pt-1.5 border-t border-slate-800">
-                            <span className="text-slate-500 block">Active Account Profile:</span>
-                            <span className="text-emerald-400 font-bold text-sm">{activeProfile.name}</span>
-                          </div>
-                        )}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-amber-400 font-medium bg-amber-500/5 p-2 rounded border border-amber-500/10">
-                        No active state.json session found.
+                      <div className="text-xs text-amber-400 font-medium bg-amber-500/5 p-2 rounded border border-amber-500/10">
+                        No active CoinMarketCap account session signed in.
                       </div>
                     )}
                   </div>
@@ -3552,7 +3540,7 @@ export default function App() {
                       disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
                       className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <Upload className="h-3.5 w-3.5" /> Configure Cookies
+                      <Upload className="h-3.5 w-3.5" /> Import Cookies
                     </button>
                     <button
                       onClick={() => runCommand("/api/check-login", "login")}
@@ -3574,15 +3562,15 @@ export default function App() {
                         onClick={() =>
                           setInlineConfirmModal({
                             isOpen: true,
-                            title: "Delete Session Cookies?",
-                            message: "This will remove auth/state.json and sign out the current active browser session.",
+                            title: "Sign Out Active Account?",
+                            message: "This will sign out the current active CoinMarketCap browser session.",
                             onConfirm: () => runCommand("/api/clear-session", "login"),
                           })
                         }
                         disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
                         className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete state.json
+                        <Trash2 className="h-3.5 w-3.5" /> Sign Out Session
                       </button>
                     )}
                   </div>
@@ -3620,7 +3608,7 @@ export default function App() {
                 </span>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-white text-base">Emergency Telegram Alerts (Insane Failures Only)</h2>
+                    <h2 className="font-bold text-white text-base">Emergency Telegram Alerts (Critical Stops Only)</h2>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
                       telegramEnabled ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : "bg-slate-800 text-slate-400"
                     }`}>
@@ -3628,7 +3616,7 @@ export default function App() {
                     </span>
                   </div>
                   <p className="text-sm text-slate-400 mt-0.5">
-                    Dispatches instant Telegram notifications ONLY when manual interaction is required (all accounts session out, 24-part background cycle stalled, continuous loop aborted, or deployment build failure).
+                    Sends an instant Telegram alert only when human action is needed (e.g., an account logs out or a scheduled run stops).
                   </p>
                 </div>
               </div>
@@ -3925,10 +3913,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
-                  Sequential Multi-Account Scheduler
-                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-                    /scheduler
-                  </span>
+                  Multi-Account Auto-Scheduler
                   <span className={`px-2.5 py-0.5 text-xs rounded-full font-mono font-semibold uppercase tracking-wider ${
                     schedulerData?.enabled
                       ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
@@ -3938,7 +3923,7 @@ export default function App() {
                   </span>
                 </h1>
                 <p className="text-sm text-slate-400">
-                  Fully isolated multi-account automation: rotates through accounts in order. Completely separated from manual single-account posting.
+                  Automatically rotates through your selected accounts one by one on a schedule.
                 </p>
               </div>
             </div>
@@ -3993,7 +3978,7 @@ export default function App() {
                   )}
                 </h3>
                 <p className="text-sm text-slate-400">
-                  When enabled, the bot runs 4 daily cycles across queued accounts (runtime is automatically deducted so all 4 cycles finish within 24 hours).
+                  Automatically fetches trending coins, divides them evenly across your selected accounts, and posts in order.
                 </p>
               </div>
 
@@ -4142,7 +4127,7 @@ export default function App() {
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
                       }`}
-                      title={count === 0 ? "Fetch all trending coins (~85-90 after DEX filter) and divide evenly across enabled accounts" : `Process top ${count} coins total across enabled accounts`}
+                      title={count === 0 ? "Fetch all available trending coins (~85–90 coins) and split them evenly across active accounts" : `Process top ${count} coins total across enabled accounts`}
                     >
                       {count === 0 ? "ALL" : `Top ${count}`}
                     </button>
@@ -4295,7 +4280,7 @@ export default function App() {
             <Info className="h-4.5 w-4.5 text-indigo-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-slate-300 leading-relaxed space-y-1">
               <div>
-                <strong className="text-white">Active vs. Backup Accounts:</strong> Check <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> on the accounts you want to post in the cycle (e.g. 3 primary accounts). Unchecked accounts act as <span className="text-amber-300 font-semibold">Standby / Backup</span>—their login sessions remain safely stored in Firestore and on disk, and you can activate them at any time with one click.
+                <strong className="text-white">Active vs. Backup Accounts:</strong> Check <span className="text-emerald-400 font-semibold font-mono">Use this account for now</span> on the accounts you want to post in the cycle (e.g. 3 primary accounts). Unchecked accounts act as <span className="text-amber-300 font-semibold">Standby / Backup</span>—their login sessions remain safely saved in the cloud, ready to turn on anytime with one click.
               </div>
               <div className="text-[11px] text-slate-400">
                 Uploaded marketing images, AI commentary, and human cooldown timers work automatically across all scheduled posting cycles.
@@ -4659,9 +4644,6 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Beginner & Operating Guide
-                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-                    /guide
-                  </span>
                 </h1>
                 <p className="text-sm text-slate-400">
                   Interactive step-by-step walkthrough for setting up accounts, generating AI comments, and automating CoinMarketCap posts
@@ -4732,7 +4714,7 @@ export default function App() {
                     </div>
                     <h4 className="text-base font-bold text-white pt-1">Fetch Coins & Write AI Comments</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      On the Dashboard, click <strong>Get trending coins</strong> and then <strong>Write comments</strong> (or click <strong>Run Full Automated Bot Cycle</strong>).
+                      On the Dashboard, click <strong>Get trending coins</strong> and then <strong>Write comments</strong> (or click <strong>1-Click: Fetch, Write &amp; Post All</strong>).
                     </p>
                   </div>
                   <button
@@ -4873,8 +4855,8 @@ export default function App() {
                 <ul className="space-y-2.5">
                   {[
                     "Click the Account button in the top header bar to open the account management dialog.",
-                    "Enter your email and password for automatic browser login with Playwright.",
-                    "Alternatively, import existing cookies or storage state JSON from an authenticated browser.",
+                    "Enter your email and password for automatic browser login.",
+                    "Alternatively, import a saved login backup from an authenticated browser.",
                     "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
                     "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
                   ].map((bullet, idx) => (
@@ -5024,10 +5006,10 @@ export default function App() {
                 </div>
                 <ul className="space-y-2.5">
                   {[
-                    "Check the Health page (/health) to immediately identify degraded services or missing keys.",
+                    "Check the Health page to immediately identify degraded services or missing keys.",
                     "If an account session expires, click Check login and re-authenticate or re-import cookies.",
                     "If comment generation fails, verify your OpenAI credit balance or switch to Gemini.",
-                    "Review real-time diagnostic output in the Activity Logs (/logs) to view error traces.",
+                    "Review real-time diagnostic output in the Activity Logs to view error traces.",
                     "Failed coins are automatically queued for retry without disrupting the remaining queue."
                   ].map((bullet, idx) => (
                     <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
@@ -5060,9 +5042,6 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Activity Logs
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-                    /logs
-                  </span>
                 </h1>
                 <p className="text-sm text-slate-400">System Activity and Console Output</p>
               </div>
@@ -5116,8 +5095,8 @@ export default function App() {
                       </span>
                       Activity
                     </h2>
-                    <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800 font-medium" title="Logs are kept to a maximum of 100 entries with automatic rotation to prevent memory leaks">
-                      Ring Buffer: {filteredLogs.length}/100 max (auto-rotates)
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800 font-medium" title="Showing recent activity events">
+                      Showing latest {filteredLogs.length} activity events
                     </span>
                   </div>
                   <button
@@ -5277,9 +5256,6 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   System Health & Service Readiness
-                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-                    /health
-                  </span>
                 </h1>
                 <p className="text-sm text-slate-400">Live status of server, AI models, CoinMarketCap browser engine, cloud database, and alerts</p>
               </div>
@@ -5337,14 +5313,14 @@ export default function App() {
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">1. Backend Runtime</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">1. Bot Server</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
                     Server: <span className="font-semibold text-emerald-400">ONLINE</span>
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.server?.message || "Node.js Express backend server is online and handling automation requests."}
+                  {healthData?.checks?.server?.message || "Bot server is online and handling automation requests."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
@@ -5374,11 +5350,11 @@ export default function App() {
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.openai?.message || "Generates tailored bullish/bearish crypto commentary using GPT-4o-mini."}
+                  {healthData?.checks?.openai?.message || "Generates tailored bullish/bearish crypto commentary using AI."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Model: <strong className="text-slate-200 font-mono">{apiStatus.openai ? "gpt-4o-mini" : "Fallback"}</strong></span>
+                <span>Status: <strong className="text-slate-200 font-mono">{apiStatus.openai ? "Active" : "Fallback"}</strong></span>
                 <button onClick={() => navigateTo("admin", "secrets")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer">
                   API Keys →
                 </button>
@@ -5389,7 +5365,7 @@ export default function App() {
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. Market Data & Browser</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Browser</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
                     <span className="text-slate-400 font-mono">CMC:</span>
                     {apiStatus.cmc ? (
@@ -5404,13 +5380,13 @@ export default function App() {
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.cmc?.message || "Playwright Chromium engine and CoinMarketCap market feed are ready."}
+                  {healthData?.checks?.cmc?.message || "Automated browser and CoinMarketCap market feed are ready."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Browser: <strong className="text-slate-200 font-mono">Playwright Chromium</strong></span>
+                <span>Browser: <strong className="text-slate-200 font-mono">Automated Browser</strong></span>
                 <button onClick={() => navigateTo("admin", "diagnostics")} className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer">
-                  Verify Binary →
+                  Check Browser →
                 </button>
               </div>
             </div>
@@ -5419,7 +5395,7 @@ export default function App() {
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">4. Cloud Persistence</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">4. Cloud Storage</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
                     <span className="text-slate-400 font-mono">DB:</span>
                     {storageInfo.isFirebaseDisabled ? (
@@ -5564,7 +5540,7 @@ export default function App() {
                     <h2 className="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
                       Control Center
                     </h2>
-                    <p className="text-xs text-slate-400">Playwright Community Auto-Poster</p>
+                    <p className="text-xs text-slate-400">Automated CoinMarketCap Commenting</p>
                   </div>
                 </div>
 
@@ -5590,12 +5566,12 @@ export default function App() {
                   <button
                     onClick={() => {
                       if (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) {
-                        showToast("Cannot reset storage while an active process is running. Please stop the active process first.", "warning");
+                        showToast("Cannot clear queue while an active process is running. Please stop the active process first.", "warning");
                         return;
                       }
                       setInlineConfirmModal({
                         isOpen: true,
-                        title: "Reset Active Account Queue",
+                        title: "Clear Active Account Queue",
                         message: "Clear queued trending coins, generated comments, and console logs for this account? Your posted submission history and cookies will remain safe.",
                         onConfirm: () => runCommand("/api/clear-all", "clear")
                       });
@@ -5609,19 +5585,19 @@ export default function App() {
                     id="btn-clear-stats"
                     title={
                       (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning)
-                        ? "Locked: Stop the active bot process before resetting storage"
-                        : "Reset storage and clear local queue data"
+                        ? "Locked: Stop the active bot process before clearing the queue"
+                        : "Clear current queue data"
                     }
                   >
                     {(isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning) ? (
                       <>
                         <Lock className="h-3.5 w-3.5 text-amber-400" />
-                        <span>Reset Locked</span>
+                        <span>Queue Locked</span>
                       </>
                     ) : (
                       <>
                         <Trash2 className="h-3.5 w-3.5" />
-                        <span>{isPending.clear ? "Resetting..." : "Reset Storage"}</span>
+                        <span>{isPending.clear ? "Clearing..." : "Clear Queue"}</span>
                       </>
                     )}
                   </button>
@@ -5652,7 +5628,7 @@ export default function App() {
               <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                 <span className="text-slate-300 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Engine: <strong className="text-white font-semibold">Real Browser (Headless Playwright)</strong>
+                  Posting Mode: <strong className="text-white font-semibold">Live CoinMarketCap Browser</strong>
                 </span>
                 <span className="text-slate-400 font-mono hidden sm:inline">
                   Account: <strong className="text-emerald-400">{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong>
@@ -5689,7 +5665,7 @@ export default function App() {
                     </span>
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">1. Check login</h3>
-                      <p className="text-xs text-slate-400">Verify browser session</p>
+                      <p className="text-xs text-slate-400">Check if account is signed in</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -5733,7 +5709,7 @@ export default function App() {
                     </span>
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">2. Get trending coins</h3>
-                      <p className="text-xs text-slate-400">Load live market list</p>
+                      <p className="text-xs text-slate-400">Fetch latest trending coins</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -5781,7 +5757,7 @@ export default function App() {
                     </span>
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">3. Write comments</h3>
-                      <p className="text-xs text-slate-400">AI gpt-4o-mini</p>
+                      <p className="text-xs text-slate-400">Generate AI comments for each coin</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -5881,7 +5857,7 @@ export default function App() {
                         <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">
                           {isStartingPost ? "Starting Browser..." : "4. Start Posting"}
                         </h3>
-                        <p className="text-xs text-slate-400">Submit comments with Playwright</p>
+                        <p className="text-xs text-slate-400">Post comments to CoinMarketCap</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -5950,12 +5926,12 @@ export default function App() {
                 ) : (isBusy || isContinuousLoopActive || isSchedulerRunning) ? (
                   <>
                     <Lock className="h-4 w-4 text-slate-950" />
-                    <span>Run Full Automated Bot Cycle (Process Active)</span>
+                    <span>1-Click: Fetch, Write &amp; Post All (Process Active)</span>
                   </>
                 ) : (
                   <>
                     <Play className="h-4 w-4 fill-slate-950" />
-                    <span>Run Full Automated Bot Cycle</span>
+                    <span>1-Click: Fetch, Write &amp; Post All</span>
                   </>
                 )}
               </button>
@@ -5979,7 +5955,7 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-slate-200">
-                          Continuous Automation Loop
+                          Auto-Repeat Mode
                         </span>
                         <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
                           isContinuousLoopActive
@@ -5990,7 +5966,7 @@ export default function App() {
                         </span>
                       </div>
                       <span className="text-xs text-slate-400 block">
-                        Auto-restarts full posting cycle after cooldown gap
+                        Automatically starts the next round after the wait timer
                       </span>
                     </div>
                   </div>
@@ -6141,7 +6117,7 @@ export default function App() {
                     className="py-2 px-3 bg-teal-600/15 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Upload className="h-3.5 w-3.5" />
-                    <span>2. Import Drive / S3</span>
+                    <span>2. Import from Cloud / Link</span>
                   </button>
 
                   <button
@@ -6226,7 +6202,7 @@ export default function App() {
                   <>
                     <div className="spotlight-asset-card min-h-[86px] p-4 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
                       <div className="space-y-1">
-                        <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block font-bold">Target Asset & Queue State</span>
+                        <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block font-bold">Current Coin & Posting Status</span>
                         <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2 flex-wrap">
                           {status === "Stopping" || isStoppingPost ? (
                             <span className="text-amber-400 flex items-center gap-1.5 text-base font-bold">
@@ -6272,7 +6248,7 @@ export default function App() {
                           {status === "Stopping" || isStoppingPost
                             ? "Gracefully finishing current coin before stopping..."
                             : isStartingPost
-                            ? "Launching Playwright Chromium browser..."
+                            ? "Opening CoinMarketCap browser..."
                             : status === "Posting"
                             ? `Posting coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} (${clampedProgress} verified on CMC)`
                             : activeBatchTotal > 0 && clampedProgress >= activeBatchTotal
@@ -6303,7 +6279,7 @@ export default function App() {
                       </div>
 
                       <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Comments AI</span>
+                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">AI Comments Ready</span>
                         <div className="text-lg font-black text-purple-400 font-mono tabular-nums mt-0.5">{generatedCount}</div>
                       </div>
 
@@ -6320,7 +6296,7 @@ export default function App() {
                       </div>
 
                       <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Unposted / Left</span>
+                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Remaining to Post</span>
                         <div className="text-lg font-black text-amber-400 font-mono tabular-nums mt-0.5">{remainingBatch}</div>
                       </div>
 
@@ -6398,7 +6374,7 @@ export default function App() {
               <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
                 <Database className="h-5 w-5" />
               </span>
-              Storage & Report Explorer
+              Campaign Data, Reports & Image Library
             </h2>
 
             {/* Exporter selector tabs + Unified Refresh Button */}
@@ -6764,9 +6740,9 @@ export default function App() {
                   {/* Automated Background Isolation & Compaction Notice Banner */}
                   <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2.5 text-blue-300">
-                      <span className="p-1 bg-blue-500/20 rounded-md text-blue-400 font-bold whitespace-nowrap">⚡ AUTO-COMPACTION</span>
+                      <span className="p-1 bg-blue-500/20 rounded-md text-blue-400 font-bold whitespace-nowrap">⚡ AUTO-CLEANUP</span>
                       <p className="text-[11px] leading-relaxed">
-                        <strong>Automated Data Lifecycle Active:</strong> Completed batches and records older than {retentionDays} days are automatically archived to keep queue files lean and maintain peak bot speed. Unattended 24/7 background scheduler runs with zero bloat and never repeats finished coins.
+                        Old completed runs are automatically archived after {retentionDays} days to keep your queue fast and clean.
                       </p>
                     </div>
                   </div>
@@ -6821,7 +6797,7 @@ export default function App() {
                                     </span>
                                   ) : histItem.status === "skipped" ? (
                                     <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
+                                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (No Community Page)
                                     </span>
                                   ) : histItem.status === "captcha" ? (
                                     <span className="text-amber-400 flex items-center gap-1 font-bold">
@@ -6914,7 +6890,7 @@ export default function App() {
                                       )
                                     ) : item.status === "skipped" ? (
                                       <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (DEX)
+                                        <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (No Community Page)
                                       </span>
                                     ) : item.status === "success" ? (
                                       <span className="text-emerald-400 flex items-center gap-1 font-bold">
@@ -7232,7 +7208,7 @@ export default function App() {
                       </div>
 
                       <div className="bg-slate-900/30 p-3 rounded-xl border border-slate-800/40 text-[11px] text-slate-400 mt-4 leading-relaxed">
-                        <span className="font-bold text-slate-200">System Insight:</span> Real-time sentiment categorization uses your generated OpenAI comments database. Ensure your Playwright State credentials in auth/state.json remain updated to maintain maximum success rates.
+                        <span className="font-bold text-slate-200">System Insight:</span> Real-time sentiment categorization uses your generated AI comments database. Keep your CoinMarketCap account signed in for the highest posting success rate.
                       </div>
                     </div>
 
@@ -7416,10 +7392,10 @@ export default function App() {
               <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2.5 text-slate-300">
                   <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider shrink-0">
-                    Source Agnostic
+                    Flexible Image Upload
                   </span>
                   <span className="text-slate-400">
-                    Images can be provided via dashboard upload, local drop, daily S3 bucket sync, or external API feed anytime without breaking posting logic.
+                    Upload graphics from your computer or import them from a Google Drive / cloud link anytime.
                   </span>
                 </div>
               </div>
@@ -8128,7 +8104,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   <Key className="h-4 w-4" />
                 </span>
                 <h3 className="font-bold text-white text-base">
-                  Configure Playwright Session
+                  Add or Switch CoinMarketCap Account
                 </h3>
               </div>
               <button
@@ -8156,7 +8132,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   loginTab === "credentials" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                1. Automated Login (New)
+                1. Log In with Email (Recommended)
               </button>
               <button
                 onClick={() => setLoginTab("cookies")}
@@ -8165,7 +8141,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   loginTab === "cookies" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                2. Paste state.json cookies
+                2. Import Login Cookies (Advanced)
               </button>
               <button
                 onClick={() => {
@@ -8189,7 +8165,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               {loginTab === "credentials" && (
                 <div className="space-y-4 text-sm">
                   <p className="text-slate-300 text-sm leading-relaxed">
-                    Log in directly using your CoinMarketCap credentials. Our backend Playwright browser will run the login, handle security, and capture/save the <code className="text-emerald-400 font-mono">state.json</code> automatically!
+                    Sign in with your CoinMarketCap email and password. The bot will log in and save your account automatically.
                   </p>
 
                   {loginStep === "idle" && (
@@ -8443,7 +8419,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] uppercase text-slate-400 font-mono tracking-widest font-bold">Paste state.json content</label>
+                    <label className="text-[11px] uppercase text-slate-400 font-mono tracking-widest font-bold">Paste exported login cookies</label>
                     <textarea
                       rows={6}
                       value={sessionJson}
@@ -8485,9 +8461,9 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         onClick={() => setLoginTab("cookies")}
                         disabled={isBusy || isPostingActive || isContinuousLoopActive}
                         className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Import Cookies JSON"}
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Import Cookies"}
                       >
-                        📋 Import Cookies JSON
+                        📋 Import Cookies
                       </button>
                     </div>
                   </div>
@@ -8648,11 +8624,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                               <button
                                 onClick={() => {
                                   navigator.clipboard.writeText(p.stateJson);
-                                  showToast(`Copied state.json for "${p.name}" to clipboard!`, "success");
+                                  showToast(`Copied login backup for "${p.name}" to clipboard!`, "success");
                                 }}
                                 className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-lg border border-slate-800 cursor-pointer"
                               >
-                                📋 Copy JSON
+                                📋 Copy Backup
                               </button>
                               {deletingId === p.id ? (
                                 <div className="flex items-center gap-1.5">

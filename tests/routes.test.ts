@@ -1,11 +1,26 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "fs";
+import path from "path";
 import request from "supertest";
 import { app } from "../server";
 
+const SETTINGS_FILE_PATH = path.join(process.cwd(), "auth", "settings.json");
+let originalSettingsContent: string | null = null;
+
 describe("Route Unit Tests (supertest)", () => {
   beforeAll(async () => {
+    if (fs.existsSync(SETTINGS_FILE_PATH)) {
+      originalSettingsContent = fs.readFileSync(SETTINGS_FILE_PATH, "utf-8");
+    }
     // Ensure clean state before route tests
     await request(app).post("/api/scheduler/stop");
+  });
+
+  afterAll(async () => {
+    await request(app).post("/api/scheduler/stop");
+    if (originalSettingsContent !== null) {
+      fs.writeFileSync(SETTINGS_FILE_PATH, originalSettingsContent, "utf-8");
+    }
   });
 
   describe("Scheduler Pause and Resume State Transitions", () => {
