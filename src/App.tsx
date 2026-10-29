@@ -3273,7 +3273,7 @@ export default function App() {
                 </span>
                 <div>
                   <h2 className="font-bold text-white tracking-tight text-base flex items-center gap-2">
-                    System Environment Diagnostics
+                    Browser & System Readiness
                     {isCheckingSystem || !systemCheckResult ? (
                       <span className="text-sm bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 font-medium flex items-center gap-1.5">
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -3285,11 +3285,11 @@ export default function App() {
                       </span>
                     ) : (
                       <span className="text-sm bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20 font-medium">
-                        Issue Detected
+                        Action Needed
                       </span>
                     )}
                   </h2>
-                  <p className="text-sm text-slate-400">Automatically verifies backend browser runtimes, executable existence, and system libraries</p>
+                  <p className="text-sm text-slate-400">Automatically checks that the posting browser and server are ready</p>
                 </div>
               </div>
 
@@ -3300,7 +3300,7 @@ export default function App() {
                   className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-sm text-slate-300 font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isCheckingSystem ? "animate-spin" : ""}`} />
-                  Re-Run Diagnostics
+                  Refresh Check
                 </button>
               </div>
             </div>
@@ -3308,100 +3308,50 @@ export default function App() {
             {!systemCheckResult ? (
               <div className="py-6 flex flex-col items-center justify-center text-slate-400 space-y-2">
                 <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
-                <p className="text-sm">Querying system dependencies check...</p>
+                <p className="text-sm">Checking browser readiness...</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-3 border-r border-slate-800/60 pr-6">
-                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Checklist</h3>
-                  
-                  <div className="flex items-start gap-2.5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
                     {systemCheckResult.playwrightInstalled ? (
-                      <span className="p-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20 mt-0.5">
-                        <CheckCircle className="h-3.5 w-3.5" />
-                      </span>
+                      <CheckCircle className="h-4 w-4 text-emerald-400" />
                     ) : (
-                      <span className="p-1 bg-red-500/10 text-red-400 rounded-full border border-red-500/20 mt-0.5">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                      </span>
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
                     )}
-                    <div>
-                      <h4 className="text-sm font-semibold text-white font-mono">Playwright</h4>
-                      <p className="text-[10px] text-slate-400">
-                        {systemCheckResult.playwrightInstalled ? "Framework is installed and loaded" : "Failed to load playwright"}
-                      </p>
-                    </div>
+                    <span className="text-sm font-semibold text-white">Automation Engine</span>
                   </div>
-
-                  <div className="flex items-start gap-2.5">
-                    {systemCheckResult.executableExists ? (
-                      <span className="p-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20 mt-0.5">
-                        <CheckCircle className="h-3.5 w-3.5" />
-                      </span>
-                    ) : (
-                      <span className="p-1 bg-red-500/10 text-red-400 rounded-full border border-red-500/20 mt-0.5">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                      </span>
-                    )}
-                    <div>
-                      <h4 className="text-sm font-semibold text-white font-mono">Chromium Binary</h4>
-                      <p className="text-[10px] text-slate-400">
-                        {systemCheckResult.executableExists ? "Executable exists on disk" : "No executable found at path"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2.5">
-                    {systemCheckResult.launchStatus === "success" ? (
-                      <span className="p-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20 mt-0.5">
-                        <CheckCircle className="h-3.5 w-3.5" />
-                      </span>
-                    ) : (
-                      <span className="p-1 bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20 mt-0.5">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                      </span>
-                    )}
-                    <div>
-                      <h4 className="text-sm font-semibold text-white font-mono">Shared OS Libraries</h4>
-                      <p className="text-[10px] text-slate-400">
-                        {systemCheckResult.launchStatus === "success" ? "All OS dependencies satisfied" : "Missing shared libraries detected"}
-                      </p>
-                    </div>
-                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.playwrightInstalled ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+                    {systemCheckResult.playwrightInstalled ? "Healthy" : "Action Needed"}
+                  </span>
                 </div>
 
-                <div className="md:col-span-2 space-y-3 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Environment Details</h3>
-                    <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 space-y-2 text-[11px] font-mono leading-relaxed">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                        <span className="text-slate-500">PLAYWRIGHT_BROWSERS_PATH:</span>
-                        <span className="text-slate-300 truncate max-w-sm">{systemCheckResult.browsersPath}</span>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                        <span className="text-slate-500">Executable Path:</span>
-                        <span className="text-slate-300 truncate max-w-sm" title={systemCheckResult.executablePath}>{systemCheckResult.executablePath}</span>
-                      </div>
-                      <div className="border-t border-slate-900 pt-2 flex flex-col gap-1">
-                        <span className="text-slate-500">Verification Result:</span>
-                        <span className={`font-semibold ${systemCheckResult.success ? "text-emerald-400" : "text-amber-400"}`}>
-                          {systemCheckResult.message}
-                        </span>
-                      </div>
-                    </div>
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {systemCheckResult.executableExists ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
+                    )}
+                    <span className="text-sm font-semibold text-white">Posting Browser</span>
                   </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.executableExists ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+                    {systemCheckResult.executableExists ? "Healthy" : "Action Needed"}
+                  </span>
+                </div>
 
-                  {systemCheckResult.missingLibraries.length > 0 && (
-                    <div className="p-3 bg-amber-500/5 border border-amber-500/15 rounded-xl flex items-start gap-2.5 text-[10px] text-slate-400">
-                      <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <p className="font-semibold text-amber-400">Actionable Resolution:</p>
-                        <p>
-                          Detected missing shared libraries in this local sandbox environment: <code className="text-amber-300">{systemCheckResult.missingLibraries.join(", ")}</code>.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {systemCheckResult.launchStatus === "success" ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-amber-400" />
+                    )}
+                    <span className="text-sm font-semibold text-white">Browser Launch Test</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.launchStatus === "success" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                    {systemCheckResult.launchStatus === "success" ? "Healthy" : "Action Needed"}
+                  </span>
                 </div>
               </div>
             )}
@@ -4081,10 +4031,44 @@ export default function App() {
               {/* Interval Settings */}
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
-                  <span className="text-xs text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle Window (24h)</span>
+                  <span className="text-xs text-indigo-400 font-mono font-bold">
+                    {schedulerData?.intervalMinutes || 360}m ({Math.max(1, Math.round(1440 / (schedulerData?.intervalMinutes || 360)))}x / 24h)
+                  </span>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-1.5 mt-1">
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
+                    onClick={() => {
+                      setSchedulerIntervalInput(360);
+                      handleUpdateSchedulerInterval(360);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 ${
+                      (schedulerData?.intervalMinutes || 360) === 360
+                        ? "bg-indigo-600 text-white border-indigo-500"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
+                    }`}
+                    title="6 hours per cycle (4 cycles in 24 hours)"
+                  >
+                    360m (6h)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSchedulerActionPending || isSchedulerRunning}
+                    onClick={() => {
+                      setSchedulerIntervalInput(480);
+                      handleUpdateSchedulerInterval(480);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 ${
+                      schedulerData?.intervalMinutes === 480
+                        ? "bg-indigo-600 text-white border-indigo-500"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
+                    }`}
+                    title="8 hours per cycle (3 cycles in 24 hours)"
+                  >
+                    480m (8h)
+                  </button>
                   <input
                     type="number"
                     min={1}
@@ -4092,18 +4076,18 @@ export default function App() {
                     disabled={isSchedulerActionPending || isSchedulerRunning}
                     value={schedulerIntervalInput}
                     onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                   <button
                     onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
                     disabled={isSchedulerActionPending || isSchedulerRunning}
-                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Save
                   </button>
                 </div>
                 <div className="text-xs text-slate-400">
-                  Runtime deducted automatically for 24h schedule
+                  Rest gap = {schedulerData?.intervalMinutes || 360}m slot minus cycle runtime (min 15m rest)
                 </div>
               </div>
 
@@ -4112,7 +4096,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
                   <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL Coins (~85–90)" : `Top ${targetCoinsCount}`}
+                    {targetCoinsCount === 0 ? "All Live Coins" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-1.5 mt-1">
@@ -4127,7 +4111,7 @@ export default function App() {
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
                       }`}
-                      title={count === 0 ? "Fetch all available trending coins (~85–90 coins) and split them evenly across active accounts" : `Process top ${count} coins total across enabled accounts`}
+                      title={count === 0 ? "Fetch all available trending coins and split them evenly across active accounts" : `Process top ${count} coins total across enabled accounts`}
                     >
                       {count === 0 ? "ALL" : `Top ${count}`}
                     </button>
@@ -4136,11 +4120,9 @@ export default function App() {
                 <div className="text-xs text-slate-400">
                   {(() => {
                     const enabledAccs = Math.max(1, (schedulerData?.accounts || []).filter(a => a.schedule?.enabled).length);
-                    const estTotal = targetCoinsCount === 0 ? 87 : targetCoinsCount;
-                    const perAcc = Math.ceil(estTotal / enabledAccs);
                     return targetCoinsCount === 0
-                      ? `Divided across ${enabledAccs} account${enabledAccs > 1 ? "s" : ""} (~${perAcc} coins/account)`
-                      : `${targetCoinsCount} coins ÷ ${enabledAccs} account${enabledAccs > 1 ? "s" : ""} (~${perAcc}/account)`;
+                      ? `Live fetched coins split evenly across ${enabledAccs} active account${enabledAccs > 1 ? "s" : ""}`
+                      : `${targetCoinsCount} coins ÷ ${enabledAccs} account${enabledAccs > 1 ? "s" : ""} (~${Math.ceil(targetCoinsCount / enabledAccs)}/account)`;
                   })()}
                 </div>
               </div>
@@ -5095,9 +5077,6 @@ export default function App() {
                       </span>
                       Activity
                     </h2>
-                    <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800 font-medium" title="Showing recent activity events">
-                      Showing latest {filteredLogs.length} activity events
-                    </span>
                   </div>
                   <button
                     onClick={() =>
@@ -7385,18 +7364,6 @@ export default function App() {
                       ? `When daily images arrive, graphics older than the ${autoPruneLimit} newest are automatically deleted.`
                       : "Maintains all graphics until manually batch-deleted or replaced."}
                   </p>
-                </div>
-              </div>
-
-              {/* ARCHITECTURE & FUTURE SOURCE NOTE */}
-              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider shrink-0">
-                    Flexible Image Upload
-                  </span>
-                  <span className="text-slate-400">
-                    Upload graphics from your computer or import them from a Google Drive / cloud link anytime.
-                  </span>
                 </div>
               </div>
 
