@@ -2808,6 +2808,7 @@ export default function App() {
                     onClick={() => setShowAdminPassword(!showAdminPassword)}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition p-1 cursor-pointer"
                     title={showAdminPassword ? "Hide password" : "Show password"}
+                    aria-label={showAdminPassword ? "Hide password" : "Show password"}
                   >
                     {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -4426,6 +4427,7 @@ export default function App() {
                                     onClick={() => handleMoveAccount(index, "up")}
                                     className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
                                     title="Move 1 step up"
+                                    aria-label="Move 1 step up"
                                   >
                                     <ChevronUp className="h-3 w-3" />
                                   </button>
@@ -4435,6 +4437,7 @@ export default function App() {
                                     onClick={() => handleMoveAccount(index, "down")}
                                     className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
                                     title="Move 1 step down"
+                                    aria-label="Move 1 step down"
                                   >
                                     <ChevronDown className="h-3 w-3" />
                                   </button>
@@ -7111,6 +7114,7 @@ export default function App() {
                     onClick={fetchMarketingImages}
                     className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition cursor-pointer"
                     title="Reload images"
+                    aria-label="Reload images"
                   >
                     <RefreshCw className="h-4 w-4" />
                   </button>
@@ -7283,6 +7287,7 @@ export default function App() {
                             : "text-slate-400 hover:text-slate-200"
                         }`}
                         title="Compact Grid View (High Density)"
+                        aria-label="Compact Grid View"
                       >
                         <LayoutGrid className="h-3.5 w-3.5" />
                       </button>
@@ -7294,6 +7299,7 @@ export default function App() {
                             : "text-slate-400 hover:text-slate-200"
                         }`}
                         title="List Table View (Compact Rows)"
+                        aria-label="List Table View"
                       >
                         <List className="h-3.5 w-3.5" />
                       </button>
@@ -7432,6 +7438,7 @@ export default function App() {
                                 }}
                                 className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow cursor-pointer"
                                 title="Expand Preview"
+                                aria-label="Expand Preview"
                               >
                                 <Maximize2 className="h-4 w-4" />
                               </button>
@@ -7442,6 +7449,7 @@ export default function App() {
                                 }}
                                 className="p-2 bg-slate-800 hover:bg-red-500 text-slate-300 hover:text-white rounded-lg shadow cursor-pointer"
                                 title="Delete image"
+                                aria-label="Delete image"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -7565,6 +7573,7 @@ export default function App() {
                                       onClick={() => setPreviewModalImage(img)}
                                       className="p-1 hover:text-indigo-400 text-slate-400 transition cursor-pointer"
                                       title="Preview"
+                                      aria-label="Preview"
                                     >
                                       <Maximize2 className="h-3.5 w-3.5" />
                                     </button>
@@ -7572,6 +7581,7 @@ export default function App() {
                                       onClick={() => handleDeleteMarketingImage(img.filename)}
                                       className="p-1 hover:text-red-400 text-slate-500 transition cursor-pointer"
                                       title="Delete"
+                                      aria-label="Delete"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </button>
@@ -7675,6 +7685,8 @@ export default function App() {
                           setExternalImportStatus(null);
                         }}
                         className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                        title="Close modal"
+                        aria-label="Close modal"
                       >
                         <X className="h-5 w-5" />
                       </button>
@@ -7780,6 +7792,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         onClick={() => setPreviewModalImage(null)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                         title="Close preview"
+                        aria-label="Close preview"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -7798,6 +7811,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             }}
                             className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-slate-700/80 shadow-xl transition cursor-pointer z-20 opacity-70 group-hover:opacity-100"
                             title="Previous Image (← Left Arrow)"
+                            aria-label="Previous Image"
                           >
                             <ChevronLeft className="h-5 w-5" />
                           </button>
@@ -7810,6 +7824,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             }}
                             className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-slate-900/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-slate-700/80 shadow-xl transition cursor-pointer z-20 opacity-70 group-hover:opacity-100"
                             title="Next Image (→ Right Arrow)"
+                            aria-label="Next Image"
                           >
                             <ChevronRight className="h-5 w-5" />
                           </button>
@@ -8758,6 +8773,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => setConfirmSwitchProfile(null)}
                 className="text-slate-500 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition"
+                title="Close dialog"
+                aria-label="Close dialog"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -8868,6 +8885,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
               <button
                 onClick={() => setShowStaleWarningModal(false)}
                 className="text-slate-500 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                title="Close dialog"
+                aria-label="Close dialog"
               >
                 <X className="h-4 w-4" />
               </button>
