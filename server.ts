@@ -2031,8 +2031,8 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
       if (fs.existsSync(AUTH_STATE_FILE)) {
         const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
         const activeId = getActiveProfileId();
-        await saveSessionStateCloud(cookiesStr, activeId || undefined);
-        autoSyncSessionToProfiles(cookiesStr);
+        await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
+        await autoSyncSessionToProfiles(cookiesStr);
       }
     } catch (e) {
       console.error("Failed to update and sync storage state after successful session check:", (e as Error).message);
@@ -3372,8 +3372,8 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       if (fs.existsSync(AUTH_STATE_FILE)) {
         const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
         const activeId = getActiveProfileId();
-        await saveSessionStateCloud(cookiesStr, activeId || undefined);
-        autoSyncSessionToProfiles(cookiesStr);
+        await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
+        await autoSyncSessionToProfiles(cookiesStr);
       }
     } catch (e) {
       console.error("Failed to update and sync storage state after successful post:", (e as Error).message);
@@ -3614,11 +3614,7 @@ async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
     updateActiveProfilePaths();
     
     // Sync to Cloud only if changed
-    const profilesHash = getPayloadHash(profiles);
-    if (lastCloudSavedHash.get("profiles_file") !== profilesHash) {
-      await saveProfilesCloud(profiles);
-      lastCloudSavedHash.set("profiles_file", profilesHash);
-    }
+    await saveProfilesCloudIfChanged(profiles);
   } catch (error) {
     console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
   }
@@ -3647,10 +3643,33 @@ function writeJsonFileSyncAtomic(filePath: string, data: any): void {
 }
 
 const lastCloudSavedHash = new Map<string, string>();
+const hydratedProfiles = new Set<string>();
 
 function getPayloadHash(data: any): string {
   const str = typeof data === "string" ? data : JSON.stringify(data);
   return crypto.createHash("sha1").update(str).digest("hex");
+}
+
+async function saveSessionStateCloudIfChanged(stateStr: string, profileId?: string) {
+  const cacheKey = `${AUTH_STATE_FILE}:${profileId || "global"}`;
+  const newHash = getPayloadHash(stateStr);
+  if (lastCloudSavedHash.get(cacheKey) === newHash) {
+    return;
+  }
+  await saveSessionStateCloud(stateStr, profileId);
+  lastCloudSavedHash.set(cacheKey, newHash);
+}
+
+async function saveProfilesCloudIfChanged(profiles: any[]) {
+  const canonical = Array.isArray(profiles)
+    ? profiles.map(p => ({ ...p, updatedAt: undefined }))
+    : profiles;
+  const profilesHash = getPayloadHash(canonical);
+  if (lastCloudSavedHash.get("profiles_file") === profilesHash) {
+    return;
+  }
+  await saveProfilesCloud(profiles);
+  lastCloudSavedHash.set("profiles_file", profilesHash);
 }
 
 async function writeJsonFile<T>(filePath: string, data: T) {
@@ -3659,7 +3678,11 @@ async function writeJsonFile<T>(filePath: string, data: T) {
 
     const activeId = getActiveProfileId();
     const cacheKey = `${filePath}:${activeId || "global"}`;
-    const newHash = getPayloadHash(data);
+    const hashPayload =
+      filePath === POST_PROGRESS_FILE && data && typeof data === "object"
+        ? { ...(data as any), updated_at: undefined }
+        : data;
+    const newHash = getPayloadHash(hashPayload);
 
     // Skip cloud save if data is unchanged
     if (lastCloudSavedHash.get(cacheKey) === newHash) {
@@ -3669,7 +3692,7 @@ async function writeJsonFile<T>(filePath: string, data: T) {
     // Synchronize to Firestore Cloud Database
     if (filePath === AUTH_STATE_FILE) {
       try {
-        await saveSessionStateCloud(JSON.stringify(data), activeId || undefined);
+        await saveSessionStateCloudIfChanged(typeof data === "string" ? data : JSON.stringify(data), activeId || undefined);
         lastCloudSavedHash.set(cacheKey, newHash);
       } catch (err) {
         console.error("[FIREBASE] Error syncing session to cloud:", (err as Error).message);
@@ -3735,6 +3758,9 @@ async function syncLocalFromCloudIfStale(force = false) {
     const activeId = getActiveProfileId();
     if (!activeId) {
       return; // No active profile, do not sync profile-scoped data
+    }
+    if (!force && hydratedProfiles.has(activeId)) {
+      return; // Already hydrated for this active profile; skip redundant cloud reads
     }
 
     // Always ensure paths are aligned with the active profile FIRST before any sync operations
@@ -3845,6 +3871,8 @@ async function syncLocalFromCloudIfStale(force = false) {
         updateActiveProfilePaths();
       }
     }
+
+    hydratedProfiles.add(activeId);
   } catch (err) {
     console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
   }
@@ -5413,7 +5441,7 @@ app.post("/api/check-login", async (req, res) => {
         profiles[activeIdx].loginStatus = "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
         fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        await saveProfilesCloud(profiles);
+        await saveProfilesCloudIfChanged(profiles);
       }
     } catch (_) {}
 
@@ -5431,7 +5459,7 @@ app.post("/api/check-login", async (req, res) => {
         profiles[activeIdx].loginStatus = result.status === "success" ? "logged_in" : "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
         fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        await saveProfilesCloud(profiles);
+        await saveProfilesCloudIfChanged(profiles);
       }
     } catch (err) {
       console.error("Error updating profile status in check-login:", (err as Error).message);
@@ -5450,7 +5478,7 @@ app.post("/api/check-login", async (req, res) => {
         profiles[activeIdx].loginStatus = "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
         fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        await saveProfilesCloud(profiles);
+        await saveProfilesCloudIfChanged(profiles);
       }
     } catch (_) {}
 
@@ -6797,7 +6825,6 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         } as any);
         if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
-        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -6824,7 +6851,6 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         } as any);
         if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
-        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -6846,7 +6872,6 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         } as any);
         if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
-        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -6873,7 +6898,6 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         } as any);
         if (results.length > 500) results = results.slice(-500);
         writeJsonFile(RESULTS_FILE, results);
-        if (activeId) savePostResultsCloud(results, activeId).catch(() => {});
         
         currentPostingIndex++;
         saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -9045,6 +9069,7 @@ async function hydrateLocalFromCloud() {
     // Run unified sessions/profiles synchronization and re-verify paths
     synchronizeSessionsAndProfilesOnStartup();
     updateActiveProfilePaths();
+    if (activeId) hydratedProfiles.add(activeId);
 
     addLog("success", "[FIREBASE] Local storage state successfully synchronized with Cloud database.");
   } catch (err) {
