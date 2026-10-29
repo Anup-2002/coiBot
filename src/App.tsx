@@ -1040,7 +1040,7 @@ export default function App() {
   const [commentSearchQuery, setCommentSearchQuery] = useState<string>("");
 
   // System Check State
-  const [systemCheckResult, setSystemCheckResult] = useState<{
+  const [systemCheckResult, setSystemCheckResult] = useState<{ success?: boolean;
     playwrightInstalled: boolean;
     browsersPath: string;
     executablePath: string;
@@ -2932,7 +2932,7 @@ export default function App() {
               <div className={`flex items-center bg-slate-950 border rounded-lg px-2.5 py-1 sm:py-1.5 text-sm shadow-inner transition ${
                 (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
               }`}>
-                <span className="text-xs text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
+                <span className="text-sm text-slate-400 font-mono mr-1.5 uppercase font-bold flex items-center gap-1">
                   {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
                   Active:
                 </span>
@@ -4797,7 +4797,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">Getting started</h2>
-                  <p className="text-xs text-slate-400">Core requirements and initial configuration</p>
+                  <p className="text-sm text-slate-400">Core requirements and initial configuration</p>
                 </div>
               </div>
               <ul className="space-y-2.5">
@@ -4824,7 +4824,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">Adding an account</h2>
-                  <p className="text-xs text-slate-400">Profile management and session isolation</p>
+                  <p className="text-sm text-slate-400">Profile management and session isolation</p>
                 </div>
               </div>
               <ul className="space-y-2.5">
@@ -4851,7 +4851,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
-                  <p className="text-xs text-slate-400">Sequential cycling, state persistence, and control operations</p>
+                  <p className="text-sm text-slate-400">Sequential cycling, state persistence, and control operations</p>
                 </div>
               </div>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4879,7 +4879,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">Images</h2>
-                  <p className="text-xs text-slate-400">Attaching graphics and rotation rules</p>
+                  <p className="text-sm text-slate-400">Attaching graphics and rotation rules</p>
                 </div>
               </div>
               <ul className="space-y-2.5">
@@ -4905,7 +4905,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">If something goes wrong</h2>
-                  <p className="text-xs text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
+                  <p className="text-sm text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
                 </div>
               </div>
               <ul className="space-y-2.5">
@@ -5103,7 +5103,7 @@ export default function App() {
                   <a
                     href="/api/scheduler/logs/download"
                     download="scheduler_execution.log"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                   >
                     <Download className="h-3.5 w-3.5" />
                     <span>Download Scheduler Logs</span>
@@ -5628,7 +5628,7 @@ export default function App() {
               {/* CONTINUOUS LOOP REFINED CONTROLLER - SEAMLESS DESIGN */}
               <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/60 flex flex-col gap-3 shadow-inner">
                 {isSchedulerRunning && (
-                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-xs font-medium">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-sm font-medium">
                     Settings are locked while the scheduler is running. Pause or stop to change them.
                   </div>
                 )}
@@ -6075,7 +6075,7 @@ export default function App() {
               <button
                 onClick={() => navigateTo("scheduler")}
                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                  currentView === "scheduler"
+                  (currentView as string) === "scheduler"
                     ? "bg-indigo-600/40 text-white border border-indigo-500 shadow"
                     : schedulerData?.enabled
                       ? "text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/30"
