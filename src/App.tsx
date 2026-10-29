@@ -3032,34 +3032,36 @@ export default function App() {
               </div>
             )}
 
-            {/* Scheduler Screen Link Button (/scheduler) */}
+            {/* PRIMARY FEATURE: 24/7 Scheduler Screen Link Button (/scheduler) */}
             <button
               onClick={() => navigateTo(currentView === "scheduler" ? "dashboard" : "scheduler")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer shadow-sm ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shadow-md shrink-0 whitespace-nowrap ${
                 currentView === "scheduler"
-                  ? "bg-indigo-600/30 border-indigo-500/60 text-indigo-300 ring-1 ring-indigo-500/30"
+                  ? "bg-gradient-to-r from-indigo-600/40 to-emerald-600/30 border-indigo-400 text-white ring-1 ring-indigo-400/40"
                   : schedulerData?.cycleRunning
-                    ? "bg-indigo-950/60 border-indigo-500/50 text-indigo-300 animate-pulse"
-                    : schedulerData?.enabled
-                      ? "bg-indigo-950/40 border-indigo-500/30 text-indigo-300 hover:text-white hover:bg-indigo-900/50"
-                      : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+                    ? "bg-indigo-950/80 border-indigo-400 text-indigo-200 animate-pulse"
+                    : "bg-gradient-to-r from-indigo-600/25 to-emerald-600/20 hover:from-indigo-600/35 hover:to-emerald-600/30 border-indigo-500/50 text-indigo-200 hover:text-white"
               }`}
-              title="Open Dedicated Sequential Multi-Account Scheduler & Settings Screen (/scheduler)"
+              title="Main Feature: Open 24/7 Multi-Account Auto-Scheduler"
             >
-              <Clock className={`h-3.5 w-3.5 ${schedulerData?.cycleRunning ? "text-indigo-400 animate-spin" : (schedulerData?.enabled ? "text-indigo-400" : "text-slate-400")}`} />
-              <span>Scheduler</span>
-              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+              <Clock className={`h-4 w-4 shrink-0 ${schedulerData?.cycleRunning ? "text-emerald-400 animate-spin" : "text-indigo-300"}`} />
+              <span>24/7 Scheduler</span>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                 schedulerData?.cycleRunning
-                  ? "bg-indigo-500 text-slate-950 animate-pulse"
-                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    : "bg-slate-800 text-slate-400"
+                  ? "bg-emerald-400 text-slate-950 animate-pulse"
+                  : schedulerData?.enabled
+                    ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/40"
+                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                      ? "bg-amber-500/25 text-amber-300 border border-amber-500/40"
+                      : "bg-indigo-500/30 text-indigo-200 border border-indigo-400/30"
               }`}>
                 {schedulerData?.cycleRunning
                   ? "Running"
-                  : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
-                    ? "Paused"
-                    : "Stopped"}
+                  : schedulerData?.enabled
+                    ? "Active"
+                    : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
+                      ? "Paused"
+                      : "Main"}
               </span>
             </button>
 
@@ -4558,8 +4560,8 @@ export default function App() {
                                 </div>
                                 {acc.lastRun.at && (
                                   <span className="text-xs font-mono text-slate-300">
-                                    <span className="text-emerald-400 font-bold">{acc.lastRun.posted} verified posted</span>,{" "}
-                                    <span className={acc.lastRun.failed > 0 ? "text-rose-400 font-bold" : "text-slate-400"}>{acc.lastRun.failed} failed/unposted</span>
+                                    <span className="text-emerald-400 font-bold">{acc.lastRun.posted} posted</span>,{" "}
+                                    <span className={acc.lastRun.failed > 0 ? "text-rose-400 font-bold" : "text-slate-400"}>{acc.lastRun.failed} failed</span>
                                   </span>
                                 )}
                               </div>
@@ -5500,6 +5502,60 @@ export default function App() {
         /* MAIN BOT DASHBOARD */
         <main key="view-dashboard" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
 
+        {/* PRIMARY FEATURE SPOTLIGHT: 24/7 MULTI-ACCOUNT AUTO-SCHEDULER */}
+        <section className="bg-gradient-to-r from-indigo-950/80 via-slate-900 to-emerald-950/60 border border-indigo-500/40 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+              <div className="p-3 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30 shrink-0 shadow-md">
+                <Clock className={`h-6 w-6 ${schedulerData?.cycleRunning ? "text-emerald-400 animate-spin" : "text-indigo-300"}`} />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/25 text-indigo-200 border border-indigo-400/40 text-[11px] font-mono font-bold uppercase tracking-wider shrink-0">
+                    Main Feature
+                  </span>
+                  <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                    24/7 Multi-Account Auto-Scheduler
+                  </h2>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold uppercase shrink-0 ${
+                    schedulerData?.cycleRunning
+                      ? "bg-emerald-400 text-slate-950 animate-pulse"
+                      : schedulerData?.enabled
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : "bg-slate-800 text-slate-300 border border-slate-700"
+                  }`}>
+                    {schedulerData?.cycleRunning
+                      ? "Cycle Running Now"
+                      : schedulerData?.enabled
+                        ? "24/7 Active"
+                        : "Standby"}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300">
+                  Automatically fetches live trending coins, splits them evenly across your active accounts ({(schedulerData?.accounts || []).filter(a => a.schedule?.enabled).length || profilesList.length || 0} active), and posts in sequence every {Math.round((schedulerData?.intervalMinutes || 360) / 60)} hours ({schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} cycles today).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {schedulerData?.nextCycleAt && !schedulerData?.cycleRunning && (
+                <div className="px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-mono text-slate-300">
+                  Next Run: <strong className="text-emerald-400">{new Date(schedulerData.nextCycleAt).toLocaleTimeString()}</strong>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => navigateTo("scheduler")}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-emerald-500 hover:from-indigo-400 hover:to-emerald-400 text-slate-950 font-black text-sm shadow-lg shadow-indigo-500/20 transition flex items-center gap-2 cursor-pointer whitespace-nowrap"
+              >
+                <Clock className="h-4 w-4 text-slate-950" />
+                <span>Open 24/7 Scheduler</span>
+                <ChevronRight className="h-4 w-4 text-slate-950" />
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* ROW 1: ACTIONS & ACTIVE PROGRESS */}
         <div className="dashboard-grid-row">
           
@@ -5629,26 +5685,26 @@ export default function App() {
                 </div>
               )}
 
-              {/* 2x2 MODERN ACTION DECK - STABILIZED GRID WITH REAL STATUS BADGES */}
+              {/* 2x2 MODERN ACTION DECK - STABILIZED GRID WITH COMPACT NON-OVERLAPPING STATUS BADGES */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
                 {/* 1. Check login */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
                   disabled={isPending.login || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-login"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500/20 border border-emerald-500/20 transition">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500/20 border border-emerald-500/20 transition shrink-0">
                       <CheckCircle className="h-4 w-4" />
                     </span>
-                    <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">1. Check login</h3>
-                      <p className="text-xs text-slate-400">Check if account is signed in</p>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition truncate">1. Check login</h3>
+                      <p className="text-xs text-slate-400 truncate">Check if account is signed in</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                  <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
                       isPending.login || status === "Authenticating"
                         ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
                         : sessionExists
@@ -5656,15 +5712,15 @@ export default function App() {
                           : "bg-amber-500/15 text-amber-300 border-amber-500/30"
                     }`}>
                       {isPending.login || status === "Authenticating"
-                        ? "Verifying..."
+                        ? "Checking..."
                         : sessionExists
-                          ? "Verified"
-                          : "Login Needed"}
+                          ? "Signed In"
+                          : "Sign In"}
                     </span>
                     {isPending.login ? (
-                      <RefreshCw className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 text-emerald-400 animate-spin shrink-0" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition shrink-0" />
                     )}
                   </div>
                 </button>
@@ -5679,36 +5735,35 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.fetch || isPending.clear || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-fetch"
+                  title={coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).full}` : "Fetch latest trending coins from CoinMarketCap"}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-2 bg-blue-500/10 text-blue-400 rounded-lg group-hover:bg-blue-500/20 border border-blue-500/20 transition">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="p-2 bg-blue-500/10 text-blue-400 rounded-lg group-hover:bg-blue-500/20 border border-blue-500/20 transition shrink-0">
                       <Search className="h-4 w-4" />
                     </span>
-                    <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">2. Get trending coins</h3>
-                      <p className="text-xs text-slate-400">Fetch latest trending coins</p>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition truncate">2. Get trending coins</h3>
+                      <p className="text-xs text-slate-400 truncate">Fetch latest trending coins</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                  <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
                       isPending.fetch || status === "Fetching"
                         ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
                         : totalCoins > 0
                           ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
                           : "bg-slate-800 text-slate-400 border-slate-700"
-                    }`} title={coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).full}` : undefined}>
+                    }`}>
                       {isPending.fetch || status === "Fetching"
                         ? "Fetching..."
-                        : totalCoins > 0
-                          ? `${totalCoins} Coins${coinsFetchedAt ? ` • ${formatTimeAgo(coinsFetchedAt).text}` : ""}`
-                          : "0 Coins"}
+                        : `${totalCoins} Coins`}
                     </span>
                     {isPending.fetch ? (
-                      <RefreshCw className="h-3.5 w-3.5 text-blue-400 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition shrink-0" />
                     )}
                   </div>
                 </button>
@@ -5727,36 +5782,35 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.generate || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-generate"
+                  title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : "Generate AI comments for each coin"}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-2 bg-purple-500/10 text-purple-400 rounded-lg group-hover:bg-purple-500/20 border border-purple-500/20 transition">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="p-2 bg-purple-500/10 text-purple-400 rounded-lg group-hover:bg-purple-500/20 border border-purple-500/20 transition shrink-0">
                       <BookOpen className="h-4 w-4" />
                     </span>
-                    <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">3. Write comments</h3>
-                      <p className="text-xs text-slate-400">Generate AI comments for each coin</p>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition truncate">3. Write comments</h3>
+                      <p className="text-xs text-slate-400 truncate">Generate AI comments for each coin</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                  <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
                       isPending.generate || status === "Generating"
                         ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
                         : generatedCount > 0
                           ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
                           : "bg-slate-800 text-slate-400 border-slate-700"
-                    }`} title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : undefined}>
+                    }`}>
                       {isPending.generate || status === "Generating"
                         ? "Writing..."
-                        : generatedCount > 0
-                          ? `${generatedCount} Ready${commentsGeneratedAt ? ` • ${formatTimeAgo(commentsGeneratedAt).text}` : ""}`
-                          : "0 Comments"}
+                        : `${generatedCount} Ready`}
                     </span>
                     {isPending.generate ? (
-                      <RefreshCw className="h-3.5 w-3.5 text-purple-400 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 text-purple-400 animate-spin shrink-0" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition shrink-0" />
                     )}
                   </div>
                 </button>
@@ -5769,11 +5823,11 @@ export default function App() {
                       runCommand("/api/stop-posting", "post");
                     }}
                     disabled={isPending.post}
-                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-pause"
                   >
-                    <div className="flex items-center gap-2.5">
-                      <span className={`p-2 rounded-lg border transition ${
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className={`p-2 rounded-lg border transition shrink-0 ${
                         (isStoppingPost || status === "Stopping")
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
                           : "bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse"
@@ -5784,21 +5838,21 @@ export default function App() {
                           <Pause className="h-4 w-4" />
                         )}
                       </span>
-                      <div>
-                        <h3 className="text-sm font-bold text-white">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white truncate">
                           {(isStoppingPost || status === "Stopping") ? "Stopping Posting..." : "4. Stop Posting"}
                         </h3>
-                        <p className="text-xs text-rose-300/80">
-                          {(isStoppingPost || status === "Stopping") ? "Finishing current coin • Click to force stop" : "Halt active posting sequence"}
+                        <p className="text-xs text-rose-300/80 truncate">
+                          {(isStoppingPost || status === "Stopping") ? "Finishing current coin..." : "Halt active posting sequence"}
                         </p>
                       </div>
                     </div>
                     {(isStoppingPost || status === "Stopping" || isPending.post) ? (
-                      <span className="text-xs font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30 flex items-center gap-1">
+                      <span className="text-xs font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30 flex items-center gap-1 shrink-0 whitespace-nowrap">
                         <RefreshCw className="h-3 w-3 animate-spin" /> Stopping
                       </span>
                     ) : (
-                      <span className="text-xs font-mono uppercase bg-rose-500/20 px-2 py-0.5 rounded-full font-bold border border-rose-500/30">Posting</span>
+                      <span className="text-xs font-mono uppercase bg-rose-500/20 px-2 py-0.5 rounded-full font-bold border border-rose-500/30 shrink-0 whitespace-nowrap">Posting</span>
                     )}
                   </button>
                 ) : (
@@ -5821,26 +5875,26 @@ export default function App() {
                       await runCommand("/api/post-chat", "post");
                     }}
                     disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
-                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-start"
                   >
-                    <div className="flex items-center gap-2.5">
-                      <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform shrink-0">
                         {isStartingPost ? (
                           <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
                         ) : (
                           <Play className="h-4 w-4 fill-emerald-400" />
                         )}
                       </span>
-                      <div>
-                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition truncate">
                           {isStartingPost ? "Starting Browser..." : "4. Start Posting"}
                         </h3>
-                        <p className="text-xs text-slate-400">Post comments to CoinMarketCap</p>
+                        <p className="text-xs text-slate-400 truncate">Post comments to CoinMarketCap</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                    <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
                         totalCoins > 0 && generatedCount > 0
                           ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                           : "bg-slate-800 text-slate-400 border-slate-700"
@@ -5848,13 +5902,13 @@ export default function App() {
                         {isStartingPost || isPending.post
                           ? "Starting..."
                           : totalCoins > 0 && generatedCount > 0
-                            ? `Ready (${Math.max(0, generatedCount - Math.min(progressIndex, generatedCount))})`
+                            ? "Ready"
                             : "Need Queue"}
                       </span>
                       {isStartingPost || isPending.post ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400 shrink-0" />
                       ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition shrink-0" />
                       )}
                     </div>
                   </button>
@@ -5904,8 +5958,8 @@ export default function App() {
                   </>
                 ) : (isBusy || isContinuousLoopActive || isSchedulerRunning) ? (
                   <>
-                    <Lock className="h-4 w-4 text-slate-950" />
-                    <span>1-Click: Fetch, Write &amp; Post All (Process Active)</span>
+                    <Lock className="h-4 w-4 text-slate-950 shrink-0" />
+                    <span className="truncate">1-Click: Fetch, Write &amp; Post All</span>
                   </>
                 ) : (
                   <>
@@ -6202,7 +6256,7 @@ export default function App() {
                           ) : currentCoin !== "N/A" ? (
                             currentCoin
                           ) : activeBatchTotal > 0 && clampedProgress >= activeBatchTotal ? (
-                            <span className="text-emerald-400 text-base font-bold">Batch Complete ({clampedProgress}/{activeBatchTotal} Verified)</span>
+                            <span className="text-emerald-400 text-base font-bold">Batch Complete ({clampedProgress}/{activeBatchTotal} Posted)</span>
                           ) : activeBatchTotal > 0 && progressIndex >= activeBatchTotal && remainingBatch > 0 ? (
                             <span className="text-amber-400 text-base font-bold">Run Finished ({clampedProgress}/{activeBatchTotal} Posted • {remainingBatch} Unposted)</span>
                           ) : nextQueuedSymbol ? (
@@ -6229,13 +6283,13 @@ export default function App() {
                             : isStartingPost
                             ? "Opening CoinMarketCap browser..."
                             : status === "Posting"
-                            ? `Posting coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} (${clampedProgress} verified on CMC)`
+                            ? `Posting coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} (${clampedProgress} posted)`
                             : activeBatchTotal > 0 && clampedProgress >= activeBatchTotal
-                            ? `All ${activeBatchTotal} items verified posted on CoinMarketCap`
+                            ? `All ${activeBatchTotal} items posted on CoinMarketCap`
                             : activeBatchTotal > 0 && progressIndex >= activeBatchTotal && remainingBatch > 0
-                            ? `${clampedProgress} verified posted, ${displayFailedCount} failed/rate-limited (${remainingBatch} not posted on CMC)`
+                            ? `${clampedProgress} posted, ${displayFailedCount} failed (${remainingBatch} remaining)`
                             : progressIndex > 0 && activeBatchTotal > 0
-                            ? `Paused at #${progressIndex} of ${activeBatchTotal} (${clampedProgress} verified posted, ${remainingBatch} remaining)`
+                            ? `Paused at #${progressIndex} of ${activeBatchTotal} (${clampedProgress} posted, ${remainingBatch} remaining)`
                             : activeBatchTotal > 0
                             ? `${activeBatchTotal} items loaded & synced with cloud storage`
                             : "Click 'Get trending coins' to load your first batch"}
@@ -6246,7 +6300,7 @@ export default function App() {
                         <div className="text-3xl font-black font-mono tabular-nums text-emerald-400 tracking-tight">
                           {batchPercent}%
                         </div>
-                        <span className="text-xs text-slate-400 font-mono uppercase font-semibold">Verified</span>
+                        <span className="text-xs text-slate-400 font-mono uppercase font-semibold">Completed</span>
                       </div>
                     </div>
 
@@ -6264,7 +6318,7 @@ export default function App() {
 
                       <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Verified Posted</span>
+                          <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Posted</span>
                           {displayFailedCount > 0 && (
                             <span className="text-[11px] font-mono text-rose-400 font-bold" title="Coins that failed or were rate-limited on CoinMarketCap">
                               {displayFailedCount} Failed
@@ -6935,14 +6989,15 @@ export default function App() {
                                     )}
                                   </td>
 
-                                  <td className="py-3.5 px-4 text-right">
+                                  <td className="py-3.5 px-4 text-right whitespace-nowrap">
                                     <a
-                                      href={msgItem.url}
+                                      href={(item && item.url) ? item.url : `${(msgItem.url || "").replace(/#.*$/, "")}#Community`}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
+                                      className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/25 inline-flex items-center gap-1 font-bold text-xs transition"
+                                      title="Open on CoinMarketCap to manually check this post"
                                     >
-                                      Verify <ChevronRight className="h-3 w-3" />
+                                      Check Post <ExternalLink className="h-3 w-3" />
                                     </a>
                                   </td>
                                 </tr>

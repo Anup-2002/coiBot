@@ -2919,7 +2919,7 @@ async function executeCancelLogin(): Promise<void> {
   }
 }
 
-async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry"; message: string }> {
+async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry"; message: string; postUrl?: string }> {
   let browser: any = sharedBrowser || null;
   let ownsBrowser = !sharedBrowser;
   
@@ -3349,33 +3349,68 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     let postApiObserved = false;
     let postApiSucceeded = false;
     let postApiErrorMsg = "";
+    let createdPostUrl = "";
 
     const responseListener = async (response: any) => {
       try {
         const req = response.request();
         if (req.method() !== "POST") return;
         const rUrl = response.url().toLowerCase();
+        // Exclude background read/feed/list/query/telemetry/impression POST requests that return 200 OK without creating a comment
+        const isReadOrTelemetryEndpoint =
+          rUrl.includes("trending") ||
+          rUrl.includes("/list") ||
+          rUrl.includes("query") ||
+          rUrl.includes("search") ||
+          rUrl.includes("impression") ||
+          rUrl.includes("analytics") ||
+          rUrl.includes("telemetry") ||
+          rUrl.includes("recommend") ||
+          rUrl.includes("announcement") ||
+          rUrl.includes("vote") ||
+          rUrl.includes("like") ||
+          rUrl.includes("follow");
+
         if (
-          rUrl.includes("gravity") ||
-          rUrl.includes("comment") ||
-          rUrl.includes("post") ||
-          rUrl.includes("community") ||
-          rUrl.includes("content")
+          !isReadOrTelemetryEndpoint &&
+          (rUrl.includes("gravity") || rUrl.includes("comment") || rUrl.includes("post"))
         ) {
-          postApiObserved = true;
           const status = response.status();
           if (status >= 200 && status < 300) {
             const body = await response.json().catch(() => null);
+            if (!body || typeof body !== "object") return;
+            // Ignore feed list responses that return arrays of posts
+            if (Array.isArray(body?.data) || Array.isArray(body?.data?.list) || Array.isArray(body?.data?.posts)) {
+              return;
+            }
             const errCode = body?.status?.error_code ?? body?.error_code ?? body?.code;
             const errMsg = body?.status?.error_message || body?.error_message || body?.message || "";
             if (errCode && String(errCode) !== "0" && String(errCode) !== "200") {
+              postApiObserved = true;
               postApiErrorMsg = String(errMsg || `API error code ${errCode}`);
             } else {
-              postApiSucceeded = true;
+              const rawPostId =
+                body?.data?.gravityId ??
+                body?.data?.postId ??
+                body?.data?.commentId ??
+                body?.data?.id ??
+                body?.gravityId ??
+                (typeof body?.data === "string" || typeof body?.data === "number" ? body.data : "");
+              const isExplicitCreateUrl =
+                /\/(post|comment|create|add|publish|submit)(\?|$|\/)/i.test(rUrl);
+              if (rawPostId || isExplicitCreateUrl) {
+                postApiObserved = true;
+                postApiSucceeded = true;
+                if (rawPostId && String(rawPostId).trim().length > 0) {
+                  createdPostUrl = `https://coinmarketcap.com/community/post/${encodeURIComponent(String(rawPostId).trim())}/`;
+                }
+              }
             }
           } else if (status === 429) {
+            postApiObserved = true;
             postApiErrorMsg = "HTTP 429 rate limit";
           } else if (status === 401 || status === 403) {
+            postApiObserved = true;
             postApiErrorMsg = `HTTP ${status} unauthorized/restricted`;
           }
         }
@@ -3505,8 +3540,9 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     }
 
     // Check if comment now appears in the published community feed (STRICTLY EXCLUDING the comment editor input box!)
-    const postedInFeedAfterClick = await page.evaluate((snip: string) => {
-      if (!snip || snip.length < 6) return false;
+    // Also extract any direct /community/post/<id> permalink if rendered in the feed item
+    const feedMatchResult = await page.evaluate((snip: string) => {
+      if (!snip || snip.length < 6) return { matched: false, postHref: "" };
       const editors = Array.from(
         document.querySelectorAll('[contenteditable="true"], textarea, [role="textbox"], [data-test="comment-input"]')
       );
@@ -3519,51 +3555,58 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
         // Skip if this element is or contains the active comment editor
         if (editors.some((ed) => el === ed || el.contains(ed) || ed.contains(el))) continue;
         const txt = (el as HTMLElement).innerText || "";
-        if (txt.includes(snip)) return true;
+        if (txt.includes(snip)) {
+          const linkEl = el.querySelector('a[href*="/community/post/"]') as HTMLAnchorElement | null;
+          return {
+            matched: true,
+            postHref: linkEl?.href || "",
+          };
+        }
       }
-      return false;
-    }, snippetToVerify).catch(() => false);
+      return { matched: false, postHref: "" };
+    }, snippetToVerify).catch(() => ({ matched: false, postHref: "" }));
 
-    // STRICT 4-POINT POST ("COMMIT") VERIFICATION GUARD (Applies to Single Retry, Manual Batch, Auto-Loop, and Scheduler):
-    // 1. If the comment text is still sitting inside the editor box and the CMC POST API did not confirm success, reject it.
-    if (editorStillUnposted && !postApiSucceeded) {
-      addLog("warning", `Submission verification failed: Comment text remained inside the editor after clicking Post (CoinMarketCap silently rejected or rate-limited the submission).`);
+    const postedInFeedAfterClick = feedMatchResult.matched;
+    if (!createdPostUrl && feedMatchResult.postHref) {
+      createdPostUrl = feedMatchResult.postHref;
+    }
+
+    // 1. If the comment text is still sitting inside the editor box, CoinMarketCap did not accept the submission.
+    if (editorStillUnposted) {
+      addLog("warning", `Submission failed: Comment text remained inside the editor after clicking Post (CoinMarketCap rejected or rate-limited the submission).`);
       await saveDebugScreenshot(page, "unverified_post_editor_not_cleared");
       return {
         status: "retry",
-        message: "Submission not accepted by CoinMarketCap (editor did not clear; likely silent rate-limit or image upload still pending)"
+        message: "Submission not accepted by CoinMarketCap (comment remained in editor)"
       };
     }
 
     // 2. If a POST API call was observed and returned an error or non-zero status code, reject it.
     if (postApiObserved && !postApiSucceeded) {
-      addLog("warning", `Submission API did not return success (${postApiErrorMsg || "unconfirmed response"}).`);
+      addLog("warning", `Submission API returned error (${postApiErrorMsg || "unconfirmed response"}).`);
       await saveDebugScreenshot(page, "unverified_post_api_response");
       return {
         status: "failed",
-        message: postApiErrorMsg || "CoinMarketCap API did not confirm post publication"
+        message: postApiErrorMsg || "CoinMarketCap API rejected post submission"
       };
     }
 
-    // 3. Require at least one positive commit signal: API 200 OK, or editor cleared + zero error toasts
-    const commitVerifiedVia = postApiSucceeded
-      ? "CMC Post API (200 OK)"
-      : postedInFeedAfterClick
-        ? "Live Community Feed + Editor Cleared"
-        : !editorStillUnposted
-          ? "Editor Cleared + Zero Error Toasts"
-          : "";
+    // 3. Require both editor cleared (!editorStillUnposted) AND either:
+    //    (a) Explicit CMC comment-creation POST API success (postApiSucceeded), OR
+    //    (b) Comment snippet rendered in the live community feed outside the editor (postedInFeedAfterClick)
+    const commitConfirmed = postApiSucceeded || postedInFeedAfterClick;
 
-    if (!commitVerifiedVia) {
-      addLog("warning", "Submission verification failed: No commit confirmation from API, feed, or editor state.");
+    if (!commitConfirmed) {
+      addLog("warning", "Submission failed: Editor cleared, but CoinMarketCap did not return a post creation confirmation or render the comment in the feed.");
       await saveDebugScreenshot(page, "unverified_post_no_signal");
       return {
-        status: "retry",
-        message: "Post commit could not be verified on CoinMarketCap"
+        status: "failed",
+        message: "Comment was not created on CoinMarketCap (no post creation response or feed match)"
       };
     }
 
-    addLog("success", `Successfully submitted & verified post (${commitVerifiedVia})!`);
+    const finalTargetPostUrl = createdPostUrl || `${url.replace(/#.*$/, "")}#Community`;
+    addLog("success", `Successfully submitted post on CoinMarketCap! Check link: ${finalTargetPostUrl}`);
     await saveDebugScreenshot(page, "success_post_screenshot");
 
     // Save refreshed storageState back to maintain session longevity
@@ -3579,7 +3622,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       console.error("Failed to update and sync storage state after successful post:", (e as Error).message);
     }
 
-    return { status: "success", message: "Posted successfully" };
+    return { status: "success", message: "Posted successfully", postUrl: finalTargetPostUrl };
   } catch (error) {
     addLog("error", `Playwright posting execution failed: ${(error as Error).message}`);
     return { status: "failed", message: (error as Error).message };
@@ -3696,7 +3739,7 @@ async function resolveToFirstPartyUrl(originalUrl: string, symbol: string, name:
   return originalUrl;
 }
 
-async function runRealPosting(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string }> {
+async function runRealPosting(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string; postUrl?: string }> {
   if (!url || url.includes("dex.coinmarketcap.com")) {
     addLog("warning", `Skipping DEX Scan URL: ${url} (DEX Scan pages do not support community postings)`);
     return { status: "skipped", message: "Cannot post on DEX Scan pages" };
@@ -3704,7 +3747,7 @@ async function runRealPosting(url: string, message: string, sentiment: string, s
 
   return PlaywrightLock.acquire(async () => {
     const attempts = 2; // Reduced from 3 to 2 for faster execution cycle
-    let lastResult: { status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string } = { status: "failed", message: "Not started" };
+    let lastResult: { status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string; postUrl?: string } = { status: "failed", message: "Not started" };
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         if (attempt > 1) {
@@ -5897,6 +5940,7 @@ app.post("/api/retry-single", async (req, res) => {
 
     let outcome: PostResult["status"] = "success";
     let messageText = "Posted successfully via manual retry";
+    let targetCheckUrl = item.url;
 
     addLog("info", `Launching automated Playwright context for manual retry of ${item.name}...`);
     try {
@@ -5904,6 +5948,9 @@ app.post("/api/retry-single", async (req, res) => {
       const realResult = await runRealPosting(resolvedUrl, item.message, item.sentiment || "bullish");
       outcome = realResult.status;
       messageText = realResult.message;
+      if (realResult.postUrl) {
+        targetCheckUrl = realResult.postUrl;
+      }
     } catch (err) {
       outcome = "failed";
       messageText = `Playwright manual retry error: ${(err as Error).message}`;
@@ -5917,7 +5964,7 @@ app.post("/api/retry-single", async (req, res) => {
     const newResultEntry: PostResult = {
       name: item.name,
       symbol: item.symbol,
-      url: item.url,
+      url: targetCheckUrl,
       status: outcome,
       message: messageText,
       timestamp: new Date().toLocaleTimeString(),
@@ -7028,6 +7075,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
       let outcome: PostResult["status"] = "success";
       let messageText = "Posted successfully";
+      let targetCheckUrl = item.url;
 
       logWithPrefix("info", `Launching automated Playwright context for ${item.name}...`);
       try {
@@ -7035,6 +7083,9 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         const realResult = await runRealPosting(resolvedUrl, item.message, item.sentiment || "bullish", sharedBrowser);
         outcome = realResult.status;
         messageText = realResult.message;
+        if (realResult.postUrl) {
+          targetCheckUrl = realResult.postUrl;
+        }
       } catch (err) {
         outcome = "failed";
         messageText = `Playwright runtime error: ${(err as Error).message}`;
@@ -7058,7 +7109,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         results.push({
           name: item.name,
           symbol: item.symbol,
-          url: item.url,
+          url: targetCheckUrl,
           status: outcome,
           message: messageText,
           timestamp: new Date().toLocaleTimeString(),
