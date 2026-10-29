@@ -1028,6 +1028,7 @@ export default function App() {
 
   // Logs state
   const [logsList, setLogsList] = useState<LogEntry[]>([]);
+  const [schedulerLogsList, setSchedulerLogsList] = useState<LogEntry[]>([]);
   const [logFilter, setLogFilter] = useState<string>("all");
   const [logSearchQuery, setLogSearchQuery] = useState<string>("");
 
@@ -1876,15 +1877,22 @@ export default function App() {
     } catch (_) {}
   };
 
-  // Fetch Current logs with O(1) equality check
+  // Fetch Current logs with O(1) equality check (fetched only while /logs is open)
   const fetchLogs = async (overrideProfileId?: string) => {
+    if (currentView !== "logs") return;
     try {
       const pid = overrideProfileId !== undefined ? overrideProfileId : (activeProfile?.id || "");
-      const res = await apiFetch(resolveUrl(`/api/logs?profileId=${encodeURIComponent(pid)}&t=${Date.now()}`));
+      const [res, schedData] = await Promise.all([
+        apiFetch(resolveUrl(`/api/logs?profileId=${encodeURIComponent(pid)}&t=${Date.now()}`)),
+        api.getSchedulerLogs().catch(() => ({ success: false, logs: [] as LogEntry[] }))
+      ]);
       if (res.ok) {
         const data = await parseResponseJson(res, { logs: [] });
         const list = (data.logs || []).slice(-100);
         setLogsList(prev => areLogsEqual(prev, list) ? prev : list);
+      }
+      if (schedData && Array.isArray(schedData.logs)) {
+        setSchedulerLogsList(prev => areLogsEqual(prev, schedData.logs) ? prev : schedData.logs);
       }
     } catch (_) {}
   };
@@ -2686,15 +2694,9 @@ export default function App() {
     return matchesLevel && matchesQuery;
   });
 
-  const schedulerLogs = logsList.filter(l => {
-    const isSched = l.message.includes("[SCHEDULER]") || 
-                    l.message.includes("[SYNC]") || 
-                    l.message.includes("Run finished") || 
-                    l.message.includes("Sequential") ||
-                    (l.message.startsWith("[") && l.message.includes("]")) ||
-                    (schedulerData?.cycleStatus === "running" && !l.message.includes("[SIMULATOR]"));
+  const schedulerLogs = schedulerLogsList.filter(l => {
     const matchesQ = !schedulerLogQuery.trim() || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase());
-    return isSched && matchesQ;
+    return matchesQ;
   });
 
   const filteredMarketingImages = marketingImages.filter((img) =>
@@ -4697,12 +4699,14 @@ export default function App() {
                     placeholder="Filter scheduler logs..."
                     value={schedulerLogQuery}
                     onChange={(e) => setSchedulerLogQuery(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
+                    className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
                   />
                   {schedulerLogQuery && (
                     <button
                       onClick={() => setSchedulerLogQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-sm cursor-pointer"
+                      title="Clear scheduler log filter"
+                      aria-label="Clear scheduler log filter"
                     >
                       ✕
                     </button>
