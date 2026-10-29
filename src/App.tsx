@@ -511,6 +511,7 @@ export default function App() {
   });
 
   const [adminSection, setAdminSection] = useState<"diagnostics" | "secrets" | "telegram" | "security">("diagnostics");
+  const [guideStep, setGuideStep] = useState<"all" | "getting-started" | "accounts" | "scheduler" | "images" | "troubleshooting">("all");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
   const [telegramToken, setTelegramToken] = useState<string>("");
@@ -571,6 +572,9 @@ export default function App() {
     if (window.location.pathname !== path) {
       window.history.pushState({}, "", path);
     }
+    try {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (_) {}
   };
 
   // Transient Toast Notification State (No history stored, auto-dismisses in seconds)
@@ -2397,7 +2401,11 @@ export default function App() {
         } else if (endpoint.includes("post-chat")) {
           showToast("Posting sequence started successfully.", "success", 4000);
         } else if (endpoint.includes("stop-posting")) {
-          showToast("Posting sequence stopped.", "info", 4000);
+          if (data?.isStopping || data?.status === "Stopping") {
+            showToast(data.message || "Stopping gracefully after current coin finishes...", "info", 4000);
+          } else {
+            showToast(data?.message || "Posting sequence stopped.", "info", 4000);
+          }
         } else if (endpoint.includes("full-flow")) {
           showToast("Full bot cycle execution initiated.", "success", 4000);
           const now = Date.now();
@@ -2418,9 +2426,15 @@ export default function App() {
       if (endpoint.includes("stop-posting")) {
         setIsContinuousLoopActive(false);
         setNextCycleStartTime(null);
-        setIsStoppingPost(false);
-        setStatus("Idle");
+        if (data?.isStopping || data?.status === "Stopping") {
+          setIsStoppingPost(true);
+          setStatus("Stopping");
+        } else {
+          setIsStoppingPost(false);
+          setStatus("Idle");
+        }
         fetchStats();
+        setTimeout(() => fetchStats(), 1500);
       }
       if (endpoint.includes("post-chat")) {
         setIsStartingPost(false);
@@ -2844,6 +2858,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-emerald-500 selection:text-slate-950">
+      {/* Global Hidden File Input for Marketing Images (works across Dashboard, Scheduler, Guide, and Image Library) */}
+      <input
+        type="file"
+        ref={imageFileInputRef}
+        onChange={handleUploadMarketingImages}
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        multiple
+        className="hidden"
+      />
       
       {/* HEADER NAVBAR */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 px-4 sm:px-6 py-3">
@@ -3055,7 +3078,7 @@ export default function App() {
       {/* DASHBOARD OR ADMIN SCREEN CONTENT BODY */}
       {currentView === "admin" ? (
         /* ADMIN SCREEN */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-admin" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* ADMIN HEADER & NAVIGATION */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -3065,14 +3088,20 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Admin & System Console
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
+                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
                     /admin
                   </span>
                 </h1>
-                <p className="text-sm text-slate-400">Environment runtimes, API diagnostics, cache files, and system health checks</p>
+                <p className="text-sm text-slate-400">Select an administrative module below to inspect or configure</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateTo("health")}
+                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
+              >
+                <Activity className="h-4 w-4 text-emerald-400" /> System Health
+              </button>
               <button
                 onClick={() => navigateTo("dashboard")}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
@@ -3082,65 +3111,100 @@ export default function App() {
             </div>
           </div>
 
-          {/* ADMIN SUB-NAVIGATION BAR (One focused module per tab — not everything on one page) */}
-          <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-sm shadow-md">
+          {/* ADMIN 4-CARD MODULE SELECTOR DECK (Spacious, well-oriented, one module at a time) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             <button
               onClick={() => setAdminSection("diagnostics")}
-              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
                 adminSection === "diagnostics"
-                  ? "bg-slate-800 text-white shadow-sm border border-slate-700"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                  ? "bg-slate-900 border-emerald-500/50 ring-1 ring-emerald-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
               }`}
             >
-              <Activity className="h-3.5 w-3.5 text-emerald-400" />
-              <span>1. System Diagnostics</span>
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Activity className="h-4 w-4" />
+                </span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                  systemCheckResult?.success ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-300"
+                }`}>
+                  {systemCheckResult?.success ? "HEALTHY" : "CHECK"}
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">1. System Diagnostics</div>
+                <div className="text-xs text-slate-400 mt-0.5">Playwright & Chromium binary check</div>
+              </div>
             </button>
+
             <button
               onClick={() => setAdminSection("secrets")}
-              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
                 adminSection === "secrets"
-                  ? "bg-slate-800 text-white shadow-sm border border-slate-700"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                  ? "bg-slate-900 border-blue-500/50 ring-1 ring-blue-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
               }`}
             >
-              <Key className="h-3.5 w-3.5 text-blue-400" />
-              <span>2. API Keys & Storage</span>
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Key className="h-4 w-4" />
+                </span>
+                <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-blue-500/20 text-blue-300">
+                  {sessionExists ? "ACTIVE" : "SETUP"}
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">2. API Keys & Storage</div>
+                <div className="text-xs text-slate-400 mt-0.5">OpenAI, Gemini, CMC & session cache</div>
+              </div>
             </button>
+
             <button
               onClick={() => setAdminSection("telegram")}
-              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
                 adminSection === "telegram"
-                  ? "bg-rose-600 text-white shadow-sm"
-                  : "text-rose-400 hover:text-rose-200 hover:bg-slate-800/50"
+                  ? "bg-slate-900 border-rose-500/50 ring-1 ring-rose-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
               }`}
             >
-              <Bell className="h-3.5 w-3.5" />
-              <span>3. Emergency Alerts</span>
-              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
-                telegramEnabled
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-slate-800 text-slate-400"
-              }`}>
-                {telegramEnabled ? "ACTIVE" : "OFF"}
-              </span>
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <Bell className="h-4 w-4" />
+                </span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                  telegramEnabled ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {telegramEnabled ? "ACTIVE" : "OFF"}
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">3. Emergency Alerts</div>
+                <div className="text-xs text-slate-400 mt-0.5">Telegram hotline & test alerts</div>
+              </div>
             </button>
+
             <button
               onClick={() => setAdminSection("security")}
-              className={`px-3.5 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
                 adminSection === "security"
-                  ? "bg-amber-600 text-white shadow-sm"
-                  : "text-amber-400 hover:text-amber-200 hover:bg-slate-800/50"
+                  ? "bg-slate-900 border-amber-500/50 ring-1 ring-amber-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
               }`}
             >
-              <Lock className="h-3.5 w-3.5" />
-              <span>4. Security & Sharing</span>
-              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
-                adminAuthRequired
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-slate-800 text-slate-400"
-              }`}>
-                {adminAuthRequired ? "ACTIVE" : "OFF"}
-              </span>
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <Lock className="h-4 w-4" />
+                </span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                  adminAuthRequired ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {adminAuthRequired ? "LOCKED" : "OPEN"}
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">4. Security & Sharing</div>
+                <div className="text-xs text-slate-400 mt-0.5">Admin password & 1-click team link</div>
+              </div>
             </button>
           </div>
 
@@ -3784,7 +3848,7 @@ export default function App() {
           </main>
       ) : currentView === "scheduler" ? (
         /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-scheduler" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* SCHEDULER HEADER & CONTROLS DECK */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -3792,12 +3856,12 @@ export default function App() {
                 <Clock className="h-6 w-6" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                <h1 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                   Sequential Multi-Account Scheduler
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
                     /scheduler
                   </span>
-                  <span className={`px-2 py-0.5 text-[10px] rounded-full font-mono font-semibold uppercase tracking-wider ${
+                  <span className={`px-2.5 py-0.5 text-xs rounded-full font-mono font-semibold uppercase tracking-wider ${
                     schedulerData?.enabled
                       ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                       : "bg-slate-800 text-slate-400 border border-slate-700"
@@ -3838,7 +3902,7 @@ export default function App() {
                 <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                   <span>Scheduler Engine Controls</span>
                   {schedulerData?.cycleRunning && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-full font-mono font-bold bg-indigo-500 text-slate-950 animate-pulse">
+                    <span className="px-2 py-0.5 text-xs rounded-full font-mono font-bold bg-indigo-500 text-slate-950 animate-pulse">
                       CYCLE IN PROGRESS
                     </span>
                   )}
@@ -3878,22 +3942,22 @@ export default function App() {
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
               {/* Status & Current Account */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
-                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                       {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : "bg-slate-500"}`} />
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : schedulerData?.savedPosition ? "bg-amber-400" : "bg-slate-500"}`} />
                     <span className="text-base font-bold text-white">
-                      {schedulerData?.cycleRunning ? "Cycle Running" : "Idle"}
+                      {schedulerData?.cycleRunning ? "Cycle Running" : schedulerData?.savedPosition ? "Cycle Paused" : schedulerData?.enabled ? "Scheduled & Ready" : "Standby"}
                     </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-400 truncate pt-1">
+                <div className="text-xs text-slate-400 truncate pt-1">
                   {schedulerData?.cycleRunning ? (
                     <>Current: <span className="font-semibold text-slate-200">
                       {(() => {
@@ -3911,10 +3975,10 @@ export default function App() {
               </div>
 
               {/* Interval Settings */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
-                  <span className="text-[11px] text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle Interval</span>
+                  <span className="text-xs text-indigo-400 font-mono font-bold">{schedulerData?.intervalMinutes || 360}m (4x / 24h)</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <input
@@ -3924,37 +3988,37 @@ export default function App() {
                     disabled={isSchedulerActionPending || isSchedulerRunning}
                     value={schedulerIntervalInput}
                     onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                   <button
                     onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
                     disabled={isSchedulerActionPending || isSchedulerRunning}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Save
                   </button>
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  Execution time deducted automatically so all 4 cycles complete within 24h
+                <div className="text-xs text-slate-400">
+                  Runtime deducted automatically for 24h schedule
                 </div>
               </div>
 
               {/* Target Batch Limit (Coins / Run) */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-1.5 flex flex-col justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {targetCoinsCount === 0 ? "ALL (Default recommended)" : `Top ${targetCoinsCount}`}
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
+                  <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {targetCoinsCount === 0 ? "ALL Coins" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-1 mt-1">
+                <div className="grid grid-cols-4 gap-1.5 mt-1">
                   {[10, 30, 50, 0].map((count) => (
                     <button
                       key={count}
                       type="button"
                       disabled={isSchedulerActionPending || isSchedulerRunning}
                       onClick={() => handleUpdateTargetCoins(count)}
-                      className={`py-1 text-[10px] font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`py-1.5 text-xs font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                         targetCoinsCount === count
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
@@ -3965,15 +4029,15 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  ALL = Default recommended (Safety cap: 300 posts/day)
+                <div className="text-xs text-slate-400">
+                  ALL = Default recommended (Cap: 300 posts/day)
                 </div>
               </div>
 
               {/* Cycle Action Buttons */}
-              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
-                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Manual Trigger
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Cycle Execution Controls
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -4005,9 +4069,80 @@ export default function App() {
                     <span>Stop</span>
                   </button>
                 </div>
-                <div className="text-[10px] text-slate-500 text-center">
+                <div className="text-xs text-slate-400 text-center">
                   Live state updates automatically every 3 seconds
                 </div>
+              </div>
+            </div>
+
+            {/* MARKETING IMAGE UPLOAD CONTROLS FOR SCHEDULED CYCLES */}
+            <div className="mt-3 pt-4 border-t border-slate-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-xl border border-indigo-500/20">
+              <div className="flex items-center gap-3">
+                <span className={`p-2.5 rounded-xl border ${
+                  imageUploadEnabled
+                    ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                    : "bg-slate-800 text-slate-400 border-slate-700"
+                }`}>
+                  <ImageIcon className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white">Scheduled Cycle Image Attachment</span>
+                    <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${
+                      imageUploadEnabled
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    }`}>
+                      {imageUploadEnabled
+                        ? `ACTIVE • ${marketingImages.length} Images (${imageSelectionMode === "cycle" ? "Sequential" : "Random"})`
+                        : "PAUSED • Text-Only Mode"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Control whether scheduled multi-account cycles attach 1 marketing graphic per comment or post text-only.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleToggleImageUpload()}
+                  disabled={isUpdatingImageSettings}
+                  className={`px-3.5 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer border ${
+                    imageUploadEnabled
+                      ? "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-sm"
+                      : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+                  }`}
+                >
+                  {imageUploadEnabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  <span>{imageUploadEnabled ? "Pause Image Upload" : "Enable Image Upload"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => imageFileInputRef.current?.click()}
+                  disabled={isUploadingImages}
+                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>{isUploadingImages ? "Uploading..." : "+ Upload Images"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("images");
+                    navigateTo("dashboard");
+                    setTimeout(() => {
+                      document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
+                    }, 120);
+                  }}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white border border-slate-700 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Open Image Library ({marketingImages.length})</span>
+                </button>
               </div>
             </div>
           </div>
@@ -4312,8 +4447,9 @@ export default function App() {
                                   )}
                                 </div>
                                 {acc.lastRun.at && (
-                                  <span className="text-[10px] text-slate-400">
-                                    {acc.lastRun.posted} posted, {acc.lastRun.failed} failed
+                                  <span className="text-xs font-mono text-slate-300">
+                                    <span className="text-emerald-400 font-bold">{acc.lastRun.posted} verified posted</span>,{" "}
+                                    <span className={acc.lastRun.failed > 0 ? "text-rose-400 font-bold" : "text-slate-400"}>{acc.lastRun.failed} failed/unposted</span>
                                   </span>
                                 )}
                               </div>
@@ -4370,7 +4506,7 @@ export default function App() {
         </main>
       ) : currentView === "guide" ? (
         /* DEDICATED OPERATING GUIDE SCREEN (/guide) */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-guide" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -4380,12 +4516,12 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
                   Beginner & Operating Guide
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
                     /guide
                   </span>
                 </h1>
                 <p className="text-sm text-slate-400">
-                  Step-by-step walkthrough for setting up accounts, generating AI comments, and running automated CoinMarketCap posting
+                  Interactive step-by-step walkthrough for setting up accounts, generating AI comments, and automating CoinMarketCap posts
                 </p>
               </div>
             </div>
@@ -4436,9 +4572,9 @@ export default function App() {
                       setLoginTab("credentials");
                       setShowSessionModal(true);
                     }}
-                    className="w-full py-2 px-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Users className="h-3.5 w-3.5" /> + Add CoinMarketCap Account
+                    <Users className="h-4 w-4" /> + Add CoinMarketCap Account
                   </button>
                 </div>
 
@@ -4458,9 +4594,9 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => navigateTo("dashboard")}
-                    className="w-full py-2 px-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2.5 px-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Play className="h-3.5 w-3.5" /> Go to Control Center
+                    <Play className="h-4 w-4" /> Go to Control Center
                   </button>
                 </div>
 
@@ -4480,19 +4616,44 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => navigateTo("scheduler")}
-                    className="w-full py-2 px-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2.5 px-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Clock className="h-3.5 w-3.5" /> Open Multi-Account Scheduler
+                    <Clock className="h-4 w-4" /> Open Multi-Account Scheduler
                   </button>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* TOPIC FILTER STEPPER BAR */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 p-2.5 rounded-2xl shadow-md">
+            {[
+              { id: "all", label: "All 5 Guide Topics" },
+              { id: "getting-started", label: "1. Getting started" },
+              { id: "accounts", label: "2. Adding an account" },
+              { id: "scheduler", label: "3. Running the scheduler" },
+              { id: "images", label: "4. Images" },
+              { id: "troubleshooting", label: "5. If something goes wrong" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setGuideStep(item.id as any)}
+                className={`px-3.5 py-2 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer ${
+                  guideStep === item.id
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           {/* 5-SECTION OPERATIONAL GUIDE */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 1. Getting started */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+            {(guideStep === "all" || guideStep === "getting-started") && (
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
@@ -4500,7 +4661,7 @@ export default function App() {
                       <Zap className="h-5 w-5" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold block">
+                      <span className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold block">
                         Section 1 • Readiness Checklist
                       </span>
                       <h2 className="text-base font-bold text-white">Getting started</h2>
@@ -4509,9 +4670,9 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => navigateTo("health")}
-                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-blue-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-blue-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
-                    <Activity className="h-3.5 w-3.5" /> Check Health
+                    <Activity className="h-4 w-4" /> Check Health
                   </button>
                 </div>
                 <ul className="space-y-2.5">
@@ -4522,8 +4683,8 @@ export default function App() {
                     "Verify that your database connection is active to preserve persistent session states.",
                     "Monitor the Health page to ensure all dependencies and credentials are green."
                   ].map((bullet, idx) => (
-                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
-                      <span className="w-5 h-5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
+                      <span className="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
                       <span>{bullet}</span>
@@ -4536,9 +4697,11 @@ export default function App() {
                 <span><strong className="text-slate-200">Beginner Tip:</strong> Check the green dot on the top <strong>Health</strong> button first.</span>
               </div>
             </div>
+            )}
 
             {/* 2. Adding an account */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+            {(guideStep === "all" || guideStep === "accounts") && (
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
@@ -4546,7 +4709,7 @@ export default function App() {
                       <Users className="h-5 w-5" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-bold block">
+                      <span className="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold block">
                         Section 2 • Accounts & Cookies
                       </span>
                       <h2 className="text-base font-bold text-white">Adding an account</h2>
@@ -4559,9 +4722,9 @@ export default function App() {
                       setLoginTab("credentials");
                       setShowSessionModal(true);
                     }}
-                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
-                    <Users className="h-3.5 w-3.5" /> + Add Account
+                    <Users className="h-4 w-4" /> + Add Account
                   </button>
                 </div>
                 <ul className="space-y-2.5">
@@ -4572,8 +4735,8 @@ export default function App() {
                     "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
                     "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
                   ].map((bullet, idx) => (
-                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
-                      <span className="w-5 h-5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
+                      <span className="w-6 h-6 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
                       <span>{bullet}</span>
@@ -4586,16 +4749,18 @@ export default function App() {
                 <span><strong className="text-slate-200">Beginner Tip:</strong> Each account has its own isolated cookies, coin list, and post history.</span>
               </div>
             </div>
+            )}
 
             {/* 3. Running the scheduler (start, pause, stop, resume) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2">
+            {(guideStep === "all" || guideStep === "scheduler") && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2 animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
                     <Clock className="h-5 w-5" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold block">
+                    <span className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-bold block">
                       Section 3 • Multi-Account Automation
                     </span>
                     <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
@@ -4618,8 +4783,8 @@ export default function App() {
                   "Position and progress are automatically saved across server restarts and page refreshes.",
                   "Settings are locked while running; pause or stop the scheduler to adjust intervals or accounts."
                 ].map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-slate-800/60">
-                    <span className="w-5 h-5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                  <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
+                    <span className="w-6 h-6 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
                     <span>{bullet}</span>
@@ -4627,32 +4792,45 @@ export default function App() {
                 ))}
               </ul>
             </div>
+            )}
 
             {/* 4. Images */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+            {(guideStep === "all" || guideStep === "images") && (
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
                       <ImageIcon className="h-5 w-5" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400 font-bold block">
+                      <span className="text-xs font-mono uppercase tracking-wider text-purple-400 font-bold block">
                         Section 4 • Chart & Graphic Attachments
                       </span>
                       <h2 className="text-base font-bold text-white">Images</h2>
                       <p className="text-sm text-slate-400">Attaching graphics and rotation rules</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setActiveTab("images");
-                      navigateTo("dashboard");
-                    }}
-                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
-                  >
-                    <ImageIcon className="h-3.5 w-3.5" /> Images Library
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => imageFileInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="h-3.5 w-3.5" /> + Upload
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab("images");
+                        navigateTo("dashboard");
+                        setTimeout(() => {
+                          document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
+                        }, 120);
+                      }}
+                      className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" /> Images Library ({marketingImages.length})
+                    </button>
+                  </div>
                 </div>
                 <ul className="space-y-2.5">
                   {[
@@ -4661,8 +4839,8 @@ export default function App() {
                     "Choose 'Cycle' mode to rotate through images sequentially or 'Random' mode for variety.",
                     "Use Auto-Prune to retain the latest uploaded graphics and automatically clean older files."
                   ].map((bullet, idx) => (
-                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
-                      <span className="w-5 h-5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
+                      <span className="w-6 h-6 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
                       <span>{bullet}</span>
@@ -4672,12 +4850,14 @@ export default function App() {
               </div>
               <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
                 <ImageIcon className="h-4 w-4 text-purple-400 shrink-0" />
-                <span><strong className="text-slate-200">Beginner Tip:</strong> Image attachment is optional—keep it OFF if you want text-only posts.</span>
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Image attachment can be paused or enabled anytime on the Dashboard or Scheduler.</span>
               </div>
             </div>
+            )}
 
             {/* 5. If something goes wrong */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+            {(guideStep === "all" || guideStep === "troubleshooting") && (
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
@@ -4685,7 +4865,7 @@ export default function App() {
                       <AlertTriangle className="h-5 w-5" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-bold block">
+                      <span className="text-xs font-mono uppercase tracking-wider text-amber-400 font-bold block">
                         Section 5 • Help & Recovery
                       </span>
                       <h2 className="text-base font-bold text-white">If something goes wrong</h2>
@@ -4694,9 +4874,9 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => navigateTo("logs")}
-                    className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
-                    <TerminalIcon className="h-3.5 w-3.5" /> View Logs
+                    <TerminalIcon className="h-4 w-4" /> View Logs
                   </button>
                 </div>
                 <ul className="space-y-2.5">
@@ -4707,8 +4887,8 @@ export default function App() {
                     "Review real-time diagnostic output in the Activity Logs (/logs) to view error traces.",
                     "Failed coins are automatically queued for retry without disrupting the remaining queue."
                   ].map((bullet, idx) => (
-                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-300 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
-                      <span className="w-5 h-5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
+                      <span className="w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
                       <span>{bullet}</span>
@@ -4721,12 +4901,13 @@ export default function App() {
                 <span><strong className="text-slate-200">Beginner Tip:</strong> Use <strong>Auto Retry</strong> in the Post Submissions tab to retry any failed coin.</span>
               </div>
             </div>
+            )}
           </div>
 
         </main>
       ) : currentView === "logs" ? (
         /* DEDICATED LOGS SCREEN (/logs) */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-logs" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -4943,7 +5124,7 @@ export default function App() {
         </main>
       ) : currentView === "health" ? (
         /* DEDICATED HEALTH SCREEN (/health) */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-health" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -4952,12 +5133,12 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  System Health
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                  System Health & Service Readiness
+                  <span className="text-xs uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
                     /health
                   </span>
                 </h1>
-                <p className="text-sm text-slate-400">Service diagnostics and readiness checks</p>
+                <p className="text-sm text-slate-400">Live status of server, AI models, CoinMarketCap browser engine, cloud database, and alerts</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -4976,104 +5157,195 @@ export default function App() {
 
           {/* Top Overall Status Banner */}
           {healthData?.overall === "ok" && healthData?.healthy !== false ? (
-            <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow-xl">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3.5">
+                <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   <CheckCircle className="h-6 w-6" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Everything is working</h2>
-                  <p className="text-sm text-slate-300">All services, database connections, and credentials are operational.</p>
+                  <p className="text-sm text-slate-300">All core services, cloud database connections, and active account sessions are operational.</p>
                 </div>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 self-start sm:self-auto">
                 SYSTEM OPTIMAL
               </span>
             </div>
           ) : (
-            <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/30 flex items-center justify-between shadow-xl">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+            <div className="p-5 rounded-2xl bg-rose-950/40 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3.5">
+                <div className="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
                   <AlertTriangle className="h-6 w-6 text-rose-400" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Needs attention</h2>
-                  <p className="text-sm text-slate-300">One or more system checks failed. Review the diagnostics below.</p>
+                  <p className="text-sm text-slate-300">One or more system checks require attention. Review the cards and messages below.</p>
                 </div>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 self-start sm:self-auto">
                 ACTION REQUIRED
               </span>
             </div>
           )}
 
-          {/* 5 SYSTEM HEALTH CHIPS (Cut from Header) */}
-          <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl">
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
-              Server: <span className="font-semibold text-emerald-400">ONLINE</span>
+          {/* 5 SERVICE HEALTH CARDS (Includes the 5 required chips + clear explanations & actions) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* 1. Server */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">1. Backend Runtime</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
+                    Server: <span className="font-semibold text-emerald-400">ONLINE</span>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {healthData?.checks?.server?.message || "Node.js Express backend server is online and handling automation requests."}
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Uptime: <strong className="text-slate-200 font-mono">{healthData?.checks?.server?.uptimeSeconds ? `${Math.floor(healthData.checks.server.uptimeSeconds / 60)}m` : "Active"}</strong></span>
+                <button onClick={() => navigateTo("logs")} className="text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer">
+                  View Logs →
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
-              <span className="text-slate-400 font-mono">OpenAI:</span>
-              {apiStatus.openai ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" /> Enabled
-                </span>
-              ) : (
-                <span className="text-amber-400 font-bold flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" /> Rule-Based
-                </span>
-              )}
+            {/* 2. OpenAI / AI Models */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">2. AI Comment Generator</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                    <span className="text-slate-400 font-mono">OpenAI:</span>
+                    {apiStatus.openai ? (
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle className="h-3.5 w-3.5" /> Enabled
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 font-bold flex items-center gap-1">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Rule-Based
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {healthData?.checks?.openai?.message || "Generates tailored bullish/bearish crypto commentary using GPT-4o-mini."}
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Model: <strong className="text-slate-200 font-mono">{apiStatus.openai ? "gpt-4o-mini" : "Fallback"}</strong></span>
+                <button onClick={() => navigateTo("admin", "secrets")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer">
+                  API Keys →
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
-              <span className="text-slate-400 font-mono">CMC:</span>
-              {apiStatus.cmc ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" /> Connected
-                </span>
-              ) : (
-                <span className="text-blue-400 font-bold flex items-center gap-1">
-                  <Globe className="h-3 w-3" /> CG Public
-                </span>
-              )}
+            {/* 3. CMC & Browser */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. Market Data & Browser</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                    <span className="text-slate-400 font-mono">CMC:</span>
+                    {apiStatus.cmc ? (
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle className="h-3.5 w-3.5" /> Connected
+                      </span>
+                    ) : (
+                      <span className="text-blue-400 font-bold flex items-center gap-1">
+                        <Globe className="h-3.5 w-3.5" /> CG Public
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {healthData?.checks?.cmc?.message || "Playwright Chromium engine and CoinMarketCap market feed are ready."}
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Browser: <strong className="text-slate-200 font-mono">Playwright Chromium</strong></span>
+                <button onClick={() => navigateTo("admin", "diagnostics")} className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer">
+                  Verify Binary →
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 text-sm">
-              <span className="text-slate-400 font-mono">DB:</span>
-              {storageInfo.isFirebaseDisabled ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
-                  <Database className="h-3 w-3 text-emerald-400" /> Mongo (Quota Safe)
-                </span>
-              ) : storageInfo.isMongoConnected ? (
-                <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
-                  <Database className="h-3 w-3 text-cyan-400" /> Mongo + Cloud
-                </span>
-              ) : (
-                <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
-                  <Database className="h-3 w-3 text-amber-400" /> Firebase
-                </span>
-              )}
+            {/* 4. Cloud Database */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">4. Cloud Persistence</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                    <span className="text-slate-400 font-mono">DB:</span>
+                    {storageInfo.isFirebaseDisabled ? (
+                      <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
+                        <Database className="h-3.5 w-3.5 text-emerald-400" /> Mongo (Quota Safe)
+                      </span>
+                    ) : storageInfo.isMongoConnected ? (
+                      <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
+                        <Database className="h-3.5 w-3.5 text-cyan-400" /> Mongo + Cloud
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
+                        <Database className="h-3.5 w-3.5 text-amber-400" /> Firebase
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {healthData?.checks?.database?.message || "Account sessions, coins, comments, and scheduler progress are synced to the cloud."}
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Active Account: <strong className="text-emerald-400 font-mono">{activeProfile?.name || "None"}</strong></span>
+                <button
+                  onClick={() => {
+                    handleResetLoginState();
+                    setLoginTab("credentials");
+                    setShowSessionModal(true);
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 font-bold cursor-pointer"
+                >
+                  Accounts →
+                </button>
+              </div>
             </div>
 
-            {/* NOTIFICATION ALERTS TOGGLE BUTTON */}
-            <button
-              onClick={toggleNotifications}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
-                notificationsEnabled
-                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
-                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
-              }`}
-              title={notificationsEnabled ? "Notification toasts are active. Click to mute." : "Notification toasts are muted. Click to turn ON."}
-            >
-              {notificationsEnabled ? (
-                <Bell className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <BellOff className="h-3.5 w-3.5 text-amber-400" />
-              )}
-              <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
-            </button>
+            {/* 5. Notification Alerts Toggle */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4 md:col-span-2 lg:col-span-2">
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">5. Toast & Emergency Notifications</span>
+                  <button
+                    onClick={toggleNotifications}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
+                      notificationsEnabled
+                        ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                    }`}
+                    title={notificationsEnabled ? "Notification toasts are active. Click to mute." : "Notification toasts are muted. Click to turn ON."}
+                  >
+                    {notificationsEnabled ? (
+                      <Bell className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <BellOff className="h-4 w-4 text-amber-400" />
+                    )}
+                    <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
+                  </button>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  Controls real-time in-app toast notifications when coins are fetched, comments are generated, or posts finish. Critical error alerts are also routed to Telegram if enabled in Admin.
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Telegram Emergency Hotline: <strong className={telegramEnabled ? "text-emerald-400 font-mono" : "text-slate-400 font-mono"}>{telegramEnabled ? "ACTIVE" : "OFF"}</strong></span>
+                <button onClick={() => navigateTo("admin", "telegram")} className="text-rose-400 hover:text-rose-300 font-bold cursor-pointer">
+                  Configure Telegram Hotline →
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* PLAIN SENTENCE UNDER EACH CHECK THAT IS NOT OK */}
@@ -5112,7 +5384,7 @@ export default function App() {
         </main>
       ) : (
         /* MAIN BOT DASHBOARD */
-        <main className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        <main key="view-dashboard" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
 
         {/* ROW 1: ACTIONS & ACTIVE PROGRESS */}
         <div className="dashboard-grid-row">
@@ -5133,7 +5405,7 @@ export default function App() {
                     <h2 className="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
                       Control Center
                     </h2>
-                    <p className="text-[11px] text-slate-400">Playwright Community Auto-Poster</p>
+                    <p className="text-xs text-slate-400">Playwright Community Auto-Poster</p>
                   </div>
                 </div>
 
@@ -5158,22 +5430,33 @@ export default function App() {
                   <div className="flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 shadow-sm">
                     <span className={`w-2 h-2 rounded-full ${
                       status === "Posting" ? "bg-emerald-400 animate-ping" :
+                      status === "Stopping" || isStoppingPost ? "bg-amber-400 animate-spin" :
                       status === "Generating" ? "bg-purple-400 animate-pulse" :
                       status === "Fetching" ? "bg-blue-400 animate-pulse" :
-                      status === "Authenticating" ? "bg-amber-400 animate-pulse" : "bg-slate-500"
+                      status === "Authenticating" ? "bg-amber-400 animate-pulse" :
+                      (totalCoins > 0 && generatedCount > 0) ? "bg-emerald-400" : "bg-slate-500"
                     }`} />
-                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-200">
-                      {status}
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200">
+                      {status === "Stopping" || isStoppingPost
+                        ? "Stopping"
+                        : status !== "Idle"
+                          ? status
+                          : (totalCoins > 0 && generatedCount > 0)
+                            ? "Ready"
+                            : "Standby"}
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* RUN MODE STRIP */}
-              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-sm">
-                <span className="text-slate-300 flex items-center gap-2 text-[11px]">
+              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-300 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   Engine: <strong className="text-white font-semibold">Real Browser (Headless Playwright)</strong>
+                </span>
+                <span className="text-slate-400 font-mono hidden sm:inline">
+                  Account: <strong className="text-emerald-400">{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong>
                 </span>
               </div>
 
@@ -5182,23 +5465,23 @@ export default function App() {
                 <div className="mb-3 px-3.5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center justify-between text-sm text-indigo-300 shadow-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400 shrink-0" />
-                    <span className="truncate text-[11px]">
+                    <span className="truncate text-xs">
                       <strong className="text-white font-semibold">Process Active:</strong> {activeProcessDescription || activeProcess} (Other actions safely locked)
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono uppercase bg-indigo-500/20 px-2 py-0.5 rounded font-bold border border-indigo-500/30 shrink-0">
+                  <span className="text-xs font-mono uppercase bg-indigo-500/20 px-2 py-0.5 rounded font-bold border border-indigo-500/30 shrink-0">
                     Locked
                   </span>
                 </div>
               )}
 
-              {/* 2x2 MODERN ACTION DECK - STABILIZED GRID */}
+              {/* 2x2 MODERN ACTION DECK - STABILIZED GRID WITH REAL STATUS BADGES */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
                 {/* 1. Check login */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
                   disabled={isPending.login || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-login"
                 >
                   <div className="flex items-center gap-2.5">
@@ -5206,15 +5489,30 @@ export default function App() {
                       <CheckCircle className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">Check login</h3>
-                      <p className="text-[10px] text-slate-400">Verify login state</p>
+                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">1. Check login</h3>
+                      <p className="text-xs text-slate-400">Verify browser session</p>
                     </div>
                   </div>
-                  {isPending.login ? (
-                    <RefreshCw className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
-                  )}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                      isPending.login || status === "Authenticating"
+                        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                        : sessionExists
+                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                    }`}>
+                      {isPending.login || status === "Authenticating"
+                        ? "Verifying..."
+                        : sessionExists
+                          ? "Verified"
+                          : "Login Needed"}
+                    </span>
+                    {isPending.login ? (
+                      <RefreshCw className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                    )}
+                  </div>
                 </button>
 
                 {/* 2. Get trending coins */}
@@ -5227,7 +5525,7 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.fetch || isPending.clear || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-fetch"
                 >
                   <div className="flex items-center gap-2.5">
@@ -5235,28 +5533,28 @@ export default function App() {
                       <Search className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">Get trending coins</h3>
-                      <p className="text-[10px] text-slate-400">Load top coin list</p>
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition">2. Get trending coins</h3>
+                      <p className="text-xs text-slate-400">Load live market list</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {coinsList.length > 0 && (
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border hidden sm:inline-block ${
-                        coinsFetchedAt
-                          ? (formatTimeAgo(coinsFetchedAt).isVeryStale 
-                              ? "bg-rose-500/10 text-rose-400 border-rose-500/20" 
-                              : formatTimeAgo(coinsFetchedAt).isStale 
-                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
-                                : "bg-blue-500/10 text-blue-400 border-blue-500/20")
-                          : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                      }`} title={coinsFetchedAt ? `Exact fetch time: ${formatTimeAgo(coinsFetchedAt).full}` : "Coins loaded from previous session. Click Get trending coins to get fresh coins with live timer."}>
-                        {coinsFetchedAt ? formatTimeAgo(coinsFetchedAt).text : "Prev Session"}
-                      </span>
-                    )}
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                      isPending.fetch || status === "Fetching"
+                        ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                        : totalCoins > 0
+                          ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                    }`} title={coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).full}` : undefined}>
+                      {isPending.fetch || status === "Fetching"
+                        ? "Fetching..."
+                        : totalCoins > 0
+                          ? `${totalCoins} Coins${coinsFetchedAt ? ` • ${formatTimeAgo(coinsFetchedAt).text}` : ""}`
+                          : "0 Coins"}
+                    </span>
                     {isPending.fetch ? (
                       <RefreshCw className="h-3.5 w-3.5 text-blue-400 animate-spin" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
                     )}
                   </div>
                 </button>
@@ -5275,7 +5573,7 @@ export default function App() {
                     }
                   }}
                   disabled={isPending.generate || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-generate"
                 >
                   <div className="flex items-center gap-2.5">
@@ -5283,28 +5581,28 @@ export default function App() {
                       <BookOpen className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">Write comments</h3>
-                      <p className="text-[10px] text-slate-400">AI gpt-4o-mini</p>
+                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition">3. Write comments</h3>
+                      <p className="text-xs text-slate-400">AI gpt-4o-mini</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {messagesList.length > 0 && (
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border hidden sm:inline-block ${
-                        commentsGeneratedAt
-                          ? (formatTimeAgo(commentsGeneratedAt).isVeryStale 
-                              ? "bg-rose-500/10 text-rose-400 border-rose-500/20" 
-                              : formatTimeAgo(commentsGeneratedAt).isStale 
-                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
-                                : "bg-purple-500/10 text-purple-400 border-purple-500/20")
-                          : "bg-slate-800/80 text-slate-400 border-slate-700/80"
-                      }`} title={commentsGeneratedAt ? `Exact generation time: ${formatTimeAgo(commentsGeneratedAt).full}` : "Comments loaded from previous session. Click Write comments to generate fresh commentary with live timer."}>
-                        {commentsGeneratedAt ? formatTimeAgo(commentsGeneratedAt).text : "Prev Session"}
-                      </span>
-                    )}
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                      isPending.generate || status === "Generating"
+                        ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
+                        : generatedCount > 0
+                          ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                    }`} title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : undefined}>
+                      {isPending.generate || status === "Generating"
+                        ? "Writing..."
+                        : generatedCount > 0
+                          ? `${generatedCount} Ready${commentsGeneratedAt ? ` • ${formatTimeAgo(commentsGeneratedAt).text}` : ""}`
+                          : "0 Comments"}
+                    </span>
                     {isPending.generate ? (
                       <RefreshCw className="h-3.5 w-3.5 text-purple-400 animate-spin" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
                     )}
                   </div>
                 </button>
@@ -5312,9 +5610,12 @@ export default function App() {
                 {/* 4. Start / Stop Posting */}
                 {(status === "Posting" || status === "Stopping" || isContinuousLoopActive || isStoppingPost) ? (
                   <button
-                    onClick={() => runCommand("/api/stop-posting", "post")}
+                    onClick={() => {
+                      setIsStoppingPost(true);
+                      runCommand("/api/stop-posting", "post");
+                    }}
                     disabled={isPending.post}
-                    className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-pause"
                   >
                     <div className="flex items-center gap-2.5">
@@ -5331,19 +5632,19 @@ export default function App() {
                       </span>
                       <div>
                         <h3 className="text-sm font-bold text-white">
-                          {(isStoppingPost || status === "Stopping") ? "Stop Posting (Stopping...)" : "Stop Posting"}
+                          {(isStoppingPost || status === "Stopping") ? "Stopping Posting..." : "4. Stop Posting"}
                         </h3>
-                        <p className="text-[10px] text-rose-300/80">
-                          {(isStoppingPost || status === "Stopping") ? "Halting safely... Click to force stop" : "Halt sequence"}
+                        <p className="text-xs text-rose-300/80">
+                          {(isStoppingPost || status === "Stopping") ? "Finishing current coin • Click to force stop" : "Halt active posting sequence"}
                         </p>
                       </div>
                     </div>
                     {(isStoppingPost || status === "Stopping" || isPending.post) ? (
-                      <span className="text-[10px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-bold border border-amber-500/30 flex items-center gap-1">
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin" /> Stopping
+                      <span className="text-xs font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30 flex items-center gap-1">
+                        <RefreshCw className="h-3 w-3 animate-spin" /> Stopping
                       </span>
                     ) : (
-                      <span className="text-[10px] font-mono uppercase bg-rose-500/20 px-2 py-0.5 rounded font-bold border border-rose-500/30">Active</span>
+                      <span className="text-xs font-mono uppercase bg-rose-500/20 px-2 py-0.5 rounded-full font-bold border border-rose-500/30">Posting</span>
                     )}
                   </button>
                 ) : (
@@ -5366,7 +5667,7 @@ export default function App() {
                       await runCommand("/api/post-chat", "post");
                     }}
                     disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
-                    className="action-grid-btn min-h-[72px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-start"
                   >
                     <div className="flex items-center gap-2.5">
@@ -5379,16 +5680,29 @@ export default function App() {
                       </span>
                       <div>
                         <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition">
-                          {isStartingPost ? "Starting..." : "Start Posting"}
+                          {isStartingPost ? "Starting Browser..." : "4. Start Posting"}
                         </h3>
-                        <p className="text-[10px] text-slate-400">Launch real browser</p>
+                        <p className="text-xs text-slate-400">Submit comments with Playwright</p>
                       </div>
                     </div>
-                    {isStartingPost || isPending.post ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-300 transition" />
-                    )}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                        totalCoins > 0 && generatedCount > 0
+                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                      }`}>
+                        {isStartingPost || isPending.post
+                          ? "Starting..."
+                          : totalCoins > 0 && generatedCount > 0
+                            ? `Ready (${Math.max(0, generatedCount - Math.min(progressIndex, generatedCount))})`
+                            : "Need Queue"}
+                      </span>
+                      {isStartingPost || isPending.post ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                      )}
+                    </div>
                   </button>
                 )}
               </div>
@@ -5527,83 +5841,79 @@ export default function App() {
                 )}
               </div>
 
-              {/* MARKETING IMAGE ATTACHMENT CARD (1 IMAGE PER COMMENT) */}
-              <div className="bg-slate-950/70 p-3.5 rounded-xl border border-indigo-500/30 flex flex-col gap-3 shadow-inner">
-                <div className="flex items-center justify-between">
+              {/* MARKETING IMAGE ATTACHMENT CARD (ORDERED & UN-STUFFED) */}
+              <div className="bg-slate-950/70 p-4 rounded-xl border border-indigo-500/30 flex flex-col gap-3 shadow-inner">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
-                    <label className={`relative inline-flex items-center ${isUpdatingImageSettings ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                      <input
-                        type="checkbox"
-                        checked={imageUploadEnabled}
-                        disabled={isUpdatingImageSettings}
-                        onChange={(e) => handleToggleImageUpload(e.target.checked)}
-                        className="sr-only peer"
-                        id="chk-image-upload"
-                      />
-                      <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 peer-checked:after:bg-slate-950 peer-checked:after:border-transparent peer-disabled:opacity-40 shadow-inner"></div>
-                    </label>
+                    <span className={`p-2 rounded-lg border ${imageUploadEnabled ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" : "bg-slate-900 text-slate-400 border-slate-800"}`}>
+                      <ImageIcon className="h-4 w-4" />
+                    </span>
                     <div>
-                      <div className="flex items-center gap-1.5">
-                        <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-bold text-white">
                           Marketing Image Upload
                         </span>
-                        <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                          {imageUploadEnabled ? '1 IMAGE / COMMENT' : 'OFF'}
+                        <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${imageUploadEnabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                          {imageUploadEnabled ? `ACTIVE • ${marketingImages.length} Ready` : 'PAUSED • Text-Only'}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 block">Attaches 1 SpikeSignals chart to each post</span>
+                      <span className="text-xs text-slate-400 block mt-0.5">
+                        {imageUploadEnabled
+                          ? `Attaches 1 graphic per comment (${imageSelectionMode === "cycle" ? "Sequential Cycle" : "Random Shuffle"} • Next #${((activeImageIndex % Math.max(1, marketingImages.length)) + 1)})`
+                          : "Currently paused — comments will be posted as text-only"}
+                      </span>
                     </div>
                   </div>
 
                   <button
+                    type="button"
+                    onClick={() => handleToggleImageUpload(!imageUploadEnabled)}
+                    disabled={isUpdatingImageSettings}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                      imageUploadEnabled
+                        ? "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-sm"
+                        : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700"
+                    }`}
+                    id="chk-image-upload"
+                  >
+                    {imageUploadEnabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                    <span>{imageUploadEnabled ? "Pause Images" : "Enable Images"}</span>
+                  </button>
+                </div>
+
+                {/* Ordered 3-Step Image Action Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => imageFileInputRef.current?.click()}
+                    disabled={isUploadingImages}
+                    className="py-2 px-3 bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>{isUploadingImages ? "Uploading..." : "1. Upload Images"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsExternalImportModalOpen(true)}
+                    className="py-2 px-3 bg-teal-600/15 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>2. Import Drive / S3</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => {
                       setActiveTab("images");
                       document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
                     }}
-                    className="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-indigo-500/10 border border-indigo-500/20 transition cursor-pointer"
+                    className="py-2 px-3 bg-indigo-500/15 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    Gallery ({marketingImages.length})
-                    <ChevronRight className="h-3 w-3" />
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    <span>3. Image Library ({marketingImages.length})</span>
                   </button>
                 </div>
-
-                {imageUploadEnabled && (
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400 text-[10px]">Rotation Mode:</span>
-                      <button
-                        onClick={() => handleSetImageMode("cycle")}
-                        disabled={isUpdatingImageSettings}
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition ${
-                          imageSelectionMode === "cycle"
-                            ? "bg-indigo-600 text-white shadow-sm"
-                            : "bg-slate-900 text-slate-400 hover:text-slate-200"
-                        }`}
-                        title="Sequentially cycle through images 1 to N so consecutive posts have different images"
-                      >
-                        Cycle
-                      </button>
-                      <button
-                        onClick={() => handleSetImageMode("random")}
-                        disabled={isUpdatingImageSettings}
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition ${
-                          imageSelectionMode === "random"
-                            ? "bg-indigo-600 text-white shadow-sm"
-                            : "bg-slate-900 text-slate-400 hover:text-slate-200"
-                        }`}
-                        title="Randomly pick 1 image per comment"
-                      >
-                        Random
-                      </button>
-                    </div>
-
-                    <div className="text-[10px] font-mono text-indigo-300 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                      Next: #{((activeImageIndex % Math.max(1, marketingImages.length)) + 1)}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </section>
@@ -5622,72 +5932,116 @@ export default function App() {
                   </span>
                   <div>
                     <h2 className="font-bold text-white text-base tracking-tight">Progress</h2>
-                    <p className="text-[11px] text-slate-400">Live Post & Batch Metrics</p>
+                    <p className="text-xs text-slate-400">Live Post & Batch Metrics</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 bg-slate-950/80 px-2.5 py-1 rounded-xl border border-slate-800 shadow-sm">
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    status === "Stopping" ? "bg-amber-400 animate-spin" :
-                    status !== "Idle" ? "bg-emerald-400 animate-pulse" : "bg-slate-500"
+                <div className="flex items-center gap-1.5 bg-slate-950/80 px-3 py-1 rounded-xl border border-slate-800 shadow-sm">
+                  <span className={`w-2 h-2 rounded-full ${
+                    status === "Stopping" || isStoppingPost ? "bg-amber-400 animate-spin" :
+                    status !== "Idle" ? "bg-emerald-400 animate-pulse" :
+                    (totalCoins > 0 && generatedCount > 0) ? "bg-emerald-400" : "bg-slate-500"
                   }`} />
-                  <span className="text-[10px] font-mono text-slate-300 font-semibold uppercase">
-                    {status === "Stopping" ? "Halting" : (status !== "Idle" ? "Active" : "Standby")}
+                  <span className="text-xs font-mono text-slate-200 font-semibold uppercase">
+                    {status === "Stopping" || isStoppingPost
+                      ? "Halting"
+                      : status !== "Idle"
+                        ? status
+                        : (totalCoins > 0 && generatedCount > 0)
+                          ? "Queue Ready"
+                          : "Standby"}
                   </span>
                 </div>
               </div>
 
               {/* CURRENT COIN SPOTLIGHT CARD */}
               {(() => {
+                const activePid = activeProfileIdRef.current || activeProfile?.id;
+                const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
+                const batchGenTime = commentsGeneratedAt || 0;
+                const isCurBatchResult = (r: PostResult) => {
+                  if (!batchGenTime) return true;
+                  const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+                  return !isNaN(rTime) && rTime >= (batchGenTime - 120000);
+                };
+                const curBatchResults = profileResults.filter(isCurBatchResult);
+                const verifiedBatchSuccessCount = curBatchResults.filter(r => r.status === "success").length;
+                const verifiedBatchFailedCount = curBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
+
                 const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
-                const clampedProgress = Math.min(progressIndex, activeBatchTotal);
+                // Use verified successful posts for the current batch when results are loaded; never fake 100% when coins failed
+                const displayPostedCount = curBatchResults.length > 0 ? verifiedBatchSuccessCount : postedCount;
+                const displayFailedCount = curBatchResults.length > 0 ? verifiedBatchFailedCount : failedCount;
+                const clampedProgress = Math.min(
+                  curBatchResults.length > 0 ? verifiedBatchSuccessCount : progressIndex,
+                  activeBatchTotal
+                );
                 const batchPercent = activeBatchTotal > 0 ? Math.min(100, Math.max(0, Math.round((clampedProgress / activeBatchTotal) * 100))) : 0;
                 const remainingBatch = Math.max(0, activeBatchTotal - clampedProgress);
+                const nextQueuedSymbol = coinsList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol || messagesList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol;
 
                 return (
                   <>
-                    <div className="spotlight-asset-card min-h-[82px] p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
+                    <div className="spotlight-asset-card min-h-[86px] p-4 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
                       <div className="space-y-1">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">Target Asset</span>
-                        <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2">
+                        <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block font-bold">Target Asset & Queue State</span>
+                        <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2 flex-wrap">
                           {status === "Stopping" || isStoppingPost ? (
                             <span className="text-amber-400 flex items-center gap-1.5 text-base font-bold">
-                              <RefreshCw className="h-4 w-4 animate-spin" /> Stopping Engine
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Stopping Engine...
                             </span>
                           ) : isStartingPost ? (
                             <span className="text-emerald-400 flex items-center gap-1.5 text-base font-bold">
                               <RefreshCw className="h-4 w-4 animate-spin" /> Starting Engine...
                             </span>
+                          ) : status === "Fetching" ? (
+                            <span className="text-blue-400 flex items-center gap-1.5 text-base font-bold">
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Fetching Coins...
+                            </span>
+                          ) : status === "Generating" ? (
+                            <span className="text-purple-400 flex items-center gap-1.5 text-base font-bold">
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Writing AI Comments...
+                            </span>
                           ) : currentCoin !== "N/A" ? (
                             currentCoin
+                          ) : activeBatchTotal > 0 && clampedProgress >= activeBatchTotal ? (
+                            <span className="text-emerald-400 text-base font-bold">Batch Complete ({clampedProgress}/{activeBatchTotal} Verified)</span>
+                          ) : activeBatchTotal > 0 && progressIndex >= activeBatchTotal && remainingBatch > 0 ? (
+                            <span className="text-amber-400 text-base font-bold">Run Finished ({clampedProgress}/{activeBatchTotal} Posted • {remainingBatch} Unposted)</span>
+                          ) : nextQueuedSymbol ? (
+                            <span className="text-emerald-300 text-base font-bold">Next: ${nextQueuedSymbol}</span>
+                          ) : activeBatchTotal > 0 ? (
+                            <span className="text-emerald-300 text-base font-bold">Ready ({remainingBatch} Queued)</span>
                           ) : (
-                            "IDLE"
+                            <span className="text-slate-400 text-base font-bold">Queue Empty</span>
                           )}
                           {status === "Posting" && currentCoin !== "N/A" && (
-                            <span className="text-[10px] font-sans font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                            <span className="text-xs font-sans font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
                               In Progress
                             </span>
                           )}
                           {(status === "Stopping" || isStoppingPost) && (
-                            <span className="text-[10px] font-sans font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                            <span className="text-xs font-sans font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                               Halting Step
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono block">
+                        <span className="text-xs text-slate-400 font-mono block">
                           {status === "Stopping" || isStoppingPost
-                            ? "Gracefully stopping sequence... Waiting for current browser action to complete"
+                            ? "Gracefully finishing current coin before stopping..."
                             : isStartingPost
-                            ? "Launching browser automation engine..."
+                            ? "Launching Playwright Chromium browser..."
                             : status === "Posting"
-                            ? `Coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} in active batch`
-                            : activeBatchTotal > 0 && progressIndex >= activeBatchTotal
-                            ? `Batch complete (${activeBatchTotal} of ${activeBatchTotal} posted) • System Idle`
+                            ? `Posting coin #${Math.min(progressIndex + 1, activeBatchTotal || 1)} of ${activeBatchTotal || 0} (${clampedProgress} verified on CMC)`
+                            : activeBatchTotal > 0 && clampedProgress >= activeBatchTotal
+                            ? `All ${activeBatchTotal} items verified posted on CoinMarketCap`
+                            : activeBatchTotal > 0 && progressIndex >= activeBatchTotal && remainingBatch > 0
+                            ? `${clampedProgress} verified posted, ${displayFailedCount} failed/rate-limited (${remainingBatch} not posted on CMC)`
                             : progressIndex > 0 && activeBatchTotal > 0
-                            ? `Queue paused at #${clampedProgress} of ${activeBatchTotal} items • System Idle`
+                            ? `Paused at #${progressIndex} of ${activeBatchTotal} (${clampedProgress} verified posted, ${remainingBatch} remaining)`
                             : activeBatchTotal > 0
-                            ? `Ready • ${activeBatchTotal} items queued`
-                            : "Queue empty • Ready to fetch coins"}
+                            ? `${activeBatchTotal} items loaded & synced with cloud storage`
+                            : "Click 'Get trending coins' to load your first batch"}
                         </span>
                       </div>
 
@@ -5695,54 +6049,52 @@ export default function App() {
                         <div className="text-3xl font-black font-mono tabular-nums text-emerald-400 tracking-tight">
                           {batchPercent}%
                         </div>
-                        <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Completed</span>
+                        <span className="text-xs text-slate-400 font-mono uppercase font-semibold">Verified</span>
                       </div>
                     </div>
 
                     {/* 5-METRIC KPI GRID - STABILIZED HEIGHTS */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 items-stretch">
-                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Total Coins</span>
-                        <div className="text-base font-black text-slate-200 font-mono tabular-nums mt-0.5">{totalCoins}</div>
+                      <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
+                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Total Coins</span>
+                        <div className="text-lg font-black text-slate-100 font-mono tabular-nums mt-0.5">{totalCoins}</div>
                       </div>
 
-                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Comments AI</span>
-                        <div className="text-base font-black text-purple-400 font-mono tabular-nums mt-0.5">{generatedCount}</div>
+                      <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
+                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Comments AI</span>
+                        <div className="text-lg font-black text-purple-400 font-mono tabular-nums mt-0.5">{generatedCount}</div>
                       </div>
 
-                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Submitted</span>
-                        <div className="text-base font-black text-emerald-400 font-mono tabular-nums mt-0.5">{postedCount}</div>
+                      <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Verified Posted</span>
+                          {displayFailedCount > 0 && (
+                            <span className="text-[11px] font-mono text-rose-400 font-bold" title="Coins that failed or were rate-limited on CoinMarketCap">
+                              {displayFailedCount} Failed
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-lg font-black text-emerald-400 font-mono tabular-nums mt-0.5">{displayPostedCount}</div>
                       </div>
 
-                      <div className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Remaining</span>
-                        <div className="text-base font-black text-amber-400 font-mono tabular-nums mt-0.5">{remainingBatch}</div>
+                      <div className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
+                        <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Unposted / Left</span>
+                        <div className="text-lg font-black text-amber-400 font-mono tabular-nums mt-0.5">{remainingBatch}</div>
                       </div>
 
                       <div 
-                        className="kpi-stat-box min-h-[72px] p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1 flex flex-col justify-between"
+                        className="kpi-stat-box min-h-[74px] p-3 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition col-span-2 sm:col-span-1 flex flex-col justify-between"
                         title="Daily safety cap resets automatically every day at 00:00 UTC"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-slate-500 uppercase block font-semibold">Daily Posts</span>
-                          <span className="text-[9px] font-mono text-slate-400 font-bold" title="Resets every calendar day">Cap {dailyPostLimit} &bull; Daily</span>
+                          <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">Daily Posts</span>
+                          <span className="text-xs font-mono text-slate-400 font-bold" title="Resets every calendar day">Cap {dailyPostLimit}</span>
                         </div>
                         <div className="flex items-baseline gap-1 mt-0.5">
-                          <span className={`text-base font-black font-mono tabular-nums ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
+                          <span className={`text-lg font-black font-mono tabular-nums ${dailyPostCount >= dailyPostLimit ? "text-rose-400" : "text-emerald-400"}`}>
                             {dailyPostCount}
                           </span>
-                          <span className="text-sm text-slate-500 font-mono tabular-nums">/ {dailyPostLimit}</span>
-                          {dailyPostCount >= dailyPostLimit ? (
-                            <span className="ml-auto text-[9px] font-mono font-bold bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
-                              Cap Reached
-                            </span>
-                          ) : (
-                            <span className="ml-auto text-[8px] font-mono text-slate-400">
-                              Resets 00:00 UTC
-                            </span>
-                          )}
+                          <span className="text-sm text-slate-400 font-mono tabular-nums">/ {dailyPostLimit}</span>
                         </div>
                       </div>
                     </div>
@@ -5788,8 +6140,8 @@ export default function App() {
                 );
               })()}
 
-              <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-0.5">
-                <span>Success Rate: <strong className="text-slate-300 font-semibold">{postedCount + failedCount > 0 ? Math.round((postedCount / (postedCount + failedCount)) * 100) : 100}%</strong></span>
+              <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-0.5">
+                <span>Success Rate: <strong className="text-slate-200 font-semibold">{postedCount + failedCount > 0 ? Math.round((postedCount / (postedCount + failedCount)) * 100) : 100}%</strong></span>
                 <span>Active Profile: <strong className="text-emerald-400 font-semibold">{activeProfile?.name || "Active"}</strong></span>
               </div>
             </div>
@@ -5904,7 +6256,7 @@ export default function App() {
 
                 <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
                   <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[900px]">
-                    <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
+                    <thead className="bg-slate-950 text-slate-300 uppercase text-xs tracking-wider border-b border-slate-700/80 font-mono font-bold">
                       <tr>
                         <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Rank</th>
                         <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Slug / Asset</th>
@@ -6035,7 +6387,7 @@ export default function App() {
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
                     <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[750px]">
-                      <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
+                      <thead className="bg-slate-950 text-slate-300 uppercase text-xs tracking-wider border-b border-slate-700/80 font-mono font-bold">
                         <tr>
                           <th className="py-3 px-4 w-[100px] border-r border-slate-700/80 whitespace-nowrap">Sequence</th>
                           <th className="py-3 px-4 w-[160px] border-r border-slate-700/80 whitespace-nowrap">Asset</th>
@@ -6175,7 +6527,7 @@ export default function App() {
 
                   <div className="overflow-x-auto rounded-xl border border-slate-700/80 shadow-md bg-slate-950/70">
                     <table className="w-full text-left text-sm border border-slate-700/80 border-collapse min-w-[850px]">
-                      <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-700/80 font-mono font-bold">
+                      <thead className="bg-slate-950 text-slate-300 uppercase text-xs tracking-wider border-b border-slate-700/80 font-mono font-bold">
                         <tr>
                           <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Time</th>
                           <th className="py-3 px-4 border-r border-slate-700/80 whitespace-nowrap">Asset</th>
@@ -6646,79 +6998,83 @@ export default function App() {
 
           {/* TAB 5: MARKETING IMAGES LIBRARY (STRICTLY 1 IMAGE PER COMMENT) */}
           {activeTab === "images" && (
-            <div className="space-y-6">
-              {/* TOP HERO CONTROLS */}
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* TOP HERO HEADER & MASTER TOGGLE */}
               <div className="bg-slate-950 p-5 rounded-2xl border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3.5">
                   <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30 shadow-sm">
                     <ImageIcon className="h-6 w-6" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-white text-base">Marketing & Signals Image Library</h3>
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                        {imageUploadEnabled ? 'ON (1 IMAGE PER COMMENT)' : 'OFF (TEXT-ONLY)'}
+                      <span className={`px-2.5 py-0.5 text-xs font-mono font-bold rounded ${imageUploadEnabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                        {imageUploadEnabled ? `ACTIVE • 1 IMAGE PER COMMENT (${marketingImages.length} Ready)` : 'PAUSED • TEXT-ONLY MODE'}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-400">
-                      Attaches exactly 1 promotional/macro chart graphic to every comment submitted across Manual, Continuous Loop, and Scheduler.
+                    <p className="text-sm text-slate-400 mt-0.5">
+                      Attaches 1 promotional or chart graphic to every comment across Manual Posting, Continuous Loop, and Scheduler.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Hidden file input */}
-                  <input
-                    type="file"
-                    ref={imageFileInputRef}
-                    onChange={handleUploadMarketingImages}
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    multiple
-                    className="hidden"
-                  />
+                {/* Master Toggle (Dedicated Right Position) */}
+                <button
+                  onClick={() => handleToggleImageUpload()}
+                  disabled={isUpdatingImageSettings}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer shrink-0 border ${
+                    imageUploadEnabled
+                      ? "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-600/30"
+                      : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+                  }`}
+                >
+                  {imageUploadEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  <span>{imageUploadEnabled ? "Pause Image Uploading" : "Enable Image Uploading"}</span>
+                </button>
+              </div>
 
-                  {/* Upload button */}
+              {/* ORDERED 2-STEP UPLOAD & CLOUD IMPORT CARDS (Un-stuffed, clear hierarchy) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Step 1: Upload from Computer */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="text-xs font-mono uppercase font-bold text-emerald-400">Step 1 • Local Files</span>
+                    <h4 className="text-sm font-bold text-white">Upload Images from Computer</h4>
+                    <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-slate-200 pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={replaceExistingOnUpload}
+                        onChange={(e) => setReplaceExistingOnUpload(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span>Replace existing library batch on upload</span>
+                    </label>
+                  </div>
                   <button
                     onClick={() => imageFileInputRef.current?.click()}
                     disabled={isUploadingImages}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50 shrink-0"
                   >
                     <Upload className="h-4 w-4" />
-                    {isUploadingImages ? (uploadProgressText || "Optimizing & Uploading...") : "Upload Images"}
+                    <span>{isUploadingImages ? (uploadProgressText || "Uploading...") : "+ Upload Images"}</span>
                   </button>
+                </div>
 
-                  {/* Replace existing toggle (convenient for daily image packs) */}
-                  <label className="flex items-center gap-1.5 text-sm text-slate-400 bg-slate-900/80 px-2.5 py-2 rounded-xl border border-slate-800 cursor-pointer hover:text-slate-200 transition" title="When checked, uploading replaces old graphics with the new batch">
-                    <input
-                      type="checkbox"
-                      checked={replaceExistingOnUpload}
-                      onChange={(e) => setReplaceExistingOnUpload(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 cursor-pointer"
-                    />
-                    <span>Replace Old Batch</span>
-                  </label>
-
+                {/* Step 2: Import from Drive / S3 */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="text-xs font-mono uppercase font-bold text-teal-400">Step 2 • Cloud Sync</span>
+                    <h4 className="text-sm font-bold text-white">Import from Google Drive / S3 / URL</h4>
+                    <p className="text-xs text-slate-400">
+                      Fetch daily chart packs directly from a shared Drive folder or S3 bucket.
+                    </p>
+                  </div>
                   <button
                     onClick={() => setIsExternalImportModalOpen(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
-                    title="Import images from Google Drive, S3, or public image URLs"
+                    className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-teal-950/40 shrink-0"
                   >
-                    <Upload className="h-3.5 w-3.5" />
-                    Import Drive / S3
-                  </button>
-
-                  {/* Master Toggle */}
-                  <button
-                    onClick={() => handleToggleImageUpload()}
-                    disabled={isUpdatingImageSettings}
-                    className={`px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
-                      imageUploadEnabled
-                        ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30"
-                        : "bg-slate-800 hover:bg-slate-700 text-slate-300"
-                    }`}
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    {imageUploadEnabled ? "Image Uploading: ACTIVE" : "Image Uploading: PAUSED"}
+                    <Upload className="h-4 w-4" />
+                    <span>Import Drive / S3</span>
                   </button>
                 </div>
               </div>
@@ -7887,79 +8243,79 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <h4 className="font-bold text-slate-400 font-mono text-[10px] uppercase tracking-wider">Saved Accounts Profiles</h4>
+                  <div className="space-y-2.5">
+                    <h4 className="font-bold text-slate-300 font-mono text-xs uppercase tracking-wider">Saved Accounts Profiles ({profilesList.length})</h4>
                     {profilesList.length === 0 ? (
-                      <div className="p-6 bg-slate-950 border border-slate-800/80 rounded-xl text-center text-slate-500 text-[11px]">
+                      <div className="p-6 bg-slate-950 border border-slate-800/80 rounded-xl text-center text-slate-400 text-xs">
                         No account profiles saved yet. Add one above to enable fast multi-account switching.
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {profilesList.map((p) => (
                           <div
                             key={p.id}
-                            className={`p-3.5 rounded-xl border flex items-center justify-between transition-all ${
+                            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
                               p.isActive
-                                ? "bg-emerald-500/5 border-emerald-500/25"
-                                : "bg-slate-950 border-slate-800 hover:border-slate-800"
+                                ? "bg-emerald-500/5 border-emerald-500/30"
+                                : "bg-slate-950 border-slate-800 hover:border-slate-700"
                             }`}
                           >
-                            <div className="space-y-1 pr-4 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="space-y-1.5 pr-2 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-white text-sm truncate">{p.name}</span>
                                 {p.isActive && (
-                                  <span className="bg-emerald-500/15 text-emerald-400 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
+                                  <span className="bg-emerald-500/15 text-emerald-400 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
                                     Active
                                   </span>
                                 )}
-                                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold">
+                                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
                                   ⚡ Limit: {p.dailyPostLimit || 300}/day
                                 </span>
                                 {p.proxy && (
-                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold truncate max-w-[130px]" title={`Proxy: ${p.proxy}`}>
+                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[11px] px-2 py-0.5 rounded font-mono font-bold truncate max-w-[160px]" title={`Proxy: ${p.proxy}`}>
                                     🌐 {p.proxy.replace(/^https?:\/\//, "")}
                                   </span>
                                 )}
                                 {p.loginStatus === "logged_in" ? (
-                                  <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
                                     Logged In
                                   </span>
                                 ) : p.loginStatus === "expired" ? (
-                                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
                                     Logged Out
                                   </span>
                                 ) : (
-                                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                                     Unverified
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 pt-0.5 flex-wrap">
-                                <span className="text-[10px] text-slate-500 font-mono">
+                              <div className="flex items-center gap-3 pt-0.5 flex-wrap">
+                                <span className="text-xs text-slate-400 font-mono">
                                   ID: {p.id} • Saved: {new Date(p.updatedAt).toLocaleString()}
                                 </span>
                                 {editingLimitProfileId === p.id ? (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1.5">
                                     <input
                                       type="number"
                                       min={1}
                                       max={10000}
                                       value={editingLimitValue}
                                       onChange={(e) => setEditingLimitValue(parseInt(e.target.value) || 300)}
-                                      className="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white font-mono"
+                                      className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-white font-mono"
                                     />
                                     <button
                                       onClick={() => handleUpdateProfileLimit(p.id, editingLimitValue)}
-                                      className="px-1.5 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[9px] rounded"
+                                      className="px-2 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded cursor-pointer"
                                     >
                                       Save
                                     </button>
                                     <button
                                       onClick={() => setEditingLimitProfileId(null)}
-                                      className="px-1 py-0.5 bg-slate-800 text-slate-400 text-[9px] rounded hover:text-white"
+                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer"
                                     >
                                       ✕
                                     </button>
@@ -7971,30 +8327,30 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                       setEditingLimitValue(p.dailyPostLimit || 300);
                                     }}
                                     disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                                    className="text-[9px] text-emerald-400/80 hover:text-emerald-400 underline font-mono cursor-pointer"
+                                    className="text-xs text-emerald-400 hover:text-emerald-300 underline font-mono cursor-pointer"
                                   >
                                     Edit Limit
                                   </button>
                                 )}
 
                                 {editingProxyProfileId === p.id ? (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1.5">
                                     <input
                                       type="text"
                                       placeholder="http://user:pass@ip:port or empty"
                                       value={editingProxyValue}
                                       onChange={(e) => setEditingProxyValue(e.target.value)}
-                                      className="w-40 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white font-mono"
+                                      className="w-44 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-white font-mono"
                                     />
                                     <button
                                       onClick={() => handleUpdateProfileProxy(p.id, editingProxyValue)}
-                                      className="px-1.5 py-0.5 bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold text-[9px] rounded"
+                                      className="px-2 py-0.5 bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold text-xs rounded cursor-pointer"
                                     >
                                       Save
                                     </button>
                                     <button
                                       onClick={() => setEditingProxyProfileId(null)}
-                                      className="px-1 py-0.5 bg-slate-800 text-slate-400 text-[9px] rounded hover:text-white"
+                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer"
                                     >
                                       ✕
                                     </button>
@@ -8006,19 +8362,19 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                       setEditingProxyValue(p.proxy || "");
                                     }}
                                     disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                                    className="text-[9px] text-purple-400/80 hover:text-purple-400 underline font-mono cursor-pointer"
+                                    className="text-xs text-purple-400 hover:text-purple-300 underline font-mono cursor-pointer"
                                   >
                                     {p.proxy ? "Edit Proxy" : "+ Set Proxy"}
                                   </button>
                                 )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                               {!p.isActive && (
                                 <button
                                   onClick={() => promptSwitchProfile(p)}
                                   disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
-                                  className="py-1 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-bold rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
                                   title={
                                     (isBusy || isPostingActive || isContinuousLoopActive)
                                       ? "Cannot switch accounts while posting or automation is active. Click 'Stop Posting' first."
@@ -8027,7 +8383,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                 >
                                   {switchingProfileId === p.id ? (
                                     <>
-                                      <RefreshCw className="h-2.5 w-2.5 animate-spin text-slate-950" />
+                                      <RefreshCw className="h-3 w-3 animate-spin text-slate-950" />
                                       <span>Switching...</span>
                                     </>
                                   ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
@@ -8045,7 +8401,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   navigator.clipboard.writeText(p.stateJson);
                                   showToast(`Copied state.json for "${p.name}" to clipboard!`, "success");
                                 }}
-                                className="py-1 px-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-medium rounded-lg border border-slate-800 cursor-pointer"
+                                className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-lg border border-slate-800 cursor-pointer"
                               >
                                 📋 Copy JSON
                               </button>
@@ -8057,13 +8413,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                       setDeletingId(null);
                                     }}
                                     disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                                    className="py-1 px-2.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     Confirm
                                   </button>
                                   <button
                                     onClick={() => setDeletingId(null)}
-                                    className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium rounded-lg cursor-pointer"
+                                    className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg cursor-pointer"
                                   >
                                     Cancel
                                   </button>
@@ -8072,7 +8428,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                 <button
                                   onClick={() => setDeletingId(p.id)}
                                   disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                                  className="py-1 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium rounded-lg border border-rose-500/10 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium rounded-lg border border-rose-500/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                   title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Deletion locked while process is active" : "Delete Profile"}
                                 >
                                   Delete

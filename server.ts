@@ -3169,6 +3169,16 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
             
             // Verify or wait for thumbnail preview to appear
             await page.waitForSelector('.editor-image-preview, [class*="preview"], [class*="image-item"], .upload-image-preview', { timeout: 4000 }).catch(() => {});
+
+            // Wait for any active image upload spinner/progress or disabled Post button to finish before submitting
+            for (let imgWait = 0; imgWait < 12; imgWait++) {
+              const isUploadingImg = await page.evaluate(() => {
+                const spinners = document.querySelectorAll('.editor-image-preview [class*="loading" i], .editor-image-preview [class*="spinner" i], .upload-image-preview [class*="loading" i], [data-test="editor-post-button"][disabled], .editor-post-button[disabled], .editor-post-button.disabled');
+                return spinners.length > 0;
+              }).catch(() => false);
+              if (!isUploadingImg) break;
+              await page.waitForTimeout(500);
+            }
           } else {
             addLog("warning", "File input element not found in comment editor toolbar. Posting text-only.");
           }
@@ -3300,11 +3310,93 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     await postBtn.hover().catch(() => {});
     await page.waitForTimeout(300 + Math.floor(Math.random() * 400));
 
+    // Check if the Post button is disabled before clicking (e.g., empty editor or pending image upload)
+    const isBtnDisabledBeforeClick = await postBtn.evaluate((el: any) => {
+      const elem = el as HTMLElement;
+      return (
+        (elem as HTMLButtonElement).disabled === true ||
+        elem.getAttribute("disabled") !== null ||
+        elem.getAttribute("aria-disabled") === "true" ||
+        elem.classList.contains("disabled")
+      );
+    }).catch(() => false);
+
+    if (isBtnDisabledBeforeClick) {
+      addLog("info", "Post button is currently disabled (waiting for editor or image upload to settle)...");
+      await page.waitForTimeout(2000);
+    }
+
+    const snippetToVerify = textToType.trim().slice(0, 28);
+    let postApiObserved = false;
+    let postApiSucceeded = false;
+    let postApiErrorMsg = "";
+
+    const responseListener = async (response: any) => {
+      try {
+        const req = response.request();
+        if (req.method() !== "POST") return;
+        const rUrl = response.url().toLowerCase();
+        if (
+          rUrl.includes("gravity") ||
+          rUrl.includes("comment") ||
+          rUrl.includes("post") ||
+          rUrl.includes("community") ||
+          rUrl.includes("content")
+        ) {
+          postApiObserved = true;
+          const status = response.status();
+          if (status >= 200 && status < 300) {
+            const body = await response.json().catch(() => null);
+            const errCode = body?.status?.error_code ?? body?.error_code ?? body?.code;
+            const errMsg = body?.status?.error_message || body?.error_message || body?.message || "";
+            if (errCode && String(errCode) !== "0" && String(errCode) !== "200") {
+              postApiErrorMsg = String(errMsg || `API error code ${errCode}`);
+            } else {
+              postApiSucceeded = true;
+            }
+          } else if (status === 429) {
+            postApiErrorMsg = "HTTP 429 rate limit";
+          } else if (status === 401 || status === 403) {
+            postApiErrorMsg = `HTTP ${status} unauthorized/restricted`;
+          }
+        }
+      } catch (_) {}
+    };
+
+    page.on("response", responseListener);
+
     addLog("info", "Clicking post submission button...");
     await clickResiliently(page, postBtn, "post submission button");
     
     // Wait for submission to process
     await page.waitForTimeout(3500);
+
+    // Check if the editor still contains our typed comment text (meaning the click did not submit yet)
+    const checkEditorStillHasTypedText = async (): Promise<boolean> => {
+      try {
+        const currentText = ((await editor.innerText().catch(() => "")) || "").trim();
+        if (!currentText) return false;
+        // If only the pre-filled $SYMBOL tag remains (e.g. "$BTC"), the comment cleared!
+        const withoutTag = existingTag ? currentText.replace(new RegExp(`\\${existingTag}`, "gi"), "").trim() : currentText;
+        if (withoutTag.length === 0) return false;
+        if (snippetToVerify.length >= 8 && currentText.includes(snippetToVerify)) {
+          return true;
+        }
+        return withoutTag.length > Math.max(12, Math.floor(textToType.trim().length * 0.5));
+      } catch (_) {
+        return false;
+      }
+    };
+
+    let editorStillUnposted = await checkEditorStillHasTypedText();
+    if (editorStillUnposted && !postApiSucceeded && !postApiErrorMsg) {
+      addLog("warning", "Editor still contains comment text after first Post click. Retrying Post button click...");
+      await clickResiliently(page, postBtn, "post submission button (retry)");
+      await page.waitForTimeout(3500);
+      editorStillUnposted = await checkEditorStillHasTypedText();
+    }
+
+    page.off("response", responseListener);
     
     // Anti-Ban & Moderation Detection: Scan alerts, feedback, toasts, and DOM error notices
     let isRateLimited = false;
@@ -3313,6 +3405,30 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     let moderationMsg = "";
     let isAccountRestricted = false;
     let accountRestrictedMsg = "";
+    let hasCaptchaChallenge = false;
+
+    if (postApiErrorMsg) {
+      const lowerApiErr = postApiErrorMsg.toLowerCase();
+      if (lowerApiErr.includes("429") || lowerApiErr.includes("frequent") || lowerApiErr.includes("fast") || lowerApiErr.includes("rate") || lowerApiErr.includes("wait") || lowerApiErr.includes("limit")) {
+        isRateLimited = true;
+        rateLimitMsg = postApiErrorMsg;
+      } else if (lowerApiErr.includes("ban") || lowerApiErr.includes("suspend") || lowerApiErr.includes("restrict") || lowerApiErr.includes("block")) {
+        isAccountRestricted = true;
+        accountRestrictedMsg = postApiErrorMsg;
+      } else if (lowerApiErr.includes("captcha") || lowerApiErr.includes("verify") || lowerApiErr.includes("security")) {
+        hasCaptchaChallenge = true;
+      } else {
+        isModerationFlagged = true;
+        moderationMsg = postApiErrorMsg;
+      }
+    }
+
+    try {
+      const cfOrCaptcha = await page.$('#challenge-running, #challenge-stage, .cf-turnstile, iframe[src*="captcha" i], iframe[src*="turnstile" i], [class*="geetest" i], [class*="baxia" i]').catch(() => null);
+      if (cfOrCaptcha && await cfOrCaptcha.isVisible().catch(() => false)) {
+        hasCaptchaChallenge = true;
+      }
+    } catch (_) {}
 
     try {
       const feedbackContainers = await page.$$('[role="alert"], [class*="toast" i], [class*="notification" i], [class*="feedback" i], [class*="error" i], [class*="alert" i], [data-test="editor-error"], .editor-area, form');
@@ -3322,7 +3438,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           if (!txt) continue;
 
           // 1. Rate-limit triggers
-          if (txt.includes("frequent") || txt.includes("too fast") || txt.includes("rate limit") || txt.includes("seconds before") || txt.includes("please wait")) {
+          if (txt.includes("frequent") || txt.includes("too fast") || txt.includes("rate limit") || txt.includes("seconds before") || txt.includes("please wait") || txt.includes("try again later") || txt.includes("too many")) {
             isRateLimited = true;
             rateLimitMsg = txt;
             break;
@@ -3336,7 +3452,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           }
 
           // 3. Moderation / content removal triggers
-          if (txt.includes("prohibited") || txt.includes("violate") || txt.includes("guidelines") || txt.includes("forbidden") || txt.includes("restricted words") || txt.includes("cannot be posted") || txt.includes("under review") || txt.includes("spam detected")) {
+          if (txt.includes("prohibited") || txt.includes("violate") || txt.includes("guidelines") || txt.includes("forbidden") || txt.includes("restricted words") || txt.includes("cannot be posted") || txt.includes("under review") || txt.includes("spam detected") || txt.includes("failed to post") || txt.includes("post failed")) {
             isModerationFlagged = true;
             moderationMsg = txt;
             break;
@@ -3344,6 +3460,12 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
         }
       }
     } catch (_) {}
+
+    if (hasCaptchaChallenge) {
+      addLog("error", "CRITICAL: Captcha / security verification popup detected after clicking Post!");
+      await saveDebugScreenshot(page, "post_submission_captcha");
+      return { status: "captcha", message: "Captcha verification required on post submission" };
+    }
 
     if (isAccountRestricted) {
       addLog("error", `CRITICAL: CoinMarketCap account restriction detected: "${accountRestrictedMsg.slice(0, 100)}". Halting posting to protect account.`);
@@ -3354,13 +3476,42 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     if (isRateLimited) {
       addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
       await saveDebugScreenshot(page, "rate_limited_submission");
-      return { status: "retry", message: "Rate limited on submission" };
+      return { status: "retry", message: `Rate limited on submission (${rateLimitMsg.slice(0, 60)})` };
     }
 
     if (isModerationFlagged) {
       addLog("warning", `CoinMarketCap content moderation filter flagged comment: "${moderationMsg.slice(0, 80)}"`);
       await saveDebugScreenshot(page, "moderation_flagged_submission");
       return { status: "failed", message: `Moderation filter triggered: ${moderationMsg.slice(0, 80)}` };
+    }
+
+    // Check if comment now appears in the community feed on the page
+    const postedInFeedAfterClick = await page.evaluate((snip: string) => {
+      if (!snip || snip.length < 6) return false;
+      const feed = document.querySelector('.community-feed, [class*="feed" i], [class*="post-list" i], main');
+      const targetText = feed ? (feed as HTMLElement).innerText : document.body.innerText;
+      return targetText.includes(snip);
+    }, snippetToVerify).catch(() => false);
+
+    // STRICT POST VERIFICATION GUARD:
+    // Never mark a post as "success" if the comment text is still sitting unsubmitted inside the editor box
+    // and neither the post API nor the community feed confirmed publication!
+    if (editorStillUnposted && !postApiSucceeded && !postedInFeedAfterClick) {
+      addLog("warning", `Submission verification failed: Comment text remained inside the editor after clicking Post (CoinMarketCap silently rejected or rate-limited the submission).`);
+      await saveDebugScreenshot(page, "unverified_post_editor_not_cleared");
+      return {
+        status: "retry",
+        message: "Submission not accepted by CoinMarketCap (editor did not clear; likely silent rate-limit or image upload still pending)"
+      };
+    }
+
+    if (postApiObserved && !postApiSucceeded && !postedInFeedAfterClick) {
+      addLog("warning", `Submission API did not return success (${postApiErrorMsg || "unconfirmed response"}).`);
+      await saveDebugScreenshot(page, "unverified_post_api_response");
+      return {
+        status: "failed",
+        message: postApiErrorMsg || "CoinMarketCap API did not confirm post publication"
+      };
     }
     
     addLog("success", "Successfully submitted post via Playwright browser context!");
@@ -4557,6 +4708,16 @@ app.get("/api/status", async (req, res) => {
   const dailyPostLimit = getAccountDailyPostLimit(activeId);
   const ts = getRealTimestamps(activeId);
 
+  const batchGenAt = ts.commentsGeneratedAt || 0;
+  const currentBatchResults = batchGenAt > 0
+    ? results.filter(r => {
+        const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+        return !isNaN(rTime) && rTime >= (batchGenAt - 120000);
+      })
+    : results;
+  const batchSuccessCount = currentBatchResults.filter(r => r.status === "success").length;
+  const batchFailedCount = currentBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
+
   const now = Date.now();
   const TWO_DAYS_MS = 48 * 60 * 60 * 1000;
   const coinsAgeMs = (coins.length > 0 && ts.coinsFetchedAt) ? (now - ts.coinsFetchedAt) : null;
@@ -4591,8 +4752,8 @@ app.get("/api/status", async (req, res) => {
     activeProfileName: activeProfile?.name || activeId,
     totalCoins: coins.length,
     generatedMessages: messages.length,
-    postedCount: results.filter(r => r.status === "success").length,
-    failedCount: results.filter(r => r.status !== "success" && r.status !== "skipped").length,
+    postedCount: batchSuccessCount,
+    failedCount: batchFailedCount,
     trending: coins,
     generated: messages,
     results,
@@ -6994,20 +7155,24 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       logWithPrefix("warning", "Posting loop paused: stop command was received.");
     } else if (currentPostingIndex >= messages.length || runPosted + runFailed >= initialPendingCount) {
       stopReason = "completed";
-      logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Posted: ${runPosted}, Failed: ${runFailed})`);
+      if (runFailed > 0) {
+        logWithPrefix("warning", `Automated posting run finished with partial failures: ${runPosted} verified posted on CoinMarketCap, ${runFailed} failed/unposted.`);
+      } else {
+        logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Verified Posted: ${runPosted}, Failed: 0)`);
+      }
       botStatus = "Completed";
       isPostingRunning = false;
       if (!isSchedulerCall) isSinglePostingRunning = false;
 
-      // Auto-prune old data and clean completed batch pointers
+      // Auto-prune old data and clean completed batch pointers ONLY when all items succeeded (runFailed === 0)
       try {
         const botSettings = getLocalBotSettings();
-        if (botSettings.autoPruneCompletedBatches !== false) {
+        if (botSettings.autoPruneCompletedBatches !== false && runFailed === 0) {
           saveBotProgress({ next_index: 0 });
           currentPostingIndex = 0;
-          logWithPrefix("info", `[BATCH COMPLETED] All assigned comments finished in this cycle. Ephemeral queue pointer reset to 0.`);
+          logWithPrefix("info", `[BATCH COMPLETED] All assigned comments verified posted in this cycle. Ephemeral queue pointer reset to 0.`);
         }
-        if (botSettings.autoPruneOldDataEnabled !== false) {
+        if (botSettings.autoPruneOldDataEnabled !== false && runFailed === 0) {
           pruneOldAndCompletedData(getActiveProfileId());
         }
       } catch (cleanErr) {
