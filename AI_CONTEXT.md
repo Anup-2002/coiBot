@@ -1,0 +1,104 @@
+# AI_CONTEXT.md — Central AI Assistant Handoff & Project State
+
+> **MANDATORY WORKFLOW RULE:**
+> 1. **Read First:** Every AI coding assistant MUST read this file at the start of a session before inspecting or modifying code.
+> 2. **Single Source of Truth:** Do not create separate summary or handoff markdown files. Update this file (`AI_CONTEXT.md`) after every significant change and before ending any session.
+> 3. **Verify Everything:** Never mark a task as completed unless `npm run lint`, `npm test`, and `npm run build` have been executed and verified.
+
+---
+
+## 1. Repository & Branch Status
+
+- **Repository URL:** `https://github.com/Anup-2002/coiBot.git`
+- **Active Working Branch:** `staging` (tracks `origin/staging`)
+- **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
+- **Recent Commits on `staging`:**
+  - `204c38c` — `feat: add aria-label and title to all icon-only buttons (Step 7)`
+  - `6b51a28` — `perf: deduplicate session/profile cloud saves and eliminate idle DB calls (Step 6)`
+  - `0529bf9` — `feat: update header items and /health chips and messages (Step 3)`
+  - `2a4b251` — `feat: fetch logs only on /logs and load scheduler logs from /api/scheduler/logs (Step 2)`
+  - `f54f807` — `feat: finish text size scaling and fix lint errors (Step 1)`
+  - `e817645` — `refactor: enhance app robustness and stability` (base commit from `main`)
+
+---
+
+## 2. Project Architecture & Core Files
+
+- **`server.ts`**: Full-stack Node.js + Express backend, Playwright Chromium browser automation engine, multi-account sequential scheduler, REST endpoints (`/api/*`), static `/output/*` interception with profile isolation, and cloud synchronization.
+- **`src/App.tsx`**: Single-file React 19 UI containing all views (`dashboard`, `scheduler`, `admin`, `logs`, `health`, `guide`), inline modals, `ErrorBoundary`, and state management.
+  - **Strict Constraint:** Do NOT split `src/App.tsx` into `src/pages/` or `src/components/`. Keep components inline in `src/App.tsx`.
+- **`src/api.ts`**: Typed frontend API client (`api` object + `apiFetch` wrapper with 30-second `AbortController` timeout). All network calls in `src/App.tsx` go through `src/api.ts` (zero raw `fetch()` calls in `src/App.tsx`).
+- **`src/main.tsx`**: React entry point wrapping `<App />` inside `<ErrorBoundary>`.
+- **`src/storage.ts` / `src/firebase-db.ts` / `src/mongo-db.ts`**: Dual-cloud persistence layer (Firebase Realtime Database primary + MongoDB Atlas fallback) synced with local `/output` and `/auth` directories.
+- **`src/utils/scheduler.ts` & `src/utils/formatters.ts`**: Scheduler due-time calculations, peak trading windows, and anti-spam comment formatting.
+- **`tests/`**: Vitest unit and route integration tests (`tests/routes.test.ts`, `tests/scheduler.test.ts`, `tests/daily-limit.test.ts`, `tests/formatters.test.ts`, `tests/api.test.ts`).
+
+---
+
+## 3. Environment & Critical Runtime Notes
+
+- **`.env` Configuration**:
+  - `.env` sets `PORT=3000` and `NODE_ENV=production` along with real credentials for OpenAI, CoinMarketCap, Firebase RTDB, and MongoDB Atlas.
+  - **CRITICAL UI PREVIEW NOTE:** Because `.env` sets `NODE_ENV=production` and `server.ts` calls `dotenv.config({ override: true })`, `server.ts` runs in **PRODUCTION** mode and serves static assets from `dist/`.
+  - Therefore, whenever you modify `src/App.tsx` or any frontend file, you **MUST** run `npm run build` (and restart the server if `server.ts` changed) so `http://localhost:3000` serves the newly compiled `dist/` bundle!
+- **Critical Data Isolation Invariant**:
+  - When no profile is active (`!activeId`) or no valid session exists (`!sessionExists`), `/api/status`, `/output/last_trending.json`, `/output/generated_messages.json`, and `/api/download/*.csv` MUST return empty arrays/headers (`[]`) with zero data leakage across accounts.
+- **Important Commands**:
+  - `npm run lint` — Runs `tsc --noEmit` (must exit 0 with zero errors).
+  - `npm test` — Runs `vitest run` (all 5 test suites / 35 tests must pass).
+  - `npm run build` — Builds Vite production bundle into `dist/` and bundles `server.ts` into `dist/server.cjs`.
+  - `npm run dev` — Starts live server on `http://localhost:3000`.
+
+---
+
+## 4. Work Completed & Verified (Current State)
+
+All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIED** on branch `staging`:
+
+1. **Step 0 — Clean Up (`PASS`)**:
+   - Confirmed no `src/pages/` or `src/components/` directories exist. All UI lives in `src/App.tsx`.
+2. **Step 1 — Text Size Scaling & Lint Fixes (`PASS`, commit `f54f807`)**:
+   - Converted remaining `text-xs` body text, labels, inputs, and buttons in `src/App.tsx` to `text-sm` (`text-sm` → `text-base` preserved), leaving badges and the logs console untouched.
+   - Fixed all 4 TypeScript errors in `src/App.tsx` (`systemCheckResult.success` optional property and `currentView` type narrowing).
+3. **Step 2 — Move Logs (`PASS`, commit `2a4b251`)**:
+   - Activity logs card is located on `/logs` (removed from Dashboard).
+   - Header includes the `Logs` button (`navigateTo("logs")`).
+   - Second tab on `/logs` fetches scheduler logs from `/api/scheduler/logs` (`api.getSchedulerLogs()`) and has the single `/api/scheduler/logs/download` link.
+   - `fetchLogs()` checks `if (currentView !== "logs") return;` so logs are fetched only while `/logs` is open.
+4. **Step 3 — Health Tab & Header (`PASS`, commit `0529bf9`)**:
+   - Header items are strictly ordered: Title, Account button, Active account selector, Scheduler badge, Admin, Logs, Health (with green/red status dot), Guide.
+   - `/health` displays `"Everything is working"` or `"Needs attention"` at the top, renders the 5 original header chips (`Server`, `OpenAI`, `CMC`, `DB`, and `Alerts` toggle calling `toggleNotifications`), and displays one plain sentence from `/api/health` under any check whose status is not `"ok"`.
+5. **Step 4 — Guide Text (`PASS`)**:
+   - `/guide` displays 25 short one-line bullets under the 5 required headings (*Getting started*, *Adding an account*, *Running the scheduler (start, pause, stop, resume)*, *Images*, *If something goes wrong*).
+6. **Step 5 — Per-Page Polling (`PASS`)**:
+   - `/api/scheduler` polled on `/scheduler` (3s) and header (30s).
+   - Logs polled only on `/logs` (3s).
+   - `/api/health` polled on `/health` (10s) and header (30s).
+   - Dashboard polls `/api/status` (3s) and fetches coins/messages/results only when a run is active.
+   - All intervals are cleaned up via `useEffect` return functions on `currentView` change.
+7. **Step 6 — Database Call Deduplication (`PASS`, commit `6b51a28`)**:
+   - Removed local→cloud write branches in `syncLocalFromCloudIfStale`.
+   - Added `hydratedProfiles` tracking so idle `/api/status` polling triggers **zero** cloud database reads once a profile is hydrated.
+   - Added SHA-1 payload hashing (`lastCloudSavedHash`) in `writeJsonFile`, `saveSessionStateCloudIfChanged`, and `saveProfilesCloudIfChanged` (stripping transient `updatedAt`/`updated_at` timestamps) to skip redundant cloud writes after posts and login checks.
+8. **Step 7 — Robustness (`PASS`, commit `204c38c`)**:
+   - `0` direct `fetch()`, `0` `alert()`, `0` `confirm()` calls in `src/App.tsx`.
+   - `ErrorBoundary` exported from `src/App.tsx` and wrapping `<App />` in `src/main.tsx`.
+   - Every icon-only button in `src/App.tsx` has both `title` and `aria-label`.
+
+### Verification Status
+- `npm run lint`: **PASS** (0 errors)
+- `npm test`: **PASS** (5/5 test files, 35/35 tests passed)
+- `npm run build`: **PASS** (`dist/` and `dist/server.cjs` built cleanly)
+- Live Server (`http://localhost:3000`): **RUNNING** on `staging` with latest build.
+
+---
+
+## 5. Next Steps for Future Sessions
+
+1. **Before making any changes**: Read this `AI_CONTEXT.md` file and check `git status` / `git log -n 5 --oneline` to confirm you are on the `staging` branch.
+2. **Pending User Review / Next Instructions**:
+   - Await user testing and feedback on `http://localhost:3000` (on branch `staging`).
+   - When the user approves the `staging` commits (`f54f807..204c38c`), push `staging` (`git push origin staging`) or merge `staging` into `main` only when explicitly instructed by the user.
+3. **After any future code change**:
+   - Run `npm run lint`, `npm test`, and `npm run build`.
+   - Update this `AI_CONTEXT.md` file with the latest state and commit hashes.
