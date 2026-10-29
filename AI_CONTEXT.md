@@ -14,6 +14,8 @@
 - **Active Working Branch:** `staging` (tracks `origin/staging`)
 - **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
 - **Recent Commits on `staging`:**
+  - `04ac4e1` — `feat: lock Reset Storage during active processes, upgrade sequential scheduler & auto-loop controls, and polish zero-lag button transitions`
+  - `2fbb78e` — `docs: update AI_CONTEXT.md with post verification and UI polish summary`
   - `9b034d4` — `feat: enforce real post verification, fix fake batch completion metrics, and polish UI transitions and image upload controls`
   - `87b2176` — `feat: open Automated Login (New) tab first when adding accounts and unify cookie import`
   - `047e741` — `feat: deep-clean UI modules, remove all duplicate sections/buttons, and isolate admin tabs`
@@ -132,6 +134,16 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Mounted the hidden `<input type="file" ref={imageFileInputRef} />` globally at the root of `<App />` so `+ Upload Images` works from Dashboard, `/scheduler`, `/guide`, and `5. Images Library`.
       - Added `Scheduled Cycle Image Attachment` controls (`Pause / Enable Image Upload`, `+ Upload Images`, `Open Image Library`) directly inside `/scheduler` and ordered `Marketing Image Upload` buttons (`1. Upload Images`, `2. Import Drive / S3`, `3. Image Library`).
       - Upgraded `/admin` (4-card module selector deck), `/guide` (interactive topic filter stepper), and `/health` (5-card service diagnostics grid) and improved table/account-list font sizes.
+12. **Process-Locked Storage Safeguards, Prominent Start Controls & Zero-Lag Button Transitions (`PASS`, commit `04ac4e1`)**:
+    - **Strict Process Locks for `Reset Storage` & Destructive Queue/Image Actions (`server.ts` & `src/App.tsx`)**:
+      - Guarded `POST /api/clear-all` and `POST /api/queue/reset-daily` in `server.ts` so they return `409 Conflict` if any posting, fetching, generating, continuous loop, or scheduler cycle is currently running (unless `force: true` is passed by the explicit Refetch modal when idle).
+      - Locked `#btn-clear-stats` (`Reset Storage` in Dashboard `Control Center`) whenever `isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning`, displaying a `<Lock /> Reset Locked` state while a process is active.
+      - Removed the duplicate `Reset Storage` button from `/admin` -> `Auth & Cache Storage Maintenance` so `Reset Storage` lives in a single canonical location, and locked `Archive & Restart`, `Delete Selected`, `Clear All`, `Delete state.json`, `Configure Cookies`, and `Verify Login` while processes are active.
+    - **High-Visibility, 1-Click Process & Scheduler Controls (`src/App.tsx`)**:
+      - Upgraded `Run accounts in sequence` on `/scheduler` from a small switch into a prominent action card with a live status badge (`ENABLED • 24/7 ACTIVE` vs `DISABLED`) and a bold `Enable Sequential Mode` / `Sequential Mode ON (Disable)` button that locks while a cycle is running.
+      - Updated `Run cycle now` on `/scheduler` so it is always clickable in 1 click when idle (`handleRunSchedulerNow` automatically enables sequential mode first if needed before starting the cycle).
+      - Upgraded `Continuous Automation Loop` on the Dashboard `Control Center` with a live status badge (`ACTIVE • Xm GAP` vs `OFF`) and a prominent `Enable Auto-Loop` / `Stop Auto-Loop` button, and added live state labels to `Run Full Automated Bot Cycle`.
+      - Added optimistic UI state updates (`handleToggleScheduler`, `handleRunSchedulerNow`, `toggleContinuousLoop`), instant view navigation (`behavior: "instant"`), and `transition-all duration-150 active:scale-[0.98]` feedback across buttons for zero-lag transitions.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
