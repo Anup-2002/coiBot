@@ -205,6 +205,10 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
     - **AST & Line-by-Line Module Validation Check Against `backup/before-split`**:
       - Audited all 37 frontend and backend modules against all 378 top-level declarations in `backup/before-split:src/App.tsx` and 160 declarations in `backup/before-split:server.ts` using the TypeScript Compiler AST.
       - Resolved the unbound `status` state variable in `src/pages/DashboardControlPanel.tsx` (which had silently resolved to the browser's `window.status === ""` DOM global, causing the Control Center `● READY` / `● STANDBY` badge and Progress `● QUEUE READY` badge to render blank next to the green dot) by passing `status` explicitly from `src/hooks/useAppController.ts` into `renderDashboardControlPanel(status, ...)`.
+    - **Button Icons, Labels & Cross-Page Navigation Polish (`PASS`)**:
+      - Fixed the `<Upload /> + Upload` button in `src/pages/GuidePage.tsx` (Section 4 • Images) to `<Upload /> Upload Images` (with live `Uploading...` feedback) and added consistent section header action buttons across all 5 Guide sections (`Check Health`, `Manage Accounts`, `Open Scheduler`, `Upload Images` / `Image Library`, `View Logs`) plus smooth scroll to `#controls-panel` on `Go to Control Center`.
+      - Moved `isExternalImportModalOpen` and `previewModalImage` outside `{activeTab === "images"}` in `src/pages/DashboardImageLibrary.tsx` so clicking `Import from Link` in `src/pages/DashboardControlPanel.tsx` opens the Cloud Import modal immediately from any Dashboard tab.
+      - Replaced remaining raw `✕` and `→` button symbols across `src/pages/DashboardImageLibrary.tsx`, `src/pages/HealthPage.tsx`, `src/pages/AdminPage.tsx`, and `src/components/SessionAccountModal.tsx` with clean Lucide icons (`<X />`, `<ChevronRight />`, `<RefreshCw />`).
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)

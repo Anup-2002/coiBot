@@ -262,9 +262,8 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                             setImageSearchQuery("");
                             setImagePage(1);
                           }}
-                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-sm"
-                        >
-                          ✕
+                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-sm cursor-pointer" title="Clear filter" aria-label="Clear filter">
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>
@@ -659,7 +658,8 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                   </div>
                 )}
               </div>
-
+            </div>
+          )}
               {/* EXTERNAL IMAGES IMPORT MODAL (Google Drive, S3, Web URLs) */}
               {isExternalImportModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -866,8 +866,6 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </div>
                 </div>
               )}
-            </div>
-          )}
     </>
   );
 }

@@ -71,7 +71,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                 }`}
               >
                 <ImageIcon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                <span>5. Images Library ({marketingImages.length})</span>
+                <span>5. Image Library ({marketingImages.length})</span>
                 <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
                   {imageUploadEnabled ? 'ON' : 'OFF'}
                 </span>

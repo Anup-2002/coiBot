@@ -16,7 +16,7 @@ import {
   Terminal as TerminalIcon,
 } from "lucide-react";
 
-export function renderGuidePage(navigateTo: any, handleResetLoginState: any, setLoginTab: any, setShowSessionModal: any, guideStep: any, setGuideStep: any, imageFileInputRef: any, setActiveTab: any, marketingImages: any) {
+export function renderGuidePage(navigateTo: any, handleResetLoginState: any, setLoginTab: any, setShowSessionModal: any, guideStep: any, setGuideStep: any, imageFileInputRef: any, setActiveTab: any, marketingImages: any, isUploadingImages?: boolean) {
 
   return (
         /* DEDICATED OPERATING GUIDE SCREEN (/guide) */
@@ -104,7 +104,12 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                     </p>
                   </div>
                   <button
-                    onClick={() => navigateTo("dashboard")}
+                    onClick={() => {
+                      navigateTo("dashboard");
+                      setTimeout(() => {
+                        document.getElementById("controls-panel")?.scrollIntoView({ behavior: "smooth" });
+                      }, 120);
+                    }}
                     className="w-full py-2.5 px-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Play className="h-4 w-4" /> Go to Control Center
@@ -227,6 +232,16 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                       <p className="text-sm text-slate-400">Add, switch, or manage your CoinMarketCap accounts</p>
                     </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      handleResetLoginState();
+                      setLoginTab("credentials");
+                      setShowSessionModal(true);
+                    }}
+                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Users className="h-4 w-4" /> Manage Accounts
+                  </button>
                 </div>
                 <ul className="space-y-2.5">
                   {[
@@ -268,6 +283,12 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                     <p className="text-sm text-slate-400">Automatic account rotation, saved progress, and live controls</p>
                   </div>
                 </div>
+                <button
+                  onClick={() => navigateTo("scheduler")}
+                  className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-cyan-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shrink-0"
+                >
+                  <Clock className="h-4 w-4" /> Open Scheduler
+                </button>
               </div>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
@@ -308,12 +329,17 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => imageFileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      disabled={isUploadingImages}
+                      className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="Upload images from your computer"
                     >
-                      <Upload className="h-3.5 w-3.5" /> + Upload
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>{isUploadingImages ? "Uploading..." : "Upload Images"}</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         setActiveTab("images");
                         navigateTo("dashboard");
@@ -321,9 +347,10 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                           document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
                         }, 120);
                       }}
-                      className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                      className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
-                      <ImageIcon className="h-3.5 w-3.5" /> Image Library ({marketingImages.length})
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      <span>Image Library ({marketingImages.length})</span>
                     </button>
                   </div>
                 </div>

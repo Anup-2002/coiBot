@@ -2,6 +2,7 @@ import React from "react";
 import {
   Shield,
   ArrowLeft,
+  RefreshCw,
   Lock,
   Bell,
   BellOff,
@@ -315,9 +316,10 @@ export function renderAdminPage(navigateTo: any, adminSection: any, setAdminSect
                     <button
                       onClick={handleDetectTelegramChatId}
                       disabled={isDetectingTelegram}
-                      className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+                      className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition inline-flex items-center gap-1 cursor-pointer"
                     >
-                      {isDetectingTelegram ? "Detecting..." : "Re-Detect"}
+                      <RefreshCw className={`h-2.5 w-2.5 ${isDetectingTelegram ? "animate-spin" : ""}`} />
+                      <span>{isDetectingTelegram ? "Detecting..." : "Re-Detect"}</span>
                     </button>
                   </div>
                 </div>

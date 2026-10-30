@@ -521,9 +521,8 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                                     </button>
                                     <button
                                       onClick={() => setEditingLimitProfileId(null)}
-                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer"
-                                    >
-                                      ✕
+                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer flex items-center" title="Cancel" aria-label="Cancel">
+                                        <X className="h-3 w-3" />
                                     </button>
                                   </div>
                                 ) : (
@@ -556,9 +555,8 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                                     </button>
                                     <button
                                       onClick={() => setEditingProxyProfileId(null)}
-                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer"
-                                    >
-                                      ✕
+                                      className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-xs rounded hover:text-white cursor-pointer flex items-center" title="Cancel" aria-label="Cancel">
+                                        <X className="h-3 w-3" />
                                     </button>
                                   </div>
                                 ) : (

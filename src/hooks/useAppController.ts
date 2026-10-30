@@ -1881,7 +1881,7 @@ export function useAppController() {
   ) : currentView === "scheduler" ? (
     renderSchedulerPage(schedulerData, toggleNotifications, notificationsEnabled, setLogsTab, navigateTo, isSchedulerActionPending, isSchedulerRunning, handleToggleScheduler, schedulerIntervalInput, setSchedulerIntervalInput, handleUpdateSchedulerInterval, targetCoinsCount, handleUpdateTargetCoins, isBusy, handleResumeScheduler, handleRunSchedulerNow, handlePauseScheduler, handleStopScheduler, imageUploadEnabled, marketingImages, imageSelectionMode, handleToggleImageUpload, isUpdatingImageSettings, imageFileInputRef, isUploadingImages, setActiveTab, handleResetLoginState, setLoginTab, setShowSessionModal, handleDragStart, handleDragOver, handleDrop, draggedAccountIndex, handleDirectOrderInput, handleMoveAccount, handleUpdateAccountSchedule)
   ) : currentView === "guide" ? (
-    renderGuidePage(navigateTo, handleResetLoginState, setLoginTab, setShowSessionModal, guideStep, setGuideStep, imageFileInputRef, setActiveTab, marketingImages)
+    renderGuidePage(navigateTo, handleResetLoginState, setLoginTab, setShowSessionModal, guideStep, setGuideStep, imageFileInputRef, setActiveTab, marketingImages, isUploadingImages)
   ) : currentView === "logs" ? (
     renderLogsPage(logsTab, setLogsTab, navigateTo, setInlineConfirmModal, runCommand, isPending, logSearchQuery, setLogSearchQuery, autoScroll, setAutoScroll, terminalContainerRef, logFilter, setLogFilter, filteredLogs, terminalEndRef, schedulerLogs, schedulerLogQuery, setSchedulerLogQuery)
   ) : currentView === "health" ? (

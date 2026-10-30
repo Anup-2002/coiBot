@@ -3,6 +3,7 @@ import {
   Activity,
   RefreshCw,
   ArrowLeft,
+  ChevronRight,
   CheckCircle,
   AlertTriangle,
   Database,
@@ -95,8 +96,9 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                 <span>Uptime: <strong className="text-slate-200 font-mono">{healthData?.checks?.server?.uptimeSeconds ? `${Math.floor(healthData.checks.server.uptimeSeconds / 60)}m` : "Active"}</strong></span>
-                <button onClick={() => navigateTo("logs")} className="text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer">
-                  View Logs →
+                <button onClick={() => navigateTo("logs")} className="text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer inline-flex items-center gap-1 transition">
+                  <span>View Logs</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
