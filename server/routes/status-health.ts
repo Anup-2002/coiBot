@@ -323,7 +323,7 @@ app.get("/api/check-mongo", async (req, res) => {
 
   try {
     const { MongoClient } = await import("mongodb");
-    const { sanitizeMongoUri } = await import("../../src/mongo-db.js");
+    const { sanitizeMongoUri } = await import("../../src/mongo-db.ts");
     const sanitizedUri = sanitizeMongoUri(rawUri);
 
     const client = new MongoClient(sanitizedUri, {

@@ -130,14 +130,15 @@ async function runValidation() {
 
     if (activeProfile) {
       // Test updating daily limit
-      const currentLimit = activeProfile.dailyPostLimit || 500;
-      const newLimit = currentLimit === 500 ? 600 : 500;
+      const originalLimit = activeProfile.dailyPostLimit || 300;
+      const testLimit = originalLimit === 300 ? 250 : 300;
       const updateLimitRes = await request("POST", "/api/update-profile-limit", {
         id: activeProfile.id,
-        dailyPostLimit: newLimit,
+        dailyPostLimit: testLimit,
       });
       assert(updateLimitRes.status === 200, "POST /api/update-profile-limit succeeds", `Status ${updateLimitRes.status}`);
-      assert(updateLimitRes.data.dailyPostLimit === newLimit, `Daily limit updated to ${newLimit}`);
+      assert(updateLimitRes.data.dailyPostLimit === testLimit, `Daily limit updated to ${testLimit}`);
+      await request("POST", "/api/update-profile-limit", { id: activeProfile.id, dailyPostLimit: originalLimit });
 
       // Test activating profile
       const actRes = await request("POST", "/api/activate-profile", {
@@ -205,9 +206,11 @@ async function runValidation() {
     const schedLogsRes = await request("GET", "/api/scheduler/logs");
     assert(schedLogsRes.status === 200, "GET /api/scheduler/logs returns 200");
 
+    const origEnabled = Boolean(schedRes.data?.enabled);
+    const origInterval = Number(schedRes.data?.intervalMinutes) || 360;
     const schedSettingsRes = await request("POST", "/api/scheduler/settings", {
-      enabled: false,
-      intervalMinutes: 60,
+      enabled: origEnabled,
+      intervalMinutes: origInterval,
     });
     assert(schedSettingsRes.status === 200, "POST /api/scheduler/settings returns 200");
 
