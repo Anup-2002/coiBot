@@ -109,7 +109,7 @@ export function pruneOldAndCompletedData(targetProfileId?: string | null): {
 const CLOUD_SYNC_THROTTLE_MS = 30000;
 
 export async function syncLocalFromCloudIfStale(force = false) {
-  if (isTestEnv) return;
+  if (isTestEnv || process.env.DISABLE_CLOUD_SYNC === "true") return;
   const now = Date.now();
   if (!force && (now - st.lastCloudSyncTime < CLOUD_SYNC_THROTTLE_MS)) {
     return;
@@ -293,6 +293,11 @@ export function synchronizeSessionsAndProfilesOnStartup() {
 }
 
 export async function hydrateLocalFromCloud() {
+  if (process.env.DISABLE_CLOUD_SYNC === "true") {
+    synchronizeSessionsAndProfilesOnStartup();
+    updateActiveProfilePaths();
+    return;
+  }
   addLog("info", `[STORAGE] Hydrating local ephemeral storage from ${getActiveStoreName()} cloud database...`);
   try {
     try {

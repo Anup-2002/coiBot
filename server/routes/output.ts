@@ -19,10 +19,11 @@ app.get("/output/last_trending.json", (req, res) => {
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
-  // Fallback to shared root file if profile file not yet created
-  const rootFile = path.join(st.OUTPUT_DIR, "last_trending.json");
-  if (fs.existsSync(rootFile)) {
-    return res.sendFile(rootFile);
+  if (!activeId) {
+    const rootFile = path.join(st.OUTPUT_DIR, "last_trending.json");
+    if (fs.existsSync(rootFile)) {
+      return res.sendFile(rootFile);
+    }
   }
   res.json([]);
 });
@@ -42,10 +43,11 @@ app.get("/output/generated_messages.json", (req, res) => {
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
-  // Fallback to shared root file if profile file not yet created
-  const rootFile = path.join(st.OUTPUT_DIR, "generated_messages.json");
-  if (fs.existsSync(rootFile)) {
-    return res.sendFile(rootFile);
+  if (!activeId) {
+    const rootFile = path.join(st.OUTPUT_DIR, "generated_messages.json");
+    if (fs.existsSync(rootFile)) {
+      return res.sendFile(rootFile);
+    }
   }
   res.json([]);
 });

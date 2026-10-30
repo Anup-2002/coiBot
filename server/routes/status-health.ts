@@ -168,6 +168,15 @@ app.get("/api/status", async (req, res) => {
       imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
       activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
       availableImagesCount: getAvailableMarketingImages().length,
+    schedulerSummary: (() => {
+      const s = getLocalBotSettings();
+      return {
+        enabled: !!s.schedulerEnabled,
+        status: st.isSchedulerCycleRunning ? "running" : (s.schedulerStatus || (s.schedulerSavedPosition ? "paused" : (s.schedulerEnabled ? "running" : "stopped"))),
+        cycleRunning: st.isSchedulerCycleRunning,
+        savedPosition: s.schedulerSavedPosition || null,
+      };
+    })(),
       dataRetention: {
         autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
         dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,
@@ -182,11 +191,11 @@ app.get("/api/status", async (req, res) => {
   const targetCoinsFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "last_trending.json") : st.LAST_TRENDING_FILE;
   const targetMessagesFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "generated_messages.json") : st.GENERATED_MESSAGES_FILE;
   let coins = readJsonFile<Coin[]>(targetCoinsFile, []);
-  if (coins.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "last_trending.json"))) {
+  if (!activeId && coins.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "last_trending.json"))) {
     coins = readJsonFile<Coin[]>(path.join(st.OUTPUT_DIR, "last_trending.json"), []);
   }
   let messages = readJsonFile<GeneratedMessage[]>(targetMessagesFile, []);
-  if (messages.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "generated_messages.json"))) {
+  if (!activeId && messages.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "generated_messages.json"))) {
     messages = readJsonFile<GeneratedMessage[]>(path.join(st.OUTPUT_DIR, "generated_messages.json"), []);
   }
   const rawResults = getIsolatedResults(activeId);
@@ -280,6 +289,15 @@ app.get("/api/status", async (req, res) => {
     imageSelectionMode: getLocalBotSettings().imageSelectionMode || "cycle",
     activeImageIndex: getLocalBotSettings().activeImageIndex || 0,
     availableImagesCount: getAvailableMarketingImages().length,
+    schedulerSummary: (() => {
+      const s = getLocalBotSettings();
+      return {
+        enabled: !!s.schedulerEnabled,
+        status: st.isSchedulerCycleRunning ? "running" : (s.schedulerStatus || (s.schedulerSavedPosition ? "paused" : (s.schedulerEnabled ? "running" : "stopped"))),
+        cycleRunning: st.isSchedulerCycleRunning,
+        savedPosition: s.schedulerSavedPosition || null,
+      };
+    })(),
     dataRetention: {
       autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
       dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,
