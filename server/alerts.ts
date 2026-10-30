@@ -24,8 +24,8 @@ export async function sendTelegramAlert(
     if (!settings.telegramAlertsEnabled) {
       return { success: false, error: "Telegram alerts are disabled in settings." };
     }
-    const token = (settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU").trim();
-    const chatId = (settings.telegramChatId || "1817931967").trim();
+    const token = (settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+    const chatId = (settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || "").trim();
     if (!token || !chatId) {
       return { success: false, error: "Missing Telegram Bot Token or Chat ID." };
     }

@@ -91,8 +91,8 @@ sudo -u cmcbot bash -c "
   grep -q '^PORT=' /home/cmcbot/cmc-bot/.env && sed -i 's/^PORT=.*/PORT=$PORT/' /home/cmcbot/cmc-bot/.env || echo 'PORT=$PORT' >> /home/cmcbot/cmc-bot/.env
   grep -q '^NODE_ENV=' /home/cmcbot/cmc-bot/.env && sed -i 's/^NODE_ENV=.*/NODE_ENV=production/' /home/cmcbot/cmc-bot/.env || echo 'NODE_ENV=production' >> /home/cmcbot/cmc-bot/.env
   grep -q '^PLAYWRIGHT_BROWSERS_PATH=' /home/cmcbot/cmc-bot/.env && sed -i 's|^PLAYWRIGHT_BROWSERS_PATH=.*|PLAYWRIGHT_BROWSERS_PATH=/home/cmcbot/.cache/ms-playwright|' /home/cmcbot/cmc-bot/.env || echo 'PLAYWRIGHT_BROWSERS_PATH=/home/cmcbot/.cache/ms-playwright' >> /home/cmcbot/cmc-bot/.env
-  grep -q '^TELEGRAM_BOT_TOKEN=' /home/cmcbot/cmc-bot/.env || echo 'TELEGRAM_BOT_TOKEN=8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU' >> /home/cmcbot/cmc-bot/.env
-  grep -q '^TELEGRAM_CHAT_ID=' /home/cmcbot/cmc-bot/.env || echo 'TELEGRAM_CHAT_ID=1817931967' >> /home/cmcbot/cmc-bot/.env
+  grep -q '^TELEGRAM_BOT_TOKEN=' /home/cmcbot/cmc-bot/.env || echo 'TELEGRAM_BOT_TOKEN=' >> /home/cmcbot/cmc-bot/.env
+  grep -q '^TELEGRAM_CHAT_ID=' /home/cmcbot/cmc-bot/.env || echo 'TELEGRAM_CHAT_ID=' >> /home/cmcbot/cmc-bot/.env
 "
 sudo chown -R cmcbot:cmcbot /home/cmcbot/cmc-bot
 

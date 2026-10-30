@@ -8,8 +8,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_BOT_TOKEN = "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU";
-const DEFAULT_CHAT_ID = "1817931967";
+const DEFAULT_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 
 function getCredentials() {
   let token = process.env.TELEGRAM_BOT_TOKEN;

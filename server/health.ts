@@ -1,4 +1,7 @@
-import type express from "express";import { fs, path, execSync, chromium } from "./config.ts";
+import type express from "express";import { execFile } from "child_process";
+import { promisify } from "util";
+import { fs, path, chromium } from "./config.ts";
+const execFileAsync = promisify(execFile);
 import { st } from "./state.ts";
 import { addLog } from "./logger.ts";
 import { getAvailableMarketingImages, getLocalBotSettings } from "./settings.ts";import { launchBrowserResilient } from "./browser.ts";
@@ -297,7 +300,8 @@ export async function runSystemDiagnosticsCheck(force = false): Promise<any> {
         launchStatus = "success";
         message = `Chromium binary verified successfully: Chrome for Testing ${ver}`;
       } else {
-        const output = execSync(`"${executablePath}" --version`, { stdio: "pipe", timeout: 5000 }).toString().trim();
+        const { stdout } = await execFileAsync(executablePath, ["--version"], { timeout: 5000 });
+        const output = String(stdout || "").trim();
         launchStatus = "success";
         message = `Chromium binary verified successfully: ${output}`;
       }

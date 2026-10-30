@@ -488,7 +488,7 @@ app.get("/api/telegram/settings", (req, res) => {
   const settings = getLocalBotSettings();
   res.json({
     enabled: settings.telegramAlertsEnabled !== false,
-    botToken: settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU",
+    botToken: settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "",
     chatId: settings.telegramChatId || "",
   });
 });
@@ -511,7 +511,7 @@ app.post("/api/telegram/settings", (req, res) => {
 app.get("/api/telegram/detect-chat-id", async (req, res) => {
   try {
     const settings = getLocalBotSettings();
-    const token = ((req.query.token as string) || settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU").trim();
+    const token = ((req.query.token as string) || settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "").trim();
     const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
     const data: any = await resp.json();
     if (!data.ok) {
