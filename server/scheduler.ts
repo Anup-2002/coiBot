@@ -243,7 +243,7 @@ export async function runScheduledCycle(): Promise<void> {
         if (!coins || coins.length === 0) {
           throw new Error("No trending coins returned from fetch endpoint.");
         }
-        writeJsonFile(schedulerCoinsFile, coins);
+        await writeJsonFile(schedulerCoinsFile, coins);
       } catch (fetchErr) {
         addLog("error", `[SCHEDULER] Failed to fetch trending coins: ${(fetchErr as Error).message}. Marking cycle failed.`);
         st.botStatus = "Idle";
@@ -265,7 +265,7 @@ export async function runScheduledCycle(): Promise<void> {
         if (!messages || messages.length === 0) {
           throw new Error("No comments were generated.");
         }
-        writeJsonFile(schedulerMessagesFile, messages);
+        await writeJsonFile(schedulerMessagesFile, messages);
       } catch (genErr) {
         addLog("error", `[SCHEDULER] Failed to generate comments: ${(genErr as Error).message}. Marking cycle failed.`);
         st.botStatus = "Idle";
@@ -323,7 +323,7 @@ export async function runScheduledCycle(): Promise<void> {
         };
         partitionSummary.push(`${acc.name}: ${ sliceEnd - sliceStart } coins (#${sliceStart + 1}-${sliceEnd})`);
       }
-      writeJsonFile(schedulerPartitionsFile, savedPartitions);
+      await writeJsonFile(schedulerPartitionsFile, savedPartitions);
       addLog("info", `[SCHEDULER] Partitioned ${messages.length} coins across ${numAccs} accounts: ${partitionSummary.join(" | ")}`);
 
       // Standby reserve pool for automatic single-hop failover
@@ -341,7 +341,7 @@ export async function runScheduledCycle(): Promise<void> {
     let totalCycleFailed = 0;
 
     // Helper: Redistribute unposted coins from a failed/partial account evenly across upcoming accounts in the cycle queue
-    const redistributeUnpostedToUpcoming = (
+    const redistributeUnpostedToUpcoming = async (
       unpostedCoins: Coin[],
       unpostedMessages: GeneratedMessage[],
       failedAccName: string,
@@ -385,7 +385,7 @@ export async function runScheduledCycle(): Promise<void> {
         redistLog.push(`${targetAcc.name} (+${addCount} -> ${savedPartitions[targetAcc.id].messages.length} coins)`);
       }
 
-      writeJsonFile(schedulerPartitionsFile, savedPartitions);
+      await writeJsonFile(schedulerPartitionsFile, savedPartitions);
       addLog(
         "info",
         `[SCHEDULER] Redistributed ${unpostedMessages.length} unposted coins from [${failedAccName}] across ${countUpcoming} remaining account(s): ${redistLog.join(" | ")}`
@@ -519,7 +519,7 @@ export async function runScheduledCycle(): Promise<void> {
         }
 
         if (!standbyReady) {
-          redistributeUnpostedToUpcoming(accountCoins, accountMessages, failedPrimaryName, idx);
+          await redistributeUnpostedToUpcoming(accountCoins, accountMessages, failedPrimaryName, idx);
           continue;
         }
       }
@@ -534,11 +534,11 @@ export async function runScheduledCycle(): Promise<void> {
       if (!fs.existsSync(accountDir)) {
         fs.mkdirSync(accountDir, { recursive: true });
       }
-      writeJsonFile(path.join(accountDir, "last_trending.json"), accountCoins);
-      writeJsonFile(path.join(accountDir, "generated_messages.json"), accountMessages);
+      await writeJsonFile(path.join(accountDir, "last_trending.json"), accountCoins);
+      await writeJsonFile(path.join(accountDir, "generated_messages.json"), accountMessages);
       const existingAccountResults = getIsolatedResults(account.id);
-      writeJsonFile(path.join(accountDir, "results.json"), existingAccountResults);
-      writeJsonFile(path.join(accountDir, "post_progress.json"), {
+      await writeJsonFile(path.join(accountDir, "results.json"), existingAccountResults);
+      await writeJsonFile(path.join(accountDir, "post_progress.json"), {
         next_index: 0,
         daily_post_count: dailyCount,
         daily_post_limit: maxDaily,
@@ -552,14 +552,14 @@ export async function runScheduledCycle(): Promise<void> {
         commentsGeneratedAt: st.lastSchedulerCycleStartTime,
         commentsGeneratedTime: new Date(st.lastSchedulerCycleStartTime).toISOString(),
       };
-      writeJsonFile(path.join(accountDir, "timestamps.json"), cycleTs);
+      await writeJsonFile(path.join(accountDir, "timestamps.json"), cycleTs);
 
       // Synchronize in-memory paths & pointers
       updateActiveProfilePaths();
-      writeJsonFile(st.LAST_TRENDING_FILE, accountCoins);
-      writeJsonFile(st.GENERATED_MESSAGES_FILE, accountMessages);
-      writeJsonFile(st.RESULTS_FILE, existingAccountResults);
-      writeJsonFile(st.TIMESTAMPS_FILE, cycleTs);
+      await writeJsonFile(st.LAST_TRENDING_FILE, accountCoins);
+      await writeJsonFile(st.GENERATED_MESSAGES_FILE, accountMessages);
+      await writeJsonFile(st.RESULTS_FILE, existingAccountResults);
+      await writeJsonFile(st.TIMESTAMPS_FILE, cycleTs);
       st.currentPostingIndex = 0;
 
       // Run posting loop for this account awaiting it fully
@@ -610,7 +610,7 @@ export async function runScheduledCycle(): Promise<void> {
         const unpostedMsgsForAcc = accountMessages.filter(m => !postedSymsInThisTurn.has(normSym(m.symbol)));
         const unpostedCoinsForAcc = accountCoins.filter(c => !postedSymsInThisTurn.has(normSym(c.symbol)));
         if (unpostedMsgsForAcc.length > 0) {
-          redistributeUnpostedToUpcoming(unpostedCoinsForAcc, unpostedMsgsForAcc, account.name, idx);
+          await redistributeUnpostedToUpcoming(unpostedCoinsForAcc, unpostedMsgsForAcc, account.name, idx);
         }
       }
 

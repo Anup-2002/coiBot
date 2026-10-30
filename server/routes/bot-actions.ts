@@ -457,7 +457,7 @@ app.post("/api/full-flow", async (req, res) => {
     }
 
     addLog("info", "[FLOW FRESH] All previous coins posted or no previous run. Starting clean full cycle...");
-    writeJsonFile(st.RESULTS_FILE, []);
+    await writeJsonFile(st.RESULTS_FILE, []);
     saveBotProgress({ next_index: 0 });
 
     st.isFullFlowAborted = false;
@@ -560,14 +560,14 @@ app.post("/api/clear-all", async (req, res) => {
         const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
         const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
         const mergedArchive = [...existingArchive, ...activeResults];
-        writeJsonFile(arcFile, mergedArchive.slice(-3000));
+        await writeJsonFile(arcFile, mergedArchive.slice(-3000));
         addLog("info", `[RETENTION ARCHIVE] Safely preserved ${activeResults.length} post records in 7-day archive.`);
       }
     } catch (_) {}
 
-    writeJsonFile(st.LAST_TRENDING_FILE, []);
-    writeJsonFile(st.GENERATED_MESSAGES_FILE, []);
-    writeJsonFile(st.RESULTS_FILE, []);
+    await writeJsonFile(st.LAST_TRENDING_FILE, []);
+    await writeJsonFile(st.GENERATED_MESSAGES_FILE, []);
+    await writeJsonFile(st.RESULTS_FILE, []);
     
     // Preserve daily limit count unless explicitly requested
     saveBotProgress({ next_index: 0 });
@@ -623,14 +623,14 @@ app.post("/api/queue/reset-daily", async (req, res) => {
         const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
         const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
         const mergedArchive = [...existingArchive, ...currentResults];
-        writeJsonFile(arcFile, mergedArchive.slice(-3000));
+        await writeJsonFile(arcFile, mergedArchive.slice(-3000));
         addLog("info", `[RETENTION] Archived ${currentResults.length} submission records to 7-day historical database.`);
       }
     } catch (arcErr) {
       console.warn("Could not archive existing results prior to reset:", (arcErr as Error).message);
     }
 
-    writeJsonFile(st.RESULTS_FILE, []);
+    await writeJsonFile(st.RESULTS_FILE, []);
     
     // 2. Reset queue pointer back to 0; only reset daily post count if explicitly requested
     const progressUpdate: Partial<BotProgressData> = { next_index: 0 };

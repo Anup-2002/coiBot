@@ -98,7 +98,7 @@ export async function triggerFullFlowExecution() {
     st.isPostingRunning = true;
     st.botStatus = "Posting";
     st.currentPostingIndex = 0;
-    runPostingLoop();
+    runPostingLoop().catch((err) => { addLog("error", `Posting runner encountered error: ${(err as Error).message}`); });
   } catch (error) {
     addLog("error", `Scheduled continuous full cycle failed: ${(error as Error).message}`);
     st.botStatus = "Idle";
@@ -426,7 +426,7 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(st.RESULTS_FILE, results);
+        await writeJsonFile(st.RESULTS_FILE, results);
         
         st.currentPostingIndex++;
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -452,7 +452,7 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(st.RESULTS_FILE, results);
+        await writeJsonFile(st.RESULTS_FILE, results);
         
         st.currentPostingIndex++;
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -473,7 +473,7 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(st.RESULTS_FILE, results);
+        await writeJsonFile(st.RESULTS_FILE, results);
         
         st.currentPostingIndex++;
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
@@ -499,7 +499,7 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(st.RESULTS_FILE, results);
+        await writeJsonFile(st.RESULTS_FILE, results);
         
         st.currentPostingIndex++;
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });

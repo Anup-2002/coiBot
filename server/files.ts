@@ -74,7 +74,16 @@ export async function saveProfilesCloudIfChanged(profiles: any[]) {
   st.lastCloudSavedHash.set("profiles_file", profilesHash);
 }
 
+const cloudWriteQueues = new Map<string, Promise<void>>();
+
 export async function writeJsonFile<T>(filePath: string, data: T) {
+  const prev = cloudWriteQueues.get(filePath) || Promise.resolve();
+  const next = prev.then(() => writeJsonFileInternal(filePath, data)).catch(() => {});
+  cloudWriteQueues.set(filePath, next);
+  return next;
+}
+
+async function writeJsonFileInternal<T>(filePath: string, data: T) {
   try {
     writeJsonFileSyncAtomic(filePath, data);
     if (isTestEnv) return;
