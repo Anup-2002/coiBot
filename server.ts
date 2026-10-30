@@ -66,8 +66,11 @@ async function startServer() {
 
   // Restart safety: if scheduler is enabled, schedule next multi-account cycle after configured interval (isolated from single posting)
   const initialSettings = getLocalBotSettings();
-  if (initialSettings.schedulerEnabled) {
-    addLog("info", `[STARTUP] Sequential multi-account scheduler is ENABLED. Scheduling next multi-account cycle (isolated from single posting).`);
+  if (initialSettings.schedulerStatus === "paused" || initialSettings.schedulerSavedPosition) {
+    st.pauseSchedulerRequested = true;
+    addLog("info", "[STARTUP] Sequential multi-account scheduler restored in PAUSED state.");
+  } else if (initialSettings.schedulerEnabled) {
+    addLog("info", "[STARTUP] Sequential multi-account scheduler is ENABLED. Scheduling next multi-account cycle (isolated from single posting).");
     scheduleNextSchedulerCycle();
   }
 

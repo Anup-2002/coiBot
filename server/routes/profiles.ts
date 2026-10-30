@@ -325,6 +325,8 @@ app.post("/api/update-profile-proxy", async (req, res) => {
 
 // 3c. Activate Profile Helper and Endpoint
 
+let lastActivateProfileAt = 0;
+
 app.post("/api/activate-profile", async (req, res) => {
   if (st.isContinuousLoopActive) {
     return res.status(409).json({ error: "Cannot switch accounts while Continuous Loop is active. Please click 'Stop Posting' first." });
@@ -336,9 +338,11 @@ app.post("/api/activate-profile", async (req, res) => {
   if (!id) {
     return res.status(400).json({ error: "Missing profile id." });
   }
-  if (st.activeSystemProcess === "switching_profile") {
+  const now = Date.now();
+  if (st.activeSystemProcess === "switching_profile" || now - lastActivateProfileAt < 250) {
     return res.status(409).json({ error: "Account switch is already in progress." });
   }
+  lastActivateProfileAt = now;
   const lock = acquireProcessLock("switching_profile", "Switching active profile");
   if (!lock.success) {
     return res.status(409).json({ error: lock.reason });

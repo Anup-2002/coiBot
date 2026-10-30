@@ -92,6 +92,9 @@ app.post("/api/scheduler/settings", (req, res) => {
   const updated: BotSettings = {
     ...current,
     schedulerEnabled: nextEnabled,
+    schedulerStatus: nextEnabled
+      ? (current.schedulerStatus === "paused" ? "paused" : "running")
+      : "stopped",
     schedulerMode: nextMode,
     maxCyclesPerDay: nextMaxCycles,
     schedulerIntervalMinutes: nextInterval,
@@ -339,6 +342,7 @@ app.post("/api/profile-schedule", (req, res) => {
 });
 
 let lastSchedulerPauseAt = 0;
+let lastSchedulerResumeAt = 0;
 let lastSchedulerStopAt = 0;
 
 app.post("/api/scheduler/run-now", (req, res) => {
@@ -383,7 +387,11 @@ app.post("/api/scheduler/pause", async (req, res) => {
     st.isSchedulerCycleRunning = false;
   }
 
-  const queueToSave = st.schedulerQueue.length > 0 ? st.schedulerQueue : (settings.schedulerSavedPosition?.queue || []);
+  const allProfiles = normalizeProfilesWithSchedule(readJsonFile<any[]>(st.PROFILES_FILE, []));
+  const fallbackQueue = allProfiles.map(p => p.id);
+  const queueToSave = st.schedulerQueue.length > 0
+    ? st.schedulerQueue
+    : (settings.schedulerSavedPosition?.queue?.length ? settings.schedulerSavedPosition.queue : fallbackQueue);
   const accountToSave = st.currentSchedulerAccountId || settings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
 
   const updatedSettings: BotSettings = {
@@ -402,13 +410,15 @@ app.post("/api/scheduler/pause", async (req, res) => {
 });
 
 app.post("/api/scheduler/resume", async (req, res) => {
+  const now = Date.now();
   const currentSettings = getLocalBotSettings();
-  if (isBusy() || st.isSchedulerCycleRunning) {
+  if (isBusy() || st.isSchedulerCycleRunning || now - lastSchedulerResumeAt < 250) {
     return res.status(409).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
   }
-  if (currentSettings.schedulerStatus === "running" && !currentSettings.schedulerSavedPosition) {
+  if (currentSettings.schedulerStatus === "running" && !st.pauseSchedulerRequested) {
     return res.status(409).json({ error: "Scheduler is already running." });
   }
+  lastSchedulerResumeAt = now;
 
   st.pauseSchedulerRequested = false;
   st.stopSchedulerRequested = false;
