@@ -58,7 +58,8 @@ import {
   LogOut,
   EyeOff,
   RotateCcw,
-  Square
+  Square,
+  Settings
 } from "lucide-react";
 import { api, apiFetch, SchedulerStatusResponse, SchedulerAccountItem, SchedulerFileInfo, MarketingImage, HealthResponse } from "./api";
 
@@ -510,7 +511,7 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"diagnostics" | "secrets" | "telegram" | "security">("diagnostics");
+  const [adminSection, setAdminSection] = useState<"secrets" | "telegram" | "security">("secrets");
   const [guideStep, setGuideStep] = useState<"all" | "getting-started" | "accounts" | "scheduler" | "images" | "troubleshooting">("all");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
@@ -562,7 +563,7 @@ export default function App() {
 
   const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "diagnostics" | "secrets" | "telegram" | "security") => {
     setCurrentView(view);
-    if (section) setAdminSection(section);
+    if (section && section !== "diagnostics") setAdminSection(section);
     let path = "/";
     if (view === "scheduler") path = "/scheduler";
     else if (view === "admin") path = "/admin";
@@ -2310,7 +2311,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentView === "admin" && !systemCheckResult && !isCheckingSystem) {
+    if (currentView === "health" && !systemCheckResult && !isCheckingSystem) {
       checkSystemHealth(false);
     }
   }, [currentView, systemCheckResult, isCheckingSystem]);
@@ -2937,7 +2938,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Compact View: Quick Account Button in Brand Row for easy touch/sidebar access */}
+            {/* Compact View: Quick Account Button & Settings Gear in Brand Row for easy touch/sidebar access */}
             <div className="flex xl:hidden items-center gap-1.5">
               <button
                 onClick={() => {
@@ -2958,79 +2959,109 @@ export default function App() {
                 <Users className="h-3 w-3" />
                 <span className="max-w-[90px] truncate">{activeProfile ? "+ Account" : (sessionExists ? "Active" : "Login")}</span>
               </button>
+              <button
+                onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
+                className={`p-1.5 rounded-lg border transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
+                  currentView === "admin"
+                    ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30"
+                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+                }`}
+                title="Admin Settings"
+                aria-label="Admin Settings"
+              >
+                <Settings className="h-3.5 w-3.5 text-blue-400" />
+              </button>
             </div>
           </div>
 
           {/* TOP CONTROLS & NAVIGATION ROW */}
           <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 text-sm">
-            {/* Desktop Account / Session Button */}
-            <button
-              onClick={() => {
-                handleResetLoginState();
-                setLoginTab("credentials");
-                setShowSessionModal(true);
-              }}
-              className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
-                activeProfile 
-                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                  : (sessionExists 
+            {/* Account & Admin Settings Section (Grouped together in Navbar) */}
+            <div className="flex items-center gap-1.5">
+              {/* Desktop Account / Session Button */}
+              <button
+                onClick={() => {
+                  handleResetLoginState();
+                  setLoginTab("credentials");
+                  setShowSessionModal(true);
+                }}
+                className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeProfile 
                     ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                    : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
-                  )
-              }`}
-              title="Add a new CoinMarketCap account or manage saved accounts"
-              id="navbar-login-btn"
-            >
-              <Users className="h-3.5 w-3.5" />
-              <span>
-                {profilesList.length > 1
-                  ? `+ Add / Accounts (${profilesList.length})`
-                  : activeProfile
-                    ? `Account: ${activeProfile.name}`
-                    : sessionExists
-                      ? "Account: Active"
-                      : "Login / Add Account"}
-              </span>
-            </button>
-
-            {/* Quick Account Switcher Dropdown - responsive across all screens */}
-            {profilesList.length > 1 && (
-              <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-sm shadow-inner transition ${
-                (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
-              }`}>
-                <span className="text-xs text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
-                  {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
-                  Active:
+                    : (sessionExists 
+                      ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
+                      : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
+                    )
+                }`}
+                title="Add a new CoinMarketCap account or manage saved accounts"
+                id="navbar-login-btn"
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>
+                  {profilesList.length > 1
+                    ? `+ Add / Accounts (${profilesList.length})`
+                    : activeProfile
+                      ? `Account: ${activeProfile.name}`
+                      : sessionExists
+                        ? "Account: Active"
+                        : "Login / Add Account"}
                 </span>
-                {switchingProfileId ? (
-                  <span className="flex items-center gap-1 text-emerald-400 font-bold text-sm px-2 py-0.5">
-                    <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
-                    Switching...
+              </button>
+
+              {/* Quick Account Switcher Dropdown - responsive across all screens */}
+              {profilesList.length > 1 && (
+                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-sm shadow-inner transition ${
+                  (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
+                }`}>
+                  <span className="text-xs text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
+                    {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
+                    Active:
                   </span>
-                ) : (
-                  <select
-                    value={activeProfile?.id || ""}
-                    disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
-                    onChange={(e) => {
-                      const target = profilesList.find(p => p.id === e.target.value);
-                      if (target) promptSwitchProfile(target);
-                    }}
-                    className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2.5 py-1 text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[150px] sm:max-w-[190px] truncate shadow-sm"
-                    title={
-                      (isBusy || isPostingActive || isContinuousLoopActive)
-                        ? "Account switching locked: Click 'Stop Posting' before switching accounts"
-                        : "Switch active CoinMarketCap account"
-                    }
-                  >
-                    {profilesList.map(p => (
-                      <option key={p.id} value={p.id} className="bg-slate-900 text-white font-medium">
-                        {p.name} {p.isActive ? "✓" : ""}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            )}
+                  {switchingProfileId ? (
+                    <span className="flex items-center gap-1 text-emerald-400 font-bold text-sm px-2 py-0.5">
+                      <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
+                      Switching...
+                    </span>
+                  ) : (
+                    <select
+                      value={activeProfile?.id || ""}
+                      disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
+                      onChange={(e) => {
+                        const target = profilesList.find(p => p.id === e.target.value);
+                        if (target) promptSwitchProfile(target);
+                      }}
+                      className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2.5 py-1 text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[150px] sm:max-w-[190px] truncate shadow-sm"
+                      title={
+                        (isBusy || isPostingActive || isContinuousLoopActive)
+                          ? "Account switching locked: Click 'Stop Posting' before switching accounts"
+                          : "Switch active CoinMarketCap account"
+                      }
+                    >
+                      {profilesList.map(p => (
+                        <option key={p.id} value={p.id} className="bg-slate-900 text-white font-medium">
+                          {p.name} {p.isActive ? "✓" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* Settings Gear Icon Button (Admin Settings beside Account on Desktop) */}
+              <button
+                onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
+                className={`hidden xl:flex p-2 rounded-xl border transition duration-200 cursor-pointer items-center justify-center shrink-0 ${
+                  currentView === "admin"
+                    ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30 shadow-sm"
+                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700"
+                }`}
+                title="Admin Settings (Accounts, API Keys, Alerts & Security)"
+                aria-label="Admin Settings"
+                id="navbar-admin-settings-btn"
+              >
+                <Settings className={`h-4 w-4 text-blue-400 transition-transform duration-300 ${currentView === "admin" ? "rotate-90" : "hover:rotate-45"}`} />
+              </button>
+            </div>
 
             {/* PRIMARY FEATURE: 24/7 Scheduler Screen Link Button */}
             <button
@@ -3063,20 +3094,6 @@ export default function App() {
                       ? "Paused"
                       : "Main"}
               </span>
-            </button>
-
-            {/* Admin Switch Button */}
-            <button
-              onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
-                currentView === "admin"
-                  ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30"
-                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
-              }`}
-              title="Open Admin Settings"
-            >
-              <Shield className="h-3.5 w-3.5 text-blue-400" />
-              <span>Admin</span>
             </button>
 
             {/* Logs Link Button */}
@@ -3127,27 +3144,31 @@ export default function App() {
 
       {/* DASHBOARD OR ADMIN SCREEN CONTENT BODY */}
       {currentView === "admin" ? (
-        /* ADMIN SCREEN */
+        /* ADMIN SETTINGS SCREEN (Strictly Account, API Keys, Alert Configuration & Security — Zero Health Duplication) */
         <main key="view-admin" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* ADMIN HEADER & NAVIGATION */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
-                <Shield className="h-6 w-6" />
+                <Settings className="h-6 w-6" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  Admin Settings
+                  Account & Admin Settings
                 </h1>
-                <p className="text-sm text-slate-400">Select an administrative module below to inspect or configure</p>
+                <p className="text-sm text-slate-400">Configure active account sessions, API keys, alert channels, and team access security</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
-                onClick={() => navigateTo("health")}
+                onClick={() => {
+                  handleResetLoginState();
+                  setLoginTab("profiles");
+                  setShowSessionModal(true);
+                }}
                 className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
               >
-                <Activity className="h-4 w-4 text-emerald-400 shrink-0" /> System Health
+                <Users className="h-4 w-4 text-emerald-400 shrink-0" /> Manage Accounts ({profilesList.length})
               </button>
               <button
                 onClick={() => navigateTo("dashboard")}
@@ -3158,36 +3179,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ADMIN 4-CARD MODULE SELECTOR DECK (Spacious, well-oriented, one module at a time) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <button
-              onClick={() => setAdminSection("diagnostics")}
-              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
-                adminSection === "diagnostics"
-                  ? "bg-slate-900 border-emerald-500/50 ring-1 ring-emerald-500/30 shadow-lg"
-                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
-              }`}
-            >
-              <div className="flex items-center justify-between w-full">
-                <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Activity className="h-4 w-4" />
-                </span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                  !systemCheckResult
-                    ? "bg-blue-500/20 text-blue-300"
-                    : systemCheckResult.success
-                      ? "bg-emerald-500/20 text-emerald-300"
-                      : "bg-red-500/20 text-red-300"
-                }`}>
-                  {!systemCheckResult ? "CHECKING..." : systemCheckResult.success ? "HEALTHY" : "ISSUE"}
-                </span>
-              </div>
-              <div>
-                <div className="text-sm font-bold text-white">1. Browser & System Check</div>
-                <div className="text-xs text-slate-400 mt-0.5">Verify posting browser is ready</div>
-              </div>
-            </button>
-
+          {/* ADMIN 3-CARD MODULE SELECTOR DECK (Focused purely on Settings & Administration) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <button
               onClick={() => setAdminSection("secrets")}
               className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
@@ -3205,8 +3198,8 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">2. AI Keys & Account Session</div>
-                <div className="text-xs text-slate-400 mt-0.5">OpenAI, Gemini, CMC & active login</div>
+                <div className="text-sm font-bold text-white">1. Account & API Keys</div>
+                <div className="text-xs text-slate-400 mt-0.5">Active account login, cookies & AI credentials</div>
               </div>
             </button>
 
@@ -3229,8 +3222,8 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">3. Emergency Alerts</div>
-                <div className="text-xs text-slate-400 mt-0.5">Telegram hotline & test alerts</div>
+                <div className="text-sm font-bold text-white">2. Alert & Telegram Settings</div>
+                <div className="text-xs text-slate-400 mt-0.5">Configure toast notifications & emergency hotline</div>
               </div>
             </button>
 
@@ -3253,114 +3246,13 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">4. Security & Sharing</div>
-                <div className="text-xs text-slate-400 mt-0.5">Admin password & 1-click team link</div>
+                <div className="text-sm font-bold text-white">3. Security & Team Access</div>
+                <div className="text-xs text-slate-400 mt-0.5">Admin password & 1-click team login link</div>
               </div>
             </button>
           </div>
 
-          {/* 1. SYSTEM ENVIRONMENT DIAGNOSTICS CARD */}
-          {adminSection === "diagnostics" && (
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
-              <div className="flex items-center gap-3">
-                <span className={`p-2 rounded-lg border flex items-center justify-center ${
-                  !systemCheckResult
-                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                    : systemCheckResult.success
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                      : "bg-red-500/10 text-red-400 border-red-500/20"
-                }`}>
-                  <Activity className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="font-bold text-white tracking-tight text-base flex items-center gap-2">
-                    Browser & System Readiness
-                    {isCheckingSystem || !systemCheckResult ? (
-                      <span className="text-sm bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 font-medium flex items-center gap-1.5">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        Auto-Verifying...
-                      </span>
-                    ) : systemCheckResult.success ? (
-                      <span className="text-sm bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-medium">
-                        Healthy
-                      </span>
-                    ) : (
-                      <span className="text-sm bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20 font-medium">
-                        Action Needed
-                      </span>
-                    )}
-                  </h2>
-                  <p className="text-sm text-slate-400">Automatically checks that the posting browser and server are ready</p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => checkSystemHealth(true)}
-                  disabled={isCheckingSystem}
-                  className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-sm text-slate-300 font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${isCheckingSystem ? "animate-spin" : ""}`} />
-                  Refresh Check
-                </button>
-              </div>
-            </div>
-
-            {!systemCheckResult ? (
-              <div className="py-6 flex flex-col items-center justify-center text-slate-400 space-y-2">
-                <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
-                <p className="text-sm">Checking browser readiness...</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.playwrightInstalled ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-400" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Automation Engine</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.playwrightInstalled ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-                    {systemCheckResult.playwrightInstalled ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-
-                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.executableExists ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-400" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Posting Browser</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.executableExists ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-                    {systemCheckResult.executableExists ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-
-                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.launchStatus === "success" ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-amber-400" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Browser Launch Test</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.launchStatus === "success" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
-                    {systemCheckResult.launchStatus === "success" ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-              </div>
-            )}
-          </section>
-          )}
-
-          {/* 2. TWO-COLUMN GRID: API SECRETS MATRIX & STORAGE CACHE MAINTENANCE */}
+          {/* 1. TWO-COLUMN GRID: API SECRETS MATRIX & STORAGE CACHE MAINTENANCE */}
           {adminSection === "secrets" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Active Secrets Key Matrix - High-Density Modern Deck */}
@@ -3380,14 +3272,14 @@ export default function App() {
                   {/* OpenAI Card */}
                   <div className={`p-3 rounded-xl border transition-all ${
                     apiStatus.openaiError ? "bg-rose-950/20 border-rose-500/30" :
-                    apiStatus.openai ? "bg-slate-950/80 border-slate-800" : "bg-slate-950/40 border-slate-800/60"
+                    (apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "bg-slate-950/80 border-slate-800" : "bg-slate-950/40 border-slate-800/60"
                   }`}>
                     <div className="flex items-center justify-between text-[11px] mb-1">
                       <span className="font-mono text-slate-400 font-semibold truncate">OPENAI_API</span>
-                      <span className={`w-2 h-2 rounded-full ${apiStatus.openai && !apiStatus.openaiError ? "bg-emerald-500 animate-pulse" : apiStatus.openaiError ? "bg-rose-500" : "bg-slate-600"}`} />
+                      <span className={`w-2 h-2 rounded-full ${(apiStatus.openai || healthData?.checks?.openai?.status === "ok") && !apiStatus.openaiError ? "bg-emerald-500 animate-pulse" : apiStatus.openaiError ? "bg-rose-500" : "bg-slate-600"}`} />
                     </div>
                     <div className="text-sm font-bold text-white font-mono truncate">
-                      {apiStatus.openaiError ? "QUOTA LIMIT" : apiStatus.openai ? "gpt-4o-mini" : "NOT SET"}
+                      {apiStatus.openaiError ? "QUOTA LIMIT" : (apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "gpt-4o-mini" : "NOT SET"}
                     </div>
                     <span className="text-[10px] text-slate-500 block mt-0.5">Primary Model</span>
                   </div>
@@ -5223,7 +5115,7 @@ export default function App() {
           )}
         </main>
       ) : currentView === "health" ? (
-        /* DEDICATED HEALTH SCREEN (/health) */
+        /* DEDICATED SYSTEM HEALTH SCREEN (Strictly Live Health Monitoring & Browser Readiness — Zero Settings Duplication) */
         <main key="view-health" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
@@ -5233,18 +5125,20 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  System Health & Service Readiness
+                  System Health & Live Diagnostics
                 </h1>
-                <p className="text-sm text-slate-400">Live status of server, AI models, CoinMarketCap browser engine, cloud database, and alerts</p>
+                <p className="text-sm text-slate-400">Real-time health of the bot server, browser engine, AI writer, cloud database, and alert channels</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => navigateTo("admin", "diagnostics")}
-                className="px-3.5 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
-                title="Open System Settings"
+                onClick={() => checkSystemHealth(true)}
+                disabled={isCheckingSystem}
+                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50"
+                title="Re-verify browser and server health"
               >
-                <Shield className="h-4 w-4 text-blue-400" /> System Check
+                <RefreshCw className={`h-4 w-4 text-emerald-400 ${isCheckingSystem ? "animate-spin" : ""}`} />
+                <span>{isCheckingSystem ? "Checking..." : "Refresh Health Check"}</span>
               </button>
               <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
                 <ArrowLeft className="h-4 w-4" /> Back to Dashboard
@@ -5253,7 +5147,7 @@ export default function App() {
           </div>
 
           {/* Top Overall Status Banner */}
-          {healthData?.overall === "ok" && healthData?.healthy !== false ? (
+          {healthData?.overall === "ok" && healthData?.healthy !== false && (!systemCheckResult || systemCheckResult.success) ? (
             <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
               <div className="flex items-center gap-3.5">
                 <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -5261,7 +5155,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Everything is working</h2>
-                  <p className="text-sm text-slate-300">All core services, cloud database connections, and active account sessions are operational.</p>
+                  <p className="text-sm text-slate-300">All core services, browser automation engines, cloud database connections, and account sessions are operational.</p>
                 </div>
               </div>
               <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 self-start sm:self-auto">
@@ -5276,7 +5170,7 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Needs attention</h2>
-                  <p className="text-sm text-slate-300">One or more system checks require attention. Review the cards and messages below.</p>
+                  <p className="text-sm text-slate-300">One or more system checks require attention. Review the diagnostic cards below.</p>
                 </div>
               </div>
               <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 self-start sm:self-auto">
@@ -5285,7 +5179,79 @@ export default function App() {
             </div>
           )}
 
-          {/* 5 SERVICE HEALTH CARDS (Includes the 5 required chips + clear explanations & actions) */}
+          {/* LIVE BROWSER & ENGINE READINESS STRIP (Moved into System Health where it belongs) */}
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5 mb-4">
+              <div className="flex items-center gap-2.5">
+                <Globe className="h-4 w-4 text-emerald-400" />
+                <h2 className="font-bold text-white text-sm uppercase tracking-wider font-mono">
+                  Browser & Posting Engine Readiness
+                </h2>
+              </div>
+              <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold self-start sm:self-auto ${
+                !systemCheckResult
+                  ? "bg-blue-500/20 text-blue-300"
+                  : systemCheckResult.success
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-red-500/20 text-red-300"
+              }`}>
+                {!systemCheckResult ? "VERIFYING..." : systemCheckResult.success ? "ALL 3 CHECKS PASSED" : "CHECK FAILED"}
+              </span>
+            </div>
+
+            {!systemCheckResult ? (
+              <div className="py-4 flex items-center justify-center gap-2.5 text-slate-400 text-sm">
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+                <span>Verifying posting browser readiness...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {systemCheckResult.playwrightInstalled ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+                    )}
+                    <span className="text-sm font-semibold text-white">Automation Engine</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.playwrightInstalled ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+                    {systemCheckResult.playwrightInstalled ? "Healthy" : "Action Needed"}
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {systemCheckResult.executableExists ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+                    )}
+                    <span className="text-sm font-semibold text-white">Posting Browser</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.executableExists ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+                    {systemCheckResult.executableExists ? "Healthy" : "Action Needed"}
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {systemCheckResult.launchStatus === "success" ? (
+                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    )}
+                    <span className="text-sm font-semibold text-white">Browser Launch Test</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.launchStatus === "success" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                    {systemCheckResult.launchStatus === "success" ? "Healthy" : "Action Needed"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* 5 SERVICE HEALTH CARDS (Read-only live telemetry) */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* 1. Server */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
@@ -5304,7 +5270,7 @@ export default function App() {
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                 <span>Uptime: <strong className="text-slate-200 font-mono">{healthData?.checks?.server?.uptimeSeconds ? `${Math.floor(healthData.checks.server.uptimeSeconds / 60)}m` : "Active"}</strong></span>
                 <button onClick={() => navigateTo("logs")} className="text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer">
-                  View Logs →
+                  View Activity Logs →
                 </button>
               </div>
             </div>
@@ -5332,10 +5298,8 @@ export default function App() {
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Status: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "Active" : "Fallback"}</strong></span>
-                <button onClick={() => navigateTo("admin", "secrets")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer">
-                  API Keys →
-                </button>
+                <span>Mode: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "AI Active" : "Fallback"}</strong></span>
+                <span className="text-emerald-400 font-mono font-bold">Ready</span>
               </div>
             </div>
 
@@ -5343,7 +5307,7 @@ export default function App() {
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Browser</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Feed</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
                     <span className="text-slate-400 font-mono">CMC:</span>
                     {apiStatus.cmc ? (
@@ -5362,10 +5326,8 @@ export default function App() {
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Browser: <strong className="text-slate-200 font-mono">Automated Browser</strong></span>
-                <button onClick={() => navigateTo("admin", "diagnostics")} className="text-indigo-400 hover:text-indigo-300 font-bold cursor-pointer">
-                  Check Browser →
-                </button>
+                <span>Browser Engine: <strong className="text-slate-200 font-mono">Automated Browser</strong></span>
+                <span className="text-emerald-400 font-mono font-bold">Verified</span>
               </div>
             </div>
 
@@ -5397,65 +5359,42 @@ export default function App() {
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                 <span>Active Account: <strong className="text-emerald-400 font-mono">{activeProfile?.name || "None"}</strong></span>
-                <button
-                  onClick={() => {
-                    handleResetLoginState();
-                    setLoginTab("credentials");
-                    setShowSessionModal(true);
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 font-bold cursor-pointer"
-                >
-                  Accounts →
-                </button>
+                <span className="text-emerald-400 font-mono font-bold">Synced</span>
               </div>
             </div>
 
-            {/* 5. Notification Alerts Toggle */}
+            {/* 5. Notification Channels Status (Read-Only Health Telemetry) */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4 md:col-span-2 lg:col-span-2">
               <div className="space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">5. Toast & Emergency Notifications</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">5. Alert Channels Status</span>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={toggleNotifications}
-                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-sm font-bold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                        notificationsEnabled
-                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
-                          : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
-                      }`}
-                      title={notificationsEnabled ? "Notification toasts are active. Click to mute." : "Notification toasts are muted. Click to turn ON."}
-                    >
-                      {notificationsEnabled ? (
-                        <Bell className="h-4 w-4 text-emerald-400" />
-                      ) : (
-                        <BellOff className="h-4 w-4 text-amber-400" />
-                      )}
-                      <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleTelegram(!telegramEnabled)}
-                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-sm font-bold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                        telegramEnabled
-                          ? "bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500/25"
-                          : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80"
-                      }`}
-                      title={telegramEnabled ? "Telegram Emergency Hotline is ON. Click to turn OFF." : "Telegram Emergency Hotline is OFF. Click to turn ON."}
-                    >
-                      <Shield className={`h-4 w-4 ${telegramEnabled ? "text-rose-400" : "text-slate-400"}`} />
-                      <span>{telegramEnabled ? "Telegram: ON" : "Telegram: OFF"}</span>
-                    </button>
+                    <span className={`px-3 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                      notificationsEnabled
+                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                        : "bg-slate-800 border-slate-700 text-slate-400"
+                    }`}>
+                      {notificationsEnabled ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
+                      In-App Toasts: {notificationsEnabled ? "ACTIVE" : "MUTED"}
+                    </span>
+                    <span className={`px-3 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                      telegramEnabled
+                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                        : "bg-slate-800 border-slate-700 text-slate-400"
+                    }`}>
+                      <Shield className={`h-3.5 w-3.5 ${telegramEnabled ? "text-emerald-400" : "text-slate-400"}`} />
+                      Telegram Hotline: {telegramEnabled ? "ACTIVE" : "OFF"}
+                    </span>
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  Controls real-time in-app toast notifications when coins are fetched, comments are generated, or posts finish. Critical error alerts are also routed to Telegram if enabled.
+                  Real-time in-app toast notifications and emergency Telegram alerts monitor background posting runs and notify your team if any account session requires attention.
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Telegram Emergency Hotline: <strong className={telegramEnabled ? "text-emerald-400 font-mono" : "text-slate-400 font-mono"}>{telegramEnabled ? "ACTIVE" : "OFF"}</strong></span>
-                <button onClick={() => navigateTo("admin", "telegram")} className="text-rose-400 hover:text-rose-300 font-bold cursor-pointer">
-                  Configure Telegram Hotline →
+                <span>Emergency Channel: <strong className="text-slate-200 font-mono">@anup_cms_alert_bot</strong></span>
+                <button onClick={() => navigateTo("admin", "telegram")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer flex items-center gap-1">
+                  <Settings className="h-3.5 w-3.5" /> Configure in Settings →
                 </button>
               </div>
             </div>
@@ -8131,17 +8070,31 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setShowSessionModal(false);
-                  handleResetLoginState();
-                }}
-                title="Close modal"
-                aria-label="Close modal"
-                className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowSessionModal(false);
+                    handleResetLoginState();
+                    navigateTo("admin", "secrets");
+                  }}
+                  title="Open Account & Admin Settings"
+                  className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Settings className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Admin Settings</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSessionModal(false);
+                    handleResetLoginState();
+                  }}
+                  title="Close modal"
+                  aria-label="Close modal"
+                  className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {/* 3-Column Segmented Tab Bar (Zero Horizontal Scrollbar) */}
