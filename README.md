@@ -75,23 +75,28 @@ The application features complete isolation between **Development** and **Produc
 
 ## 4. Project Directory Structure
 
-```
+> For a complete file-by-file navigation table ("Where to Find What") and backend dependency layer map, see **[PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md)**.
+
+```text
 ├── .cache/ms-playwright/      # Playwright browser binary cache
-├── dist/                      # Compiled production frontend files
-│   ├── assets/                # Hashed production Javascript & CSS
-│   └── index.html             # Production entry HTML
-├── output/                    # Local storage directory for generated CSVs/JSONs
-│   ├── last_trending.json
-│   ├── generated_messages.json
-│   └── *.csv                  # Downloadable CSV reports
-├── src/                       # Frontend React Application Source
-│   ├── App.tsx                # Main control center dashboard component
-│   ├── firebase-db.ts         # Firebase configuration & database bindings
-│   ├── index.css              # Global styles & Tailwind CSS definitions
-│   └── main.tsx               # Client entry rendering file
-├── server.ts                  # Multi-mode Express Backend (API & Static Server)
+├── dist/                      # Compiled production frontend & bundled server (dist/server.cjs)
+├── docs/                      # Architecture plans & deployment guides (MODULAR_SPLIT_PLAN.md, REDEPLOY.md, etc.)
+├── output/                    # Local profile-isolated storage for coins, comments, and results
+├── auth/                      # Local storage for account profiles, session cookies, and settings
+├── server/                    # Modular Express + Playwright backend (config, state, logger, files, profiles, sync, etc.)
+│   └── routes/                # Express route modules (output, profiles, status-health, images, login, bot-actions, admin-data, scheduler)
+├── src/                       # Modular React 19 frontend application
+│   ├── pages/                 # Page views (Dashboard, Scheduler, Admin, Logs, Health, Guide)
+│   ├── components/            # Shared UI components, HeaderNavbar, and modals
+│   ├── hooks/                 # Central state controller (useAppController) & polling hooks (useDashboardPolling)
+│   └── utils/                 # Shared scheduler, formatter, and UI helpers
+├── tests/                     # Vitest unit & Supertest route integration tests
+├── scripts/                   # Build, smoke test, login, and EC2 deployment scripts
+├── PROJECT_STRUCTURE.md       # Complete codebase map & quick navigation guide
+├── AGENTS.md                  # AI developer rules & architectural invariants
+├── server.ts                  # Express entrypoint & SPA fallback router
 ├── vite.config.ts             # Vite bundler, alias, and subpath configurations
-├── package.json               # Dependecy declarations & automation scripts
+├── package.json               # Dependency declarations & automation scripts
 └── tsconfig.json              # TypeScript compilation specifications
 ```
 

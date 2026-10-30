@@ -1,6 +1,6 @@
 # AI Instructions & Developer Context - CoinMarketCap Bot
 
-Please refer to the detailed context and architectural guide in `AGENTS.md` and `AI_CONTEXT.md`.
+Please refer to the detailed context, directory map, and architectural guide in `PROJECT_STRUCTURE.md`, `AGENTS.md`, and `AI_CONTEXT.md`.
 
 ### Key Rules & Developer Invariants:
 1. **Never Leak Data**: If no session/account is active or logged in, return empty data sets `[]` across all `/output` file requests and CSV downloads.
