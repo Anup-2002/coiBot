@@ -1,6 +1,9 @@
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
+import { execSync } from "child_process";
+export { fs, path, os, crypto, execSync };
 import dotenv from "dotenv";
 import { createRequire } from "module";
 

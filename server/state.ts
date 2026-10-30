@@ -1,6 +1,4 @@
-import path from "path";
-import fs from "fs";
-import {
+import { fs, path, crypto, execSync, 
   initialOutputDir,
   initialAuthDir,
   type LogEntry,

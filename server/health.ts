@@ -1,8 +1,5 @@
-import path from "path";
-import fs from "fs";
-import { execSync } from "child_process";
 import type express from "express";
-import { chromium } from "./config.ts";
+import { fs, path, crypto, execSync,  chromium } from "./config.ts";
 import { st, getAvailableMarketingImages, getLocalBotSettings, addLog } from "./state.ts";
 import { launchBrowserResilient } from "./browser.ts";
 

@@ -1,7 +1,4 @@
-import path from "path";
-import fs from "fs";
-import { execSync } from "child_process";
-import { chromium } from "./config.ts";
+import { fs, path, crypto, execSync,  chromium } from "./config.ts";
 import { st, getActiveProfile, addLog } from "./state.ts";
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {

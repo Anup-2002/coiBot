@@ -1,7 +1,4 @@
-import path from "path";
-import fs from "fs";
-import crypto from "crypto";
-import {
+import { fs, path, crypto, execSync, 
   type ProfileTimestamps,
   type BotProgressData,
   type PostResult,
