@@ -15,7 +15,27 @@ export { fs, path, os, crypto, execSync, express };
 export const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
 
 if (!isTestEnv) {
+  const preservedEnv: Record<string, string | undefined> = {};
+  for (const key of [
+    "PORT",
+    "NODE_ENV",
+    "DISABLE_CLOUD_SYNC",
+    "DISABLE_FIREBASE",
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "VITEST",
+    "BOT_OUTPUT_DIR",
+    "BOT_AUTH_DIR",
+  ]) {
+    if (process.env[key] !== undefined) {
+      preservedEnv[key] = process.env[key];
+    }
+  }
   dotenv.config({ override: true });
+  for (const [key, val] of Object.entries(preservedEnv)) {
+    if (val !== undefined) {
+      process.env[key] = val;
+    }
+  }
 } else {
   dotenv.config();
 }
@@ -88,7 +108,12 @@ export const { chromium } = customRequire("playwright") as typeof import("playwr
 
 export const PORT = Number(process.env.PORT) || 3000;
 
-function resolveInitialDir(folderName: string, fallbackTmpName: string): string {
+function resolveInitialDir(folderName: string, fallbackTmpName: string, envOverride?: string): string {
+  if (envOverride) {
+    const customDir = path.resolve(envOverride);
+    fs.mkdirSync(customDir, { recursive: true });
+    return customDir;
+  }
   if (isTestEnv) {
     const testDir = path.join(os.tmpdir(), `coibot-test-${folderName}-${process.pid}`);
     fs.mkdirSync(testDir, { recursive: true });
@@ -107,8 +132,8 @@ function resolveInitialDir(folderName: string, fallbackTmpName: string): string 
   }
 }
 
-export const initialOutputDir = resolveInitialDir("output", "/tmp/bot-output");
-export const initialAuthDir = resolveInitialDir("auth", "/tmp/bot-auth");
+export const initialOutputDir = resolveInitialDir("output", "/tmp/bot-output", process.env.BOT_OUTPUT_DIR);
+export const initialAuthDir = resolveInitialDir("auth", "/tmp/bot-auth", process.env.BOT_AUTH_DIR);
 export const OUTPUT_DIR = initialOutputDir;
 
 export const isOpenAiConfigured = !!process.env.OPENAI_API_KEY;
