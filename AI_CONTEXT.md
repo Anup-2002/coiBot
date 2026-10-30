@@ -197,12 +197,21 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
         - **Unified Dark Scrollbar System (`src/index.css`)**: Added global `scrollbar-width: thin; scrollbar-color: #334155 #020617` and `::-webkit-scrollbar` rules (`#020617` dark track, `#1e293b` rounded slate thumb, `#475569` hover) across all containers and modals.
         - **Attached `Account` + `Settings` Split Pill in Navbar (`src/App.tsx`)**: Joined `#navbar-login-btn` and `#navbar-admin-settings-btn` inside one unified split-pill container (`inline-flex items-stretch rounded-xl border border-slate-700/80 bg-slate-900 shadow-sm overflow-hidden shrink-0`) where the left side displays `<Users /> Account` + count badge (`{profilesList.length}`) and the right side attaches the `<Settings />` gear icon (`border-l border-slate-700/80`), eliminating `+ Add / Accounts` clutter and preventing the gear icon from floating separately.
         - **Consistent Button Labels, Icons & Tooltips (`src/App.tsx`)**: Replaced slash-separated dual labels and raw emojis (`+ Add / Manage Accounts`, `+ Add New Account`, `Import from Cloud / Link`, `Cancel / Keep Current`, `Sequential Mode ON (Disable)`, `🔑`, `📋`, `➕`, `👥`, `🔒`) with clean single-purpose labels and matching Lucide icons (`<Users /> Manage Accounts`, `<Users /> Add Account`, `<Globe /> Import from Link`, `Sequential Mode: ON / OFF`, `<Key /> Email Login`, `<FileText /> Import Cookies`, `<Users /> Saved Accounts`).
+14. **Modular Codebase Split (`server/` & `src/`), Workspace Organization (`PROJECT_STRUCTURE.md`) & Full AST Validation Against `backup/before-split` (`PASS`)**:
+    - **Backend Modularization (`server.ts` → 130 lines + `server/` & `server/routes/`)**:
+      - Split `server.ts` (9,628 lines) into strictly layered modules with zero circular dependencies (`npx madge --circular --extensions ts server.ts` → 0 cycles): `server/config.ts`, `server/state.ts` (centralized `st` state object, zero `export let`), `server/logger.ts`, `server/files.ts`, `server/profiles.ts`, `server/settings.ts`, `server/locks.ts`, `server/alerts.ts`, `server/sync.ts`, `server/browser.ts`, `server/health.ts`, `server/login.ts`, `server/posting.ts`, `server/fetch.ts`, `server/generate.ts`, `server/posting-loop.ts`, `server/scheduler.ts`, and `server/routes/` (`output.ts`, `profiles.ts`, `status-health.ts`, `images.ts`, `login.ts`, `bot-actions.ts`, `admin-data.ts`, `scheduler.ts`).
+    - **Frontend Modularization (`src/App.tsx` → 42 lines + `src/pages/`, `src/components/`, `src/hooks/`)**:
+      - Split `src/App.tsx` (9,178 lines) into `src/types.ts`, `src/utils/ui-helpers.ts`, `src/components/` (`SafeImageDisplay.tsx`, `CycleCountdown.tsx`, `CustomSelect.tsx`, `AdminLoginGate.tsx`, `HeaderNavbar.tsx`, `SessionAccountModal.tsx`, `ModalsLayer.tsx`, `ErrorBoundary.tsx`), `src/pages/` (`GuidePage.tsx`, `HealthPage.tsx`, `LogsPage.tsx`, `AdminPage.tsx`, `SchedulerPage.tsx`, `DashboardImageLibrary.tsx`, `DashboardDataExplorer.tsx`, `DashboardControlPanel.tsx`, `DashboardPage.tsx`), and `src/hooks/` (`useDashboardPolling.ts`, `useAppController.ts`).
+    - **AST & Line-by-Line Module Validation Check Against `backup/before-split`**:
+      - Audited all 37 frontend and backend modules against all 378 top-level declarations in `backup/before-split:src/App.tsx` and 160 declarations in `backup/before-split:server.ts` using the TypeScript Compiler AST.
+      - Resolved the unbound `status` state variable in `src/pages/DashboardControlPanel.tsx` (which had silently resolved to the browser's `window.status === ""` DOM global, causing the Control Center `● READY` / `● STANDBY` badge and Progress `● QUEUE READY` badge to render blank next to the green dot) by passing `status` explicitly from `src/hooks/useAppController.ts` into `renderDashboardControlPanel(status, ...)`.
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
-- `npm test`: **PASS** (5/5 test files, 35/35 tests passed)
+- `npm test`: **PASS** (5/5 test files, 38/38 tests passed)
+- `npx madge --circular --extensions ts server.ts`: **PASS** (0 circular dependencies across 32 server files)
 - `npm run build`: **PASS** (`dist/` and `dist/server.cjs` built cleanly)
-- Live Server (`http://localhost:3000`): **RUNNING** on `staging` with latest build.
+- Live Server (`http://localhost:3000`): **RUNNING** on `refactor/modular-split` with latest build.
 
 ---
 
