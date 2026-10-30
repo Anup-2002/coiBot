@@ -21,7 +21,11 @@ import "./server/routes/scheduler.ts";
 
 export { formatCommentWithCashtag };
 
-const distPath = [path.join(process.cwd(), "dist"), path.resolve(__dirname, "../dist"), path.resolve(__dirname, "dist")].find(p => fs.existsSync(p)) || path.join(process.cwd(), "dist");
+const distCandidates = [
+  path.join(process.cwd(), "dist"),
+  ...(typeof __dirname !== "undefined" ? [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "dist")] : []),
+];
+const distPath = distCandidates.find(p => fs.existsSync(p)) || path.join(process.cwd(), "dist");
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(distPath));
 }

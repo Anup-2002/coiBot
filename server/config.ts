@@ -14,14 +14,20 @@ export { fs, path, os, crypto, execSync, express };
 
 export const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
 
+if (!isTestEnv) {
+  dotenv.config({ override: true });
+} else {
+  dotenv.config();
+}
+
 // Auto-detect production mode if running from bundled dist/server.cjs or process.env.NODE_ENV is not explicitly set
-if (!process.env.NODE_ENV) {
-  const isCjs = typeof __filename !== "undefined";
-  const isBundled = isCjs && (__filename.endsWith("server.cjs") || __filename.includes("dist"));
+const isCjs = typeof __filename !== "undefined";
+const isBundled = isCjs && (__filename.endsWith("server.cjs") || __filename.includes("dist"));
+if (!isTestEnv && (isBundled || !process.env.NODE_ENV)) {
   const hasSrcDir = fs.existsSync(path.join(process.cwd(), "src"));
   if (isBundled || !hasSrcDir) {
     process.env.NODE_ENV = "production";
-  } else {
+  } else if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = "development";
   }
 }
@@ -29,7 +35,7 @@ if (!isTestEnv) {
   console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
 }
 
-// Auto-detect where Playwright browser is actually installed on disk (user home cache, project local cache, root cache, or custom env)
+// Auto-detect where Playwright browser is actually installed on disk (user home cache, project local cache, EC2/Docker caches, or custom env)
 function resolvePlaywrightBrowsersPath(): string {
   const candidates: string[] = [];
   if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
@@ -37,7 +43,10 @@ function resolvePlaywrightBrowsersPath(): string {
   }
   candidates.push(path.join(os.homedir(), ".cache", "ms-playwright"));
   candidates.push(path.join(process.cwd(), ".cache", "ms-playwright"));
+  candidates.push("/home/cmcbot/.cache/ms-playwright");
+  candidates.push("/home/ubuntu/.cache/ms-playwright");
   candidates.push("/root/.cache/ms-playwright");
+  candidates.push("/ms-playwright");
 
   for (const c of candidates) {
     if (fs.existsSync(c)) {
@@ -76,8 +85,6 @@ if (!isTestEnv) {
 
 export const customRequire = typeof require !== "undefined" ? require : createRequire(typeof process !== "undefined" && process.cwd ? "file://" + process.cwd() + "/server.js" : "file:///app/server.js");
 export const { chromium } = customRequire("playwright") as typeof import("playwright");
-
-dotenv.config({ override: true });
 
 export const PORT = Number(process.env.PORT) || 3000;
 
