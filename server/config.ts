@@ -3,7 +3,11 @@ import fs from "fs";
 import os from "os";
 import crypto from "crypto";
 import { execSync } from "child_process";
-export { fs, path, os, crypto, execSync };
+import express from "express";
+export const app = express();
+app.set("trust proxy", true);
+app.use(express.json({ limit: "50mb" }));
+export { fs, path, os, crypto, execSync, express };
 import dotenv from "dotenv";
 import { createRequire } from "module";
 
