@@ -2765,8 +2765,8 @@ export default function App() {
 
         <div className="w-full max-w-md relative z-10">
           {/* Brand header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center p-3.5 bg-gradient-to-tr from-emerald-500/20 to-indigo-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30 shadow-2xl shadow-emerald-500/10 mb-4 ring-1 ring-emerald-500/20">
+          <div className="text-center mb-8 flex flex-col items-center">
+            <div className="inline-flex items-center justify-center p-3.5 bg-gradient-to-tr from-emerald-500/20 to-indigo-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30 shadow-2xl shadow-emerald-500/10 mb-3 ring-1 ring-emerald-500/20">
               <Shield className="h-8 w-8 text-emerald-400" />
             </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold mb-3">
@@ -2918,27 +2918,27 @@ export default function App() {
       
       {/* HEADER NAVBAR */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 px-4 sm:px-6 py-3">
-        <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
           {/* Brand & Left Actions */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 shrink-0">
             <div
               onClick={() => navigateTo("dashboard")}
-              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
+              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group shrink-0"
               title="Go to Dashboard"
             >
-              <div className="p-2 sm:p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5 animate-pulse flex-shrink-0 group-hover:border-emerald-500/40 transition">
-                <Activity className="h-5 w-5 sm:h-6 sm:w-6" />
+              <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5 animate-pulse flex-shrink-0 group-hover:border-emerald-500/40 transition">
+                <Activity className="h-5 w-5" />
               </div>
-              <div>
-                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2">
+              <div className="shrink-0">
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2 whitespace-nowrap">
                   CoinMarketCap Commenting Hub
                 </h1>
-                <p className="text-[11px] text-slate-400 hidden sm:block">Automated Community Commenting and Growth Driver</p>
+                <p className="text-[11px] text-slate-400 hidden sm:block whitespace-nowrap">Automated Community Commenting and Growth Driver</p>
               </div>
             </div>
 
-            {/* Mobile View: Quick Account Button in Brand Row for easy touch access */}
-            <div className="flex lg:hidden items-center gap-1.5">
+            {/* Compact View: Quick Account Button in Brand Row for easy touch/sidebar access */}
+            <div className="flex xl:hidden items-center gap-1.5">
               <button
                 onClick={() => {
                   handleResetLoginState();
@@ -2962,7 +2962,7 @@ export default function App() {
           </div>
 
           {/* TOP CONTROLS & NAVIGATION ROW */}
-          <div className="flex flex-wrap items-center justify-start lg:justify-end gap-2 text-sm">
+          <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 text-sm">
             {/* Desktop Account / Session Button */}
             <button
               onClick={() => {
@@ -2970,7 +2970,7 @@ export default function App() {
                 setLoginTab("credentials");
                 setShowSessionModal(true);
               }}
-              className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeProfile 
                   ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
                   : (sessionExists 
@@ -3142,18 +3142,18 @@ export default function App() {
                 <p className="text-sm text-slate-400">Select an administrative module below to inspect or configure</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 onClick={() => navigateTo("health")}
-                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
+                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
               >
-                <Activity className="h-4 w-4 text-emerald-400" /> System Health
+                <Activity className="h-4 w-4 text-emerald-400 shrink-0" /> System Health
               </button>
               <button
                 onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
               >
-                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+                <ArrowLeft className="h-4 w-4 shrink-0" /> Back to Dashboard
               </button>
             </div>
           </div>
@@ -3858,9 +3858,9 @@ export default function App() {
         /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
         <main key="view-scheduler" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* SCHEDULER HEADER & CONTROLS DECK */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 shrink-0">
                 <Clock className="h-6 w-6" />
               </div>
               <div>
@@ -3880,11 +3880,11 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={toggleNotifications}
-                className={`px-3.5 py-2 rounded-xl border text-sm font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer shadow-sm ${
+                className={`px-3.5 py-2 rounded-xl border text-sm font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer shadow-sm whitespace-nowrap shrink-0 ${
                   notificationsEnabled
                     ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/40"
                     : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30"
@@ -3892,9 +3892,9 @@ export default function App() {
                 title={notificationsEnabled ? "In-app toast alerts are ON. Click to mute." : "In-app toast alerts are muted. Click to turn ON."}
               >
                 {notificationsEnabled ? (
-                  <Bell className="h-4 w-4 text-emerald-400" />
+                  <Bell className="h-4 w-4 text-emerald-400 shrink-0" />
                 ) : (
-                  <BellOff className="h-4 w-4 text-amber-400" />
+                  <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
                 )}
                 <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
               </button>
@@ -3903,16 +3903,16 @@ export default function App() {
                   setLogsTab("scheduler");
                   navigateTo("logs");
                 }}
-                className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm"
+                className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
                 title="View Scheduler Activity History"
               >
-                <TerminalIcon className="h-4 w-4 text-indigo-400" /> Scheduler Logs
+                <TerminalIcon className="h-4 w-4 text-indigo-400 shrink-0" /> Scheduler Logs
               </button>
               <button
                 onClick={() => navigateTo("dashboard")}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
               >
-                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+                <ArrowLeft className="h-4 w-4 shrink-0" /> Back to Dashboard
               </button>
             </div>
           </div>
@@ -4412,16 +4412,13 @@ export default function App() {
                             {/* Account name & info */}
                             <td className="py-3.5 px-4">
                               <div className="flex flex-col">
-                                <span className="font-bold text-white text-base flex items-center gap-1.5">
+                                <span className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5">
                                   {acc.name}
                                   {isCurrent && (
                                     <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
                                       RUNNING NOW
                                     </span>
                                   )}
-                                </span>
-                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">
-                                  {acc.id}
                                 </span>
                               </div>
                             </td>
@@ -5319,7 +5316,7 @@ export default function App() {
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">2. AI Comment Generator</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
                     <span className="text-slate-400 font-mono">OpenAI:</span>
-                    {apiStatus.openai ? (
+                    {(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle className="h-3.5 w-3.5" /> Enabled
                       </span>
@@ -5335,7 +5332,7 @@ export default function App() {
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Status: <strong className="text-slate-200 font-mono">{apiStatus.openai ? "Active" : "Fallback"}</strong></span>
+                <span>Status: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "Active" : "Fallback"}</strong></span>
                 <button onClick={() => navigateTo("admin", "secrets")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer">
                   API Keys →
                 </button>
@@ -5686,7 +5683,7 @@ export default function App() {
               )}
 
               {/* 2x2 MODERN ACTION DECK - STABILIZED GRID WITH COMPACT NON-OVERLAPPING STATUS BADGES */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
                 {/* 1. Check login */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
@@ -6401,76 +6398,76 @@ export default function App() {
         </div>
 
         {/* ROW 3: STORAGE AND REPORTS DATA EXPLORER (Full width) */}
-        <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-            <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
-                <Database className="h-5 w-5" />
-              </span>
-              Campaign Data, Reports & Image Library
-            </h2>
-
-            {/* Exporter selector tabs + Unified Refresh Button */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                <button
-                  onClick={() => setActiveTab("coins")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                    activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  1. Trending Coins ({coinsList.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab("comments")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                    activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  2. Generated Comments ({messagesList.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab("results")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                    activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {(() => {
-                    const activePid = activeProfileIdRef.current || activeProfile?.id;
-                    const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
-                    return `3. Post Submissions (${count})`;
-                  })()}
-                </button>
-                <button
-                  onClick={() => setActiveTab("reports")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                    activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  4. CSV Exports & Reports
-                </button>
-                <button
-                  onClick={() => setActiveTab("images")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>5. Images Library ({marketingImages.length})</span>
-                  <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
-                    {imageUploadEnabled ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-              </div>
+        <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="flex flex-col gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 shrink-0">
+                  <Database className="h-5 w-5" />
+                </span>
+                <span>Campaign Data, Reports &amp; Image Library</span>
+              </h2>
 
               <button
                 onClick={handleManualRefresh}
                 disabled={isRefreshingData}
-                className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
                 title="Refresh trending coins, generated comments, and submission results"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingData ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isRefreshingData ? "animate-spin" : ""}`} />
                 <span>Refresh Data</span>
+              </button>
+            </div>
+
+            {/* Exporter selector tabs */}
+            <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setActiveTab("coins")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                1. Trending Coins ({coinsList.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("comments")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                2. Generated Comments ({messagesList.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("results")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {(() => {
+                  const activePid = activeProfileIdRef.current || activeProfile?.id;
+                  const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
+                  return `3. Post Submissions (${count})`;
+                })()}
+              </button>
+              <button
+                onClick={() => setActiveTab("reports")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                4. CSV Exports &amp; Reports
+              </button>
+              <button
+                onClick={() => setActiveTab("images")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <ImageIcon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                <span>5. Images Library ({marketingImages.length})</span>
+                <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+                  {imageUploadEnabled ? 'ON' : 'OFF'}
+                </span>
               </button>
             </div>
           </div>
@@ -8263,23 +8260,23 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             Switch Accounts ({profilesList.length})
                           </button>
                         </span>
-                        <div className="flex items-center justify-end gap-2.5">
+                        <div className="flex items-center justify-end gap-2.5 shrink-0">
                           <button
                             type="button"
                             onClick={() => {
                               setShowSessionModal(false);
                               handleResetLoginState();
                             }}
-                            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-semibold transition cursor-pointer"
+                            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
                             onClick={handleStartLogin}
-                            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2"
+                            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
                           >
-                            <Key className="h-4 w-4" />
+                            <Key className="h-4 w-4 shrink-0" />
                             <span>Sign In &amp; Save Account</span>
                           </button>
                         </div>
@@ -8598,8 +8595,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                 )}
                               </div>
                               <div className="flex items-center gap-3 pt-0.5 flex-wrap">
-                                <span className="text-xs text-slate-400 font-mono">
-                                  ID: {p.id} • Saved: {new Date(p.updatedAt).toLocaleString()}
+                                <span className="text-xs text-slate-400">
+                                  Saved: {new Date(p.updatedAt).toLocaleString()}
                                 </span>
                                 {editingLimitProfileId === p.id ? (
                                   <div className="flex items-center gap-1.5">

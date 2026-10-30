@@ -4654,15 +4654,15 @@ app.get("/api/health", (req, res) => {
 
   // 3. CMC / Browser check
   let browserStatus: "ok" | "degraded" | "error" = "ok";
-  let browserMessage = "Playwright Chromium browser engine ready.";
+  let browserMessage = "Automated CoinMarketCap browser is ready.";
   if (process.env.PLAYWRIGHT_BROWSERS_PATH && !fs.existsSync(process.env.PLAYWRIGHT_BROWSERS_PATH)) {
     browserStatus = "error";
-    browserMessage = `Playwright browser path "${process.env.PLAYWRIGHT_BROWSERS_PATH}" does not exist. Verify PLAYWRIGHT_BROWSERS_PATH.`;
+    browserMessage = "Posting browser was not found on the server. Please run a system check.";
   }
 
   const browserCheck = {
     status: browserStatus,
-    details: "Playwright Chromium engine",
+    details: "Automated CoinMarketCap browser",
     message: browserMessage,
   };
 
