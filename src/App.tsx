@@ -511,7 +511,7 @@ export default function App() {
     return "dashboard";
   });
 
-  const [adminSection, setAdminSection] = useState<"secrets" | "telegram" | "security">("secrets");
+  const [adminSection, setAdminSection] = useState<"security" | "telegram" | "retention">("security");
   const [guideStep, setGuideStep] = useState<"all" | "getting-started" | "accounts" | "scheduler" | "images" | "troubleshooting">("all");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
@@ -561,9 +561,11 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "diagnostics" | "secrets" | "telegram" | "security") => {
+  const navigateTo = (view: "dashboard" | "scheduler" | "admin" | "guide" | "logs" | "health", section?: "diagnostics" | "secrets" | "telegram" | "security" | "retention") => {
     setCurrentView(view);
-    if (section && section !== "diagnostics") setAdminSection(section);
+    if (section === "telegram" || section === "security" || section === "retention") {
+      setAdminSection(section);
+    }
     let path = "/";
     if (view === "scheduler") path = "/scheduler";
     else if (view === "admin") path = "/admin";
@@ -1716,9 +1718,12 @@ export default function App() {
   const lastLogsLength = useRef(0);
   const lastRequestTimestamp = useRef<number>(0);
 
-  // Global background polling for header status dot and scheduler badge every 30s
+  // Global background polling for header status dot, scheduler badge, and initial profile hydration
   useEffect(() => {
     let isMounted = true;
+    fetchProfiles();
+    fetchSessionDetails();
+    fetchStats();
     const pollHeaderStatus = async () => {
       try {
         const [health, sched] = await Promise.all([
@@ -2931,61 +2936,26 @@ export default function App() {
                 <Activity className="h-5 w-5" />
               </div>
               <div className="shrink-0">
-                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2 whitespace-nowrap">
+                <h1 className="text-sm sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2 whitespace-nowrap">
                   CoinMarketCap Commenting Hub
                 </h1>
                 <p className="text-[11px] text-slate-400 hidden sm:block whitespace-nowrap">Automated Community Commenting and Growth Driver</p>
               </div>
             </div>
-
-            {/* Compact View: Quick Account Button & Settings Gear in Brand Row for easy touch/sidebar access */}
-            <div className="flex xl:hidden items-center gap-1.5">
-              <button
-                onClick={() => {
-                  handleResetLoginState();
-                  setLoginTab("credentials");
-                  setShowSessionModal(true);
-                }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition duration-200 cursor-pointer ${
-                  activeProfile 
-                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                    : (sessionExists 
-                      ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                      : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
-                    )
-                }`}
-                title="Add or Manage CoinMarketCap Accounts"
-              >
-                <Users className="h-3 w-3" />
-                <span className="max-w-[90px] truncate">{activeProfile ? "+ Account" : (sessionExists ? "Active" : "Login")}</span>
-              </button>
-              <button
-                onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-                className={`p-1.5 rounded-lg border transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
-                  currentView === "admin"
-                    ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30"
-                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
-                }`}
-                title="Admin Settings"
-                aria-label="Admin Settings"
-              >
-                <Settings className="h-3.5 w-3.5 text-blue-400" />
-              </button>
-            </div>
           </div>
 
           {/* TOP CONTROLS & NAVIGATION ROW */}
           <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 text-sm">
-            {/* Account & Admin Settings Section (Grouped together in Navbar) */}
-            <div className="flex items-center gap-1.5">
-              {/* Desktop Account / Session Button */}
+            {/* Account & Admin Settings Section (Grouped together in Navbar — Single Gear Icon) */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* Account / Session Button */}
               <button
                 onClick={() => {
                   handleResetLoginState();
                   setLoginTab("credentials");
                   setShowSessionModal(true);
                 }}
-                className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeProfile 
                     ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
                     : (sessionExists 
@@ -2996,7 +2966,7 @@ export default function App() {
                 title="Add a new CoinMarketCap account or manage saved accounts"
                 id="navbar-login-btn"
               >
-                <Users className="h-3.5 w-3.5" />
+                <Users className="h-3.5 w-3.5 shrink-0" />
                 <span>
                   {profilesList.length > 1
                     ? `+ Add / Accounts (${profilesList.length})`
@@ -3010,15 +2980,15 @@ export default function App() {
 
               {/* Quick Account Switcher Dropdown - responsive across all screens */}
               {profilesList.length > 1 && (
-                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-sm shadow-inner transition ${
+                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2 py-1 text-xs sm:text-sm shadow-inner transition ${
                   (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
                 }`}>
-                  <span className="text-xs text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
+                  <span className="text-[11px] text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
                     {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
                     Active:
                   </span>
                   {switchingProfileId ? (
-                    <span className="flex items-center gap-1 text-emerald-400 font-bold text-sm px-2 py-0.5">
+                    <span className="flex items-center gap-1 text-emerald-400 font-bold text-xs sm:text-sm px-2 py-0.5">
                       <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
                       Switching...
                     </span>
@@ -3030,7 +3000,7 @@ export default function App() {
                         const target = profilesList.find(p => p.id === e.target.value);
                         if (target) promptSwitchProfile(target);
                       }}
-                      className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2.5 py-1 text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[150px] sm:max-w-[190px] truncate shadow-sm"
+                      className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2 py-1 text-xs sm:text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[130px] sm:max-w-[190px] truncate shadow-sm"
                       title={
                         (isBusy || isPostingActive || isContinuousLoopActive)
                           ? "Account switching locked: Click 'Stop Posting' before switching accounts"
@@ -3047,15 +3017,15 @@ export default function App() {
                 </div>
               )}
 
-              {/* Settings Gear Icon Button (Admin Settings beside Account on Desktop) */}
+              {/* Single Settings Gear Icon Button in Navbar beside Account */}
               <button
                 onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-                className={`hidden xl:flex p-2 rounded-xl border transition duration-200 cursor-pointer items-center justify-center shrink-0 ${
+                className={`p-2 rounded-xl border transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
                   currentView === "admin"
                     ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30 shadow-sm"
                     : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700"
                 }`}
-                title="Admin Settings (Accounts, API Keys, Alerts & Security)"
+                title="Admin Settings (Security, Telegram Hotline & Data Cleanup)"
                 aria-label="Admin Settings"
                 id="navbar-admin-settings-btn"
               >
@@ -3144,32 +3114,22 @@ export default function App() {
 
       {/* DASHBOARD OR ADMIN SCREEN CONTENT BODY */}
       {currentView === "admin" ? (
-        /* ADMIN SETTINGS SCREEN (Strictly Account, API Keys, Alert Configuration & Security — Zero Health Duplication) */
-        <main key="view-admin" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        /* ADMIN SETTINGS SCREEN (Strictly Team Security, Telegram Emergency Bot & Data Cleanup Rules — Zero Health or Account Modal Duplication) */
+        <main key="view-admin" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* ADMIN HEADER & NAVIGATION */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
-                <Settings className="h-6 w-6" />
+              <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 shrink-0">
+                <Shield className="h-6 w-6" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  Account & Admin Settings
+                  Admin Settings
                 </h1>
-                <p className="text-sm text-slate-400">Configure active account sessions, API keys, alert channels, and team access security</p>
+                <p className="text-sm text-slate-400">Team access security, emergency Telegram bot setup, and automatic data cleanup rules</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                onClick={() => {
-                  handleResetLoginState();
-                  setLoginTab("profiles");
-                  setShowSessionModal(true);
-                }}
-                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
-              >
-                <Users className="h-4 w-4 text-emerald-400 shrink-0" /> Manage Accounts ({profilesList.length})
-              </button>
               <button
                 onClick={() => navigateTo("dashboard")}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
@@ -3179,54 +3139,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ADMIN 3-CARD MODULE SELECTOR DECK (Focused purely on Settings & Administration) */}
+          {/* ADMIN 3-CARD MODULE SELECTOR DECK (Zero Overlap with Health or Account Modal) */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button
-              onClick={() => setAdminSection("secrets")}
-              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
-                adminSection === "secrets"
-                  ? "bg-slate-900 border-blue-500/50 ring-1 ring-blue-500/30 shadow-lg"
-                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
-              }`}
-            >
-              <div className="flex items-center justify-between w-full">
-                <span className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <Key className="h-4 w-4" />
-                </span>
-                <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-blue-500/20 text-blue-300">
-                  {sessionExists ? "ACTIVE" : "SETUP"}
-                </span>
-              </div>
-              <div>
-                <div className="text-sm font-bold text-white">1. Account & API Keys</div>
-                <div className="text-xs text-slate-400 mt-0.5">Active account login, cookies & AI credentials</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setAdminSection("telegram")}
-              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
-                adminSection === "telegram"
-                  ? "bg-slate-900 border-rose-500/50 ring-1 ring-rose-500/30 shadow-lg"
-                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
-              }`}
-            >
-              <div className="flex items-center justify-between w-full">
-                <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                  <Bell className="h-4 w-4" />
-                </span>
-                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                  telegramEnabled ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
-                }`}>
-                  {telegramEnabled ? "ACTIVE" : "OFF"}
-                </span>
-              </div>
-              <div>
-                <div className="text-sm font-bold text-white">2. Alert & Telegram Settings</div>
-                <div className="text-xs text-slate-400 mt-0.5">Configure toast notifications & emergency hotline</div>
-              </div>
-            </button>
-
             <button
               onClick={() => setAdminSection("security")}
               className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
@@ -3246,198 +3160,132 @@ export default function App() {
                 </span>
               </div>
               <div>
-                <div className="text-sm font-bold text-white">3. Security & Team Access</div>
+                <div className="text-sm font-bold text-white">1. Team Security & Password</div>
                 <div className="text-xs text-slate-400 mt-0.5">Admin password & 1-click team login link</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setAdminSection("telegram")}
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
+                adminSection === "telegram"
+                  ? "bg-slate-900 border-rose-500/50 ring-1 ring-rose-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
+              }`}
+            >
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <Bell className="h-4 w-4" />
+                </span>
+                <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                  telegramEnabled ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {telegramEnabled ? "ON" : "OFF"}
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">2. Telegram Emergency Bot</div>
+                <div className="text-xs text-slate-400 mt-0.5">Configure @anup_cms_alert_bot & test alerts</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setAdminSection("retention")}
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2 ${
+                adminSection === "retention"
+                  ? "bg-slate-900 border-blue-500/50 ring-1 ring-blue-500/30 shadow-lg"
+                  : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
+              }`}
+            >
+              <div className="flex items-center justify-between w-full">
+                <span className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Archive className="h-4 w-4" />
+                </span>
+                <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-blue-500/20 text-blue-300">
+                  {retentionDays} DAYS
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white">3. Data & Queue Cleanup</div>
+                <div className="text-xs text-slate-400 mt-0.5">Auto-archive old post history ({retentionDays}-day window)</div>
               </div>
             </button>
           </div>
 
-          {/* 1. TWO-COLUMN GRID: API SECRETS MATRIX & STORAGE CACHE MAINTENANCE */}
-          {adminSection === "secrets" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Active Secrets Key Matrix - High-Density Modern Deck */}
-            <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-slate-700/80 transition-all duration-300">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-white tracking-tight flex items-center gap-2">
-                    <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
-                      <Key className="h-4 w-4" />
-                    </span>
-                    Secrets & Credentials Matrix
-                  </h2>
-                  <span className="text-[11px] font-mono text-slate-400">Server Environment</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {/* OpenAI Card */}
-                  <div className={`p-3 rounded-xl border transition-all ${
-                    apiStatus.openaiError ? "bg-rose-950/20 border-rose-500/30" :
-                    (apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "bg-slate-950/80 border-slate-800" : "bg-slate-950/40 border-slate-800/60"
-                  }`}>
-                    <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="font-mono text-slate-400 font-semibold truncate">OPENAI_API</span>
-                      <span className={`w-2 h-2 rounded-full ${(apiStatus.openai || healthData?.checks?.openai?.status === "ok") && !apiStatus.openaiError ? "bg-emerald-500 animate-pulse" : apiStatus.openaiError ? "bg-rose-500" : "bg-slate-600"}`} />
-                    </div>
-                    <div className="text-sm font-bold text-white font-mono truncate">
-                      {apiStatus.openaiError ? "QUOTA LIMIT" : (apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "gpt-4o-mini" : "NOT SET"}
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Primary Model</span>
-                  </div>
-
-                  {/* Gemini Card */}
-                  <div className={`p-3 rounded-xl border transition-all ${
-                    apiStatus.geminiError ? "bg-rose-950/20 border-rose-500/30" :
-                    apiStatus.gemini ? "bg-slate-950/80 border-slate-800" : "bg-slate-950/40 border-slate-800/60"
-                  }`}>
-                    <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="font-mono text-slate-400 font-semibold truncate">GEMINI_API</span>
-                      <span className={`w-2 h-2 rounded-full ${apiStatus.gemini && !apiStatus.geminiError ? "bg-emerald-500 animate-pulse" : apiStatus.geminiError ? "bg-rose-500" : "bg-slate-600"}`} />
-                    </div>
-                    <div className="text-sm font-bold text-white font-mono truncate">
-                      {apiStatus.geminiError ? "KEY LEAKED" : apiStatus.gemini ? "gemini-flash" : "NOT SET"}
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Fallback Model</span>
-                  </div>
-
-                  {/* CMC Card */}
-                  <div className={`p-3 rounded-xl border transition-all ${
-                    apiStatus.cmc ? "bg-slate-950/80 border-slate-800" : "bg-slate-950/40 border-slate-800/60"
-                  }`}>
-                    <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="font-mono text-slate-400 font-semibold truncate">CMC_PRO_KEY</span>
-                      <span className={`w-2 h-2 rounded-full ${apiStatus.cmc ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`} />
-                    </div>
-                    <div className="text-sm font-bold text-white font-mono truncate">
-                      {apiStatus.cmc ? "PRO API ACTIVE" : "CG PUBLIC"}
-                    </div>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Market Feed</span>
-                  </div>
-                </div>
-
-                {/* Inline Alert Callout if error exists */}
-                {apiStatus.openaiError && (
-                  <div className="mt-3 text-[10px] bg-rose-950/30 text-rose-300 p-2.5 rounded-xl border border-rose-500/20 leading-relaxed">
-                    <span className="font-bold text-rose-400 block mb-0.5">⚠️ OpenAI Quota Exceeded</span>
-                    <span className="font-mono text-[9px] block text-rose-300/80 mb-1 truncate">{apiStatus.openaiError}</span>
-                    <span className="text-slate-400">💡 Top up OpenAI account credits or rely on Gemini fallback.</span>
-                  </div>
-                )}
-                {apiStatus.geminiError && (
-                  <div className="mt-3 text-[10px] bg-rose-950/30 text-rose-300 p-2.5 rounded-xl border border-rose-500/20 leading-relaxed">
-                    <span className="font-bold text-rose-400 block mb-0.5">⚠️ Gemini Key Leaked</span>
-                    <span className="text-slate-400">Google revoked this key. Please generate a replacement key in Google AI Studio.</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="text-[11px] text-slate-500 mt-4 leading-relaxed flex gap-2">
-                <HelpCircle className="h-4 w-4 text-blue-400 flex-shrink-0" />
-                <span>Credentials are loaded server-side from environment variables.</span>
-              </div>
-            </section>
-
-            {/* Storage, Auth & Cache Maintenance */}
-            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4.5">
-                  <h2 className="font-bold text-white tracking-tight flex items-center gap-2">
-                    <span className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
-                      <HardDrive className="h-4 w-4" />
-                    </span>
-                    Active Account Login Session
-                  </h2>
-                  <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded border ${
-                    sessionExists ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-bold" : "bg-amber-500/10 border-amber-500/20 text-amber-400 font-bold"
-                  }`}>
-                    {sessionExists ? "Signed In" : "Not Signed In"}
+          {/* 3. DATA RETENTION & AUTO-CLEANUP SETTINGS */}
+          {adminSection === "retention" && (
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <span className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <Archive className="h-5 w-5" />
                   </span>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-2 text-sm">
-                    {sessionExists && sessionDetails ? (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-slate-500 block">Active Account Profile:</span>
-                          <span className="text-emerald-400 font-bold text-sm">{activeProfile?.name || "Connected Account"}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block">Last Saved:</span>
-                          <span className="text-slate-300 font-medium truncate block font-mono">
-                            {new Date(sessionDetails.updatedAt).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-amber-400 font-medium bg-amber-500/5 p-2 rounded border border-amber-500/10">
-                        No active CoinMarketCap account session signed in.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button
-                      onClick={() => {
-                        setLoginTab("cookies");
-                        setShowSessionModal(true);
-                      }}
-                      disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
-                      className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 hover:text-white transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Upload className="h-3.5 w-3.5" /> Import Cookies
-                    </button>
-                    <button
-                      onClick={() => runCommand("/api/check-login", "login")}
-                      disabled={isPending.login || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
-                      className="py-2.5 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-semibold text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {isPending.login ? (
-                        <>
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Verifying...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="h-3.5 w-3.5" /> Verify Login
-                        </>
-                      )}
-                    </button>
-                    {sessionExists && (
-                      <button
-                        onClick={() =>
-                          setInlineConfirmModal({
-                            isOpen: true,
-                            title: "Sign Out Active Account?",
-                            message: "This will sign out the current active CoinMarketCap browser session.",
-                            onConfirm: () => runCommand("/api/clear-session", "login"),
-                          })
-                        }
-                        disabled={isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
-                        className="py-2.5 px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 font-medium text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Sign Out Session
-                      </button>
-                    )}
+                  <div>
+                    <h2 className="text-base font-bold text-white">Automatic History Cleanup & Retention Policy</h2>
+                    <p className="text-sm text-slate-400 mt-0.5">
+                      Choose how many days of completed post history to keep before older records are automatically cleaned up.
+                    </p>
                   </div>
                 </div>
+                <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 self-start sm:self-auto">
+                  KEEPING LAST {retentionDays} DAYS
+                </span>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between gap-2 text-[11px] text-slate-400">
-                <span><strong className="text-white">Notice:</strong> Browser contexts and cookies are stored securely on the backend container.</span>
-                <button
-                  onClick={() => {
-                    setLoginTab("profiles");
-                    setShowSessionModal(true);
-                  }}
-                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg font-bold transition cursor-pointer shrink-0"
-                >
-                  Manage Profiles ({profilesList.length})
-                </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                  <span className="text-sm font-bold text-white block">Select History Window</span>
+                  <p className="text-xs text-slate-400">
+                    Completed runs older than this window are automatically removed to keep the app fast.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveRetentionSettings(4, true)}
+                      className={`py-2.5 px-3 rounded-xl border text-sm font-bold transition cursor-pointer ${
+                        retentionDays === 4
+                          ? "bg-blue-600 text-white border-blue-500 shadow"
+                          : "bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800"
+                      }`}
+                    >
+                      Keep 4 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveRetentionSettings(7, true)}
+                      className={`py-2.5 px-3 rounded-xl border text-sm font-bold transition cursor-pointer ${
+                        retentionDays === 7
+                          ? "bg-blue-600 text-white border-blue-500 shadow"
+                          : "bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800"
+                      }`}
+                    >
+                      Keep 7 Days (Recommended)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex flex-col justify-between gap-3">
+                  <div>
+                    <span className="text-sm font-bold text-white block">Manual Cleanup</span>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Immediately clean up post submissions older than {retentionDays} days without affecting your active queue.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handlePruneOldData(retentionDays)}
+                    disabled={isPruningData || isBusy || isPostingActive}
+                    className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-sm font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="h-4 w-4 text-blue-400" />
+                    <span>{isPruningData ? "Cleaning Old Records..." : `Clean Records Older Than ${retentionDays} Days`}</span>
+                  </button>
+                </div>
               </div>
             </section>
-          </div>
           )}
 
-          {/* 3. TELEGRAM EMERGENCY ALERTS SYSTEM */}
+          {/* 2. TELEGRAM EMERGENCY ALERTS SYSTEM */}
           {adminSection === "telegram" && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl transition-all duration-350 hover:border-slate-700/80">
             {/* Header */}
@@ -3451,40 +3299,22 @@ export default function App() {
                   <Bell className="h-5 w-5" />
                 </span>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="font-bold text-white text-base">Emergency Telegram Alerts (Critical Stops Only)</h2>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
                       telegramEnabled ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : "bg-slate-800 text-slate-400"
                     }`}>
-                      {telegramEnabled ? "High-Alert Mode" : "Disabled"}
+                      {telegramEnabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
                   <p className="text-sm text-slate-400 mt-0.5">
-                    Sends an instant Telegram alert only when human action is needed (e.g., an account logs out or a scheduled run stops).
+                    Sends an instant Telegram message only when human action is needed (e.g., all accounts sign out or a scheduled run stops).
                   </p>
                 </div>
               </div>
 
-              {/* Master Toggle & In-App Alerts Convenience Bar */}
-              <div className="flex flex-wrap items-center gap-2.5 bg-slate-950/90 border border-slate-800 p-2.5 rounded-xl">
-                <button
-                  type="button"
-                  onClick={toggleNotifications}
-                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                    notificationsEnabled
-                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
-                      : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
-                  }`}
-                  title={notificationsEnabled ? "In-app toast alerts are ON. Click to mute." : "In-app toast alerts are OFF. Click to enable."}
-                >
-                  {notificationsEnabled ? (
-                    <Bell className="h-3.5 w-3.5 text-emerald-400" />
-                  ) : (
-                    <BellOff className="h-3.5 w-3.5 text-amber-400" />
-                  )}
-                  <span>{notificationsEnabled ? "Toast Alerts: ON" : "Toast Alerts: OFF"}</span>
-                </button>
-
+              {/* Telegram Master Toggle */}
+              <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => handleToggleTelegram(!telegramEnabled)}
@@ -3748,7 +3578,7 @@ export default function App() {
           </main>
       ) : currentView === "scheduler" ? (
         /* DEDICATED ISOLATED MULTI-ACCOUNT SCHEDULER SCREEN (/scheduler) */
-        <main key="view-scheduler" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        <main key="view-scheduler" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* SCHEDULER HEADER & CONTROLS DECK */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -4507,11 +4337,11 @@ export default function App() {
         </main>
       ) : currentView === "guide" ? (
         /* DEDICATED OPERATING GUIDE SCREEN (/guide) */
-        <main key="view-guide" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        <main key="view-guide" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 shrink-0">
                 <BookOpen className="h-6 w-6" />
               </div>
               <div>
@@ -4519,24 +4349,24 @@ export default function App() {
                   Beginner & Operating Guide
                 </h1>
                 <p className="text-sm text-slate-400">
-                  Interactive step-by-step walkthrough for setting up accounts, generating AI comments, and automating CoinMarketCap posts
+                  Simple step-by-step guide for connecting accounts, writing AI comments, and scheduling 24/7 CoinMarketCap posts
                 </p>
               </div>
             </div>
             <button
               onClick={() => navigateTo("dashboard")}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md self-start sm:self-auto"
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md self-start sm:self-auto shrink-0"
             >
               <ArrowLeft className="h-4 w-4" /> Back to Dashboard
             </button>
           </div>
 
           {/* BEGINNER 3-STEP QUICK WORKFLOW BANNER */}
-          <div className="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+          <div className="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
             <div className="relative z-10 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3.5">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-bold uppercase tracking-wider">
                     New User Quick Start
                   </span>
@@ -4561,7 +4391,7 @@ export default function App() {
                     </div>
                     <h4 className="text-base font-bold text-white pt-1">Add a CoinMarketCap Account</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Log in with your email/password or import cookies so the browser can post comments on your behalf.
+                      Sign in with your email and password or import saved login cookies so the bot can post comments for you.
                     </p>
                   </div>
                   <button
@@ -4609,14 +4439,14 @@ export default function App() {
                     </div>
                     <h4 className="text-base font-bold text-white pt-1">Start Posting or Enable Scheduler</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Post immediately with <strong>Start Posting</strong>, or use the <strong>Scheduler</strong> to rotate through multiple accounts automatically.
+                      Post immediately with <strong>Start Posting</strong>, or use the <strong>24/7 Scheduler</strong> to rotate through multiple accounts automatically.
                     </p>
                   </div>
                   <button
                     onClick={() => navigateTo("scheduler")}
                     className="w-full py-2.5 px-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Clock className="h-4 w-4" /> Open Multi-Account Scheduler
+                    <Clock className="h-4 w-4" /> Open 24/7 Scheduler
                   </button>
                 </div>
               </div>
@@ -4651,11 +4481,11 @@ export default function App() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 1. Getting started */}
             {(guideStep === "all" || guideStep === "getting-started") && (
-            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                    <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 shrink-0">
                       <Zap className="h-5 w-5" />
                     </div>
                     <div>
@@ -4663,7 +4493,7 @@ export default function App() {
                         Section 1 • Readiness Checklist
                       </span>
                       <h2 className="text-base font-bold text-white">Getting started</h2>
-                      <p className="text-sm text-slate-400">Core requirements before your first run</p>
+                      <p className="text-sm text-slate-400">Quick checklist before your first campaign</p>
                     </div>
                   </div>
                   <button
@@ -4675,11 +4505,11 @@ export default function App() {
                 </div>
                 <ul className="space-y-2.5">
                   {[
-                    "Connect at least one active CoinMarketCap account before running automated workflows.",
-                    "Configure your OpenAI or Gemini API key in the environment to generate authentic comments.",
-                    "Review your daily post limit and cooldown gap settings to prevent spam rate limits.",
-                    "Verify that your database connection is active to preserve persistent session states.",
-                    "Monitor the Health page to ensure all dependencies and credentials are green."
+                    "Connect at least one CoinMarketCap account before starting a campaign.",
+                    "Check the Health page to make sure the AI Comment Writer is enabled.",
+                    "Review your daily post limit (up to 300 posts/day per account) to stay safe.",
+                    "Confirm that Cloud Storage shows Connected so your accounts and history are saved.",
+                    "Look for the green dot on the top Health button to confirm everything is ready."
                   ].map((bullet, idx) => (
                     <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
                       <span className="w-6 h-6 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
@@ -4699,39 +4529,29 @@ export default function App() {
 
             {/* 2. Adding an account */}
             {(guideStep === "all" || guideStep === "accounts") && (
-            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                    <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 shrink-0">
                       <Users className="h-5 w-5" />
                     </div>
                     <div>
                       <span className="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold block">
-                        Section 2 • Accounts & Cookies
+                        Section 2 • Connect Accounts
                       </span>
                       <h2 className="text-base font-bold text-white">Adding an account</h2>
-                      <p className="text-sm text-slate-400">Profile management and session isolation</p>
+                      <p className="text-sm text-slate-400">Add, switch, or manage your CoinMarketCap accounts</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      handleResetLoginState();
-                      setLoginTab("credentials");
-                      setShowSessionModal(true);
-                    }}
-                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
-                  >
-                    <Users className="h-4 w-4" /> + Add Account
-                  </button>
                 </div>
                 <ul className="space-y-2.5">
                   {[
-                    "Click the Account button in the top header bar to open the account management dialog.",
-                    "Enter your email and password for automatic browser login.",
-                    "Alternatively, import a saved login backup from an authenticated browser.",
-                    "Assign an optional residential proxy to isolate account IP addresses and avoid bans.",
-                    "Keep 3 primary accounts active and 2 standby accounts for auto-failover protection."
+                    "Click the Account button in the top bar to open the account window.",
+                    "Sign in with your CoinMarketCap email and password for automatic login.",
+                    "Or use Import Cookies to paste a saved login backup from your browser.",
+                    "Optionally add a proxy IP to each account to keep accounts separate and safe.",
+                    "Keep 3 primary accounts active and 2 backup accounts ready for automatic failover."
                   ].map((bullet, idx) => (
                     <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
                       <span className="w-6 h-6 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
@@ -4744,17 +4564,17 @@ export default function App() {
               </div>
               <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
                 <Shield className="h-4 w-4 text-indigo-400 shrink-0" />
-                <span><strong className="text-slate-200">Beginner Tip:</strong> Each account has its own isolated cookies, coin list, and post history.</span>
+                <span><strong className="text-slate-200">Beginner Tip:</strong> Each account keeps its own separate login, coin list, and post history.</span>
               </div>
             </div>
             )}
 
             {/* 3. Running the scheduler (start, pause, stop, resume) */}
             {(guideStep === "all" || guideStep === "scheduler") && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2 animate-in fade-in duration-200">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4 md:col-span-2 animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                  <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20 shrink-0">
                     <Clock className="h-5 w-5" />
                   </div>
                   <div>
@@ -4762,24 +4582,18 @@ export default function App() {
                       Section 3 • Multi-Account Automation
                     </span>
                     <h2 className="text-base font-bold text-white">Running the scheduler (start, pause, stop, resume)</h2>
-                    <p className="text-sm text-slate-400">Sequential account rotation, saved progress, and live controls</p>
+                    <p className="text-sm text-slate-400">Automatic account rotation, saved progress, and live controls</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => navigateTo("scheduler")}
-                  className="px-3.5 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                >
-                  <Clock className="h-4 w-4" /> Open Scheduler
-                </button>
               </div>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
-                  "Start: Click Start in the Scheduler tab to begin sequential posting across active accounts.",
-                  "Pause: Click Pause to finish posting to the current coin and then halt execution gracefully.",
-                  "Resume: Click Resume to continue posting to the remaining coins right from where you paused.",
-                  "Stop: Click Stop to cancel the active cycle once the in-flight coin completes.",
-                  "Position and progress are automatically saved across server restarts and page refreshes.",
-                  "Settings are locked while running; pause or stop the scheduler to adjust intervals or accounts."
+                  "Start: Click Run cycle now in the Scheduler tab to start posting across your active accounts.",
+                  "Pause: Click Pause to finish the current coin and safely wait.",
+                  "Resume: Click Resume to continue posting the remaining coins right where you paused.",
+                  "Stop: Click Stop to end the current cycle after the current coin finishes.",
+                  "Your progress is saved automatically even if you refresh or close the page.",
+                  "Settings are locked while a cycle is running; pause or stop first to change settings."
                 ].map((bullet, idx) => (
                   <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
                     <span className="w-6 h-6 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
@@ -4794,11 +4608,11 @@ export default function App() {
 
             {/* 4. Images */}
             {(guideStep === "all" || guideStep === "images") && (
-            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                    <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 shrink-0">
                       <ImageIcon className="h-5 w-5" />
                     </div>
                     <div>
@@ -4806,10 +4620,10 @@ export default function App() {
                         Section 4 • Chart & Graphic Attachments
                       </span>
                       <h2 className="text-base font-bold text-white">Images</h2>
-                      <p className="text-sm text-slate-400">Attaching graphics and rotation rules</p>
+                      <p className="text-sm text-slate-400">Attaching promotional graphics to your comments</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => imageFileInputRef.current?.click()}
                       className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
@@ -4826,16 +4640,16 @@ export default function App() {
                       }}
                       className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
-                      <ImageIcon className="h-3.5 w-3.5" /> Images Library ({marketingImages.length})
+                      <ImageIcon className="h-3.5 w-3.5" /> Image Library ({marketingImages.length})
                     </button>
                   </div>
                 </div>
                 <ul className="space-y-2.5">
                   {[
-                    "Upload promotional marketing graphics in PNG, JPG, or WEBP format in the Images section.",
-                    "Enable 'Marketing Image Upload' to attach strictly one branded graphic with each comment.",
-                    "Choose 'Cycle' mode to rotate through images sequentially or 'Random' mode for variety.",
-                    "Use Auto-Prune to retain the latest uploaded graphics and automatically clean older files."
+                    "Upload marketing graphics in PNG, JPG, or WEBP format from your computer or a cloud link.",
+                    "Turn on Enable Images to attach one graphic automatically to each comment.",
+                    "Choose Cycle mode to rotate through images in order, or Random mode for variety.",
+                    "Use Auto-Clean in the Image Library to keep only your newest uploaded graphics."
                   ].map((bullet, idx) => (
                     <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
                       <span className="w-6 h-6 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
@@ -4848,18 +4662,18 @@ export default function App() {
               </div>
               <div className="pt-2 border-t border-slate-800/60 text-sm text-slate-400 flex items-center gap-2">
                 <ImageIcon className="h-4 w-4 text-purple-400 shrink-0" />
-                <span><strong className="text-slate-200">Beginner Tip:</strong> Image attachment can be paused or enabled anytime on the Dashboard or Scheduler.</span>
+                <span><strong className="text-slate-200">Beginner Tip:</strong> You can pause or enable image attachments anytime on the Dashboard or Scheduler.</span>
               </div>
             </div>
             )}
 
             {/* 5. If something goes wrong */}
             {(guideStep === "all" || guideStep === "troubleshooting") && (
-            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
+            <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col justify-between space-y-4 animate-in fade-in duration-200 ${guideStep !== "all" ? "md:col-span-2" : ""}`}>
               <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                    <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20 shrink-0">
                       <AlertTriangle className="h-5 w-5" />
                     </div>
                     <div>
@@ -4867,7 +4681,7 @@ export default function App() {
                         Section 5 • Help & Recovery
                       </span>
                       <h2 className="text-base font-bold text-white">If something goes wrong</h2>
-                      <p className="text-sm text-slate-400">Troubleshooting, error diagnostics, and recovery</p>
+                      <p className="text-sm text-slate-400">Quick fixes if an account signs out or a post fails</p>
                     </div>
                   </div>
                   <button
@@ -4879,11 +4693,11 @@ export default function App() {
                 </div>
                 <ul className="space-y-2.5">
                   {[
-                    "Check the Health page to immediately identify degraded services or missing keys.",
-                    "If an account session expires, click Check login and re-authenticate or re-import cookies.",
-                    "If comment generation fails, verify your OpenAI credit balance or switch to Gemini.",
-                    "Review real-time diagnostic output in the Activity Logs to view error traces.",
-                    "Failed coins are automatically queued for retry without disrupting the remaining queue."
+                    "Open the Health page to see if any service needs attention.",
+                    "If an account signs out, click Check login or reconnect the account in the Account window.",
+                    "If AI comments stop generating, check that your OpenAI credit balance is topped up.",
+                    "Open the Logs page to see live activity messages and why a post stopped.",
+                    "Any failed coin can be retried in one click from the Post Submissions table."
                   ].map((bullet, idx) => (
                     <li key={idx} className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70">
                       <span className="w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0">
@@ -4905,7 +4719,7 @@ export default function App() {
         </main>
       ) : currentView === "logs" ? (
         /* DEDICATED LOGS SCREEN (/logs) */
-        <main key="view-logs" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        <main key="view-logs" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
@@ -5070,18 +4884,18 @@ export default function App() {
                     {schedulerLogs.length} events
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                   <input
                     type="text"
                     placeholder="Filter scheduler logs..."
                     value={schedulerLogQuery}
                     onChange={(e) => setSchedulerLogQuery(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 placeholder-slate-600 font-mono w-48"
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 placeholder-slate-600 font-mono flex-1 sm:w-48 min-w-[140px]"
                   />
                   <a
                     href="/api/scheduler/logs/download"
                     download="scheduler_execution.log"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Download className="h-3.5 w-3.5" />
                     <span>Download Scheduler Logs</span>
@@ -5115,33 +4929,33 @@ export default function App() {
           )}
         </main>
       ) : currentView === "health" ? (
-        /* DEDICATED SYSTEM HEALTH SCREEN (Strictly Live Health Monitoring & Browser Readiness — Zero Settings Duplication) */
-        <main key="view-health" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        /* DEDICATED SYSTEM HEALTH SCREEN (Strictly Live Health Status & Popup Alerts Toggle — Zero Admin Settings Duplication) */
+        <main key="view-health" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
           {/* Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shrink-0">
                 <Activity className="h-6 w-6" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                  System Health & Live Diagnostics
+                  System Health
                 </h1>
-                <p className="text-sm text-slate-400">Real-time health of the bot server, browser engine, AI writer, cloud database, and alert channels</p>
+                <p className="text-sm text-slate-400">Live status of the server, AI comment writer, CoinMarketCap browser, cloud storage, and popup alerts</p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 onClick={() => checkSystemHealth(true)}
                 disabled={isCheckingSystem}
-                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50"
-                title="Re-verify browser and server health"
+                className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50 whitespace-nowrap shrink-0"
+                title="Refresh system health checks"
               >
-                <RefreshCw className={`h-4 w-4 text-emerald-400 ${isCheckingSystem ? "animate-spin" : ""}`} />
-                <span>{isCheckingSystem ? "Checking..." : "Refresh Health Check"}</span>
+                <RefreshCw className={`h-4 w-4 text-emerald-400 shrink-0 ${isCheckingSystem ? "animate-spin" : ""}`} />
+                <span>{isCheckingSystem ? "Checking..." : "Refresh Check"}</span>
               </button>
-              <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md">
-                <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+              <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0">
+                <ArrowLeft className="h-4 w-4 shrink-0" /> Back to Dashboard
               </button>
             </div>
           </div>
@@ -5150,115 +4964,43 @@ export default function App() {
           {healthData?.overall === "ok" && healthData?.healthy !== false && (!systemCheckResult || systemCheckResult.success) ? (
             <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
               <div className="flex items-center gap-3.5">
-                <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
                   <CheckCircle className="h-6 w-6" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Everything is working</h2>
-                  <p className="text-sm text-slate-300">All core services, browser automation engines, cloud database connections, and account sessions are operational.</p>
+                  <p className="text-sm text-slate-300">All core services, browser automation, cloud database connections, and active accounts are ready.</p>
                 </div>
               </div>
-              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 self-start sm:self-auto">
-                SYSTEM OPTIMAL
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 self-start sm:self-auto shrink-0">
+                HEALTHY
               </span>
             </div>
           ) : (
             <div className="p-5 rounded-2xl bg-rose-950/40 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
               <div className="flex items-center gap-3.5">
-                <div className="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                <div className="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
                   <AlertTriangle className="h-6 w-6 text-rose-400" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Needs attention</h2>
-                  <p className="text-sm text-slate-300">One or more system checks require attention. Review the diagnostic cards below.</p>
+                  <p className="text-sm text-slate-300">One or more system checks require attention. Review the messages below.</p>
                 </div>
               </div>
-              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 self-start sm:self-auto">
-                ACTION REQUIRED
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 self-start sm:self-auto shrink-0">
+                ACTION NEEDED
               </span>
             </div>
           )}
 
-          {/* LIVE BROWSER & ENGINE READINESS STRIP (Moved into System Health where it belongs) */}
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5 mb-4">
-              <div className="flex items-center gap-2.5">
-                <Globe className="h-4 w-4 text-emerald-400" />
-                <h2 className="font-bold text-white text-sm uppercase tracking-wider font-mono">
-                  Browser & Posting Engine Readiness
-                </h2>
-              </div>
-              <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold self-start sm:self-auto ${
-                !systemCheckResult
-                  ? "bg-blue-500/20 text-blue-300"
-                  : systemCheckResult.success
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "bg-red-500/20 text-red-300"
-              }`}>
-                {!systemCheckResult ? "VERIFYING..." : systemCheckResult.success ? "ALL 3 CHECKS PASSED" : "CHECK FAILED"}
-              </span>
-            </div>
-
-            {!systemCheckResult ? (
-              <div className="py-4 flex items-center justify-center gap-2.5 text-slate-400 text-sm">
-                <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
-                <span>Verifying posting browser readiness...</span>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.playwrightInstalled ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Automation Engine</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.playwrightInstalled ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-                    {systemCheckResult.playwrightInstalled ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-
-                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.executableExists ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Posting Browser</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.executableExists ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-                    {systemCheckResult.executableExists ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-
-                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {systemCheckResult.launchStatus === "success" ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-                    )}
-                    <span className="text-sm font-semibold text-white">Browser Launch Test</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${systemCheckResult.launchStatus === "success" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
-                    {systemCheckResult.launchStatus === "success" ? "Healthy" : "Action Needed"}
-                  </span>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* 5 SERVICE HEALTH CARDS (Read-only live telemetry) */}
+          {/* 5 SERVICE HEALTH CARDS (Zero Duplication — 1 Card Per Service + Interactive Alerts Toggle) */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* 1. Server */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">1. Bot Server</span>
-                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300">
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm text-slate-300 shrink-0">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
                     Server: <span className="font-semibold text-emerald-400">ONLINE</span>
                   </div>
@@ -5270,7 +5012,7 @@ export default function App() {
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                 <span>Uptime: <strong className="text-slate-200 font-mono">{healthData?.checks?.server?.uptimeSeconds ? `${Math.floor(healthData.checks.server.uptimeSeconds / 60)}m` : "Active"}</strong></span>
                 <button onClick={() => navigateTo("logs")} className="text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer">
-                  View Activity Logs →
+                  View Logs →
                 </button>
               </div>
             </div>
@@ -5278,9 +5020,9 @@ export default function App() {
             {/* 2. OpenAI / AI Models */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">2. AI Comment Generator</span>
-                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">2. AI Comment Writer</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm shrink-0">
                     <span className="text-slate-400 font-mono">OpenAI:</span>
                     {(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
@@ -5288,17 +5030,17 @@ export default function App() {
                       </span>
                     ) : (
                       <span className="text-amber-400 font-bold flex items-center gap-1">
-                        <AlertTriangle className="h-3.5 w-3.5" /> Rule-Based
+                        <AlertTriangle className="h-3.5 w-3.5" /> Fallback
                       </span>
                     )}
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.openai?.message || "Generates tailored bullish/bearish crypto commentary using AI."}
+                  {healthData?.checks?.openai?.message || "Writes crypto comments automatically for each trending coin."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Mode: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "AI Active" : "Fallback"}</strong></span>
+                <span>Model: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "AI Enabled" : "Gemini / Fallback"}</strong></span>
                 <span className="text-emerald-400 font-mono font-bold">Ready</span>
               </div>
             </div>
@@ -5306,27 +5048,27 @@ export default function App() {
             {/* 3. CMC & Browser */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Feed</span>
-                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Browser</span>
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm shrink-0">
                     <span className="text-slate-400 font-mono">CMC:</span>
-                    {apiStatus.cmc ? (
+                    {(!systemCheckResult || systemCheckResult.success) ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
-                        <CheckCircle className="h-3.5 w-3.5" /> Connected
+                        <CheckCircle className="h-3.5 w-3.5" /> Ready
                       </span>
                     ) : (
-                      <span className="text-blue-400 font-bold flex items-center gap-1">
-                        <Globe className="h-3.5 w-3.5" /> CG Public
+                      <span className="text-rose-400 font-bold flex items-center gap-1">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Check Needed
                       </span>
                     )}
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.cmc?.message || "Automated browser and CoinMarketCap market feed are ready."}
+                  {healthData?.checks?.cmc?.message || "Automated CoinMarketCap browser and trending coin feed are ready."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Browser Engine: <strong className="text-slate-200 font-mono">Automated Browser</strong></span>
+                <span>Browser Launch: <strong className="text-slate-200 font-mono">{(!systemCheckResult || systemCheckResult.launchStatus === "success") ? "Healthy" : "Action Needed"}</strong></span>
                 <span className="text-emerald-400 font-mono font-bold">Verified</span>
               </div>
             </div>
@@ -5334,27 +5076,27 @@ export default function App() {
             {/* 4. Cloud Database */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4">
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">4. Cloud Storage</span>
-                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm">
+                  <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm shrink-0">
                     <span className="text-slate-400 font-mono">DB:</span>
                     {storageInfo.isFirebaseDisabled ? (
-                      <span className="text-emerald-400 font-bold flex items-center gap-1" title="MongoDB Atlas Active. Zero Firebase calls.">
-                        <Database className="h-3.5 w-3.5 text-emerald-400" /> Mongo (Quota Safe)
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <Database className="h-3.5 w-3.5 text-emerald-400" /> Connected
                       </span>
                     ) : storageInfo.isMongoConnected ? (
-                      <span className="text-cyan-400 font-bold flex items-center gap-1" title="Dual Storage: Firebase + MongoDB">
-                        <Database className="h-3.5 w-3.5 text-cyan-400" /> Mongo + Cloud
+                      <span className="text-cyan-400 font-bold flex items-center gap-1">
+                        <Database className="h-3.5 w-3.5 text-cyan-400" /> Cloud Synced
                       </span>
                     ) : (
-                      <span className="text-amber-400 font-bold flex items-center gap-1" title="Firebase Default">
-                        <Database className="h-3.5 w-3.5 text-amber-400" /> Firebase
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <Database className="h-3.5 w-3.5 text-emerald-400" /> Connected
                       </span>
                     )}
                   </div>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {healthData?.checks?.database?.message || "Account sessions, coins, comments, and scheduler progress are synced to the cloud."}
+                  {healthData?.checks?.database?.message || "Accounts, coins, comments, and scheduler progress are saved in the cloud."}
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
@@ -5363,39 +5105,36 @@ export default function App() {
               </div>
             </div>
 
-            {/* 5. Notification Channels Status (Read-Only Health Telemetry) */}
+            {/* 5. Popup Notifications Toggle (Interactive Alerts ON/OFF) */}
             <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col justify-between gap-4 md:col-span-2 lg:col-span-2">
               <div className="space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">5. Alert Channels Status</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`px-3 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">5. Popup Notifications</span>
+                  <button
+                    type="button"
+                    onClick={toggleNotifications}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-sm font-bold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                       notificationsEnabled
-                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
-                        : "bg-slate-800 border-slate-700 text-slate-400"
-                    }`}>
-                      {notificationsEnabled ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
-                      In-App Toasts: {notificationsEnabled ? "ACTIVE" : "MUTED"}
-                    </span>
-                    <span className={`px-3 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${
-                      telegramEnabled
-                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
-                        : "bg-slate-800 border-slate-700 text-slate-400"
-                    }`}>
-                      <Shield className={`h-3.5 w-3.5 ${telegramEnabled ? "text-emerald-400" : "text-slate-400"}`} />
-                      Telegram Hotline: {telegramEnabled ? "ACTIVE" : "OFF"}
-                    </span>
-                  </div>
+                        ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                    }`}
+                    title={notificationsEnabled ? "Popup alerts are ON. Click to mute." : "Popup alerts are OFF. Click to turn ON."}
+                  >
+                    {notificationsEnabled ? (
+                      <Bell className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <BellOff className="h-4 w-4 text-amber-400" />
+                    )}
+                    <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
+                  </button>
                 </div>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  Real-time in-app toast notifications and emergency Telegram alerts monitor background posting runs and notify your team if any account session requires attention.
+                  Shows a quick popup notification on screen when coins are fetched, comments are written, or a posting round finishes.
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Emergency Channel: <strong className="text-slate-200 font-mono">@anup_cms_alert_bot</strong></span>
-                <button onClick={() => navigateTo("admin", "telegram")} className="text-blue-400 hover:text-blue-300 font-bold cursor-pointer flex items-center gap-1">
-                  <Settings className="h-3.5 w-3.5" /> Configure in Settings →
-                </button>
+                <span>Popup Status: <strong className={notificationsEnabled ? "text-emerald-400 font-mono" : "text-amber-400 font-mono"}>{notificationsEnabled ? "ACTIVE" : "MUTED"}</strong></span>
+                <span className="text-slate-400">Click the button above to mute or unmute popups</span>
               </div>
             </div>
           </div>
@@ -5436,7 +5175,7 @@ export default function App() {
         </main>
       ) : (
         /* MAIN BOT DASHBOARD */
-        <main key="view-dashboard" className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
+        <main key="view-dashboard" className="flex-1 p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-200">
 
         {/* PRIMARY FEATURE SPOTLIGHT: 24/7 MULTI-ACCOUNT AUTO-SCHEDULER */}
         <section className="bg-gradient-to-r from-indigo-950/80 via-slate-900 to-emerald-950/60 border border-indigo-500/40 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
@@ -8070,31 +7809,17 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setShowSessionModal(false);
-                    handleResetLoginState();
-                    navigateTo("admin", "secrets");
-                  }}
-                  title="Open Account & Admin Settings"
-                  className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Settings className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Admin Settings</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowSessionModal(false);
-                    handleResetLoginState();
-                  }}
-                  title="Close modal"
-                  aria-label="Close modal"
-                  className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  setShowSessionModal(false);
+                  handleResetLoginState();
+                }}
+                title="Close modal"
+                aria-label="Close modal"
+                className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
             {/* 3-Column Segmented Tab Bar (Zero Horizontal Scrollbar) */}
