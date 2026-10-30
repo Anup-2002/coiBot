@@ -3,63 +3,73 @@ import fs from "fs";
 import os from "os";
 import { execSync } from "child_process";
 import crypto from "crypto";
-
-// Auto-detect production mode if running from bundled dist/server.cjs or process.env.NODE_ENV is not explicitly set
-if (!process.env.NODE_ENV) {
-  const isCjs = typeof __filename !== "undefined";
-  const isBundled = isCjs && (__filename.endsWith("server.cjs") || __filename.includes("dist"));
-  const hasSrcDir = fs.existsSync(path.join(process.cwd(), "src"));
-  if (isBundled || !hasSrcDir) {
-    process.env.NODE_ENV = "production";
-  } else {
-    process.env.NODE_ENV = "development";
-  }
-}
-console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
-
-// Auto-detect where Playwright browser is actually installed on disk (user home cache, project local cache, root cache, or custom env)
-function resolvePlaywrightBrowsersPath(): string {
-  const candidates: string[] = [];
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    candidates.push(path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH));
-  }
-  candidates.push(path.join(os.homedir(), ".cache", "ms-playwright"));
-  candidates.push(path.join(process.cwd(), ".cache", "ms-playwright"));
-  candidates.push("/root/.cache/ms-playwright");
-
-  // Check each candidate for existing chromium / chrome folders
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      try {
-        const items = fs.readdirSync(c);
-        if (items.some(f => f.startsWith("chromium") || f.startsWith("chrome") || f.startsWith("firefox"))) {
-          return c;
-        }
-      } catch (_) {}
-    }
-  }
-
-  // If candidate with browser files not found yet, prefer home cache or project cache
-  const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
-  if (fs.existsSync(homeCache)) return homeCache;
-  return path.join(process.cwd(), ".cache", "ms-playwright");
-}
-
-process.env.PLAYWRIGHT_BROWSERS_PATH = resolvePlaywrightBrowsersPath();
-console.log(`[PLAYWRIGHT] Auto-detected PLAYWRIGHT_BROWSERS_PATH to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
-
-// Bridge symlink: If browser exists in home cache but project .cache doesn't have it, create symlink
-try {
-  const projectCache = path.join(process.cwd(), ".cache", "ms-playwright");
-  const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
-  if (fs.existsSync(homeCache) && !fs.existsSync(projectCache)) {
-    const parentDir = path.dirname(projectCache);
-    if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
-    fs.symlinkSync(homeCache, projectCache, "dir");
-    console.log(`[PLAYWRIGHT] Linked ${projectCache} -> ${homeCache}`);
-  }
-} catch (_) {}
-
+import express from "express";
+import OpenAI from "openai";
+import { GoogleGenAI, Type } from "@google/genai";
+import {
+  PORT,
+  chromium,
+  isOpenAiConfigured,
+  isCmcConfigured,
+  type ProfileTimestamps,
+  type BotProgressData,
+  type LogEntry,
+  type Coin,
+  type GeneratedMessage,
+  type PostResult,
+  type SystemProcessType,
+  type LoginSession,
+} from "./server/config.ts";
+import {
+  st,
+  state,
+  sessionHasValidCookies,
+  isProfileSessionActive,
+  getAvailableMarketingImages,
+  getNextSingleMarketingImage,
+  getLocalBotSettings,
+  saveLocalBotSettings,
+  escapeTelegramHtml,
+  sendTelegramAlert,
+  normalizeProfilesWithSchedule,
+  getActiveProfileId,
+  getNextImportedAccountName,
+  ensureProfileDirectory,
+  updateActiveProfilePaths,
+  getTodayDateString,
+  getActiveProfile,
+  getAccountDailyPostLimit,
+  isSchedulerLogMessage,
+  triggerLogSync,
+  addLog,
+  touchProcessLock,
+  acquireProcessLock,
+  releaseProcessLock,
+  interruptibleSleep,
+  isSchedulerRunning,
+  isBusy,
+  normalizeStateJson,
+} from "./server/state.ts";
+import {
+  getRealTimestamps,
+  updateRealFetchTime,
+  updateRealGenerateTime,
+  clearRealTimestamps,
+  getIsolatedResults,
+  readBotProgress,
+  saveBotProgress,
+  pruneOldAndCompletedData,
+  readJsonFile,
+  autoSyncSessionToProfiles,
+  writeJsonFileSyncAtomic,
+  getPayloadHash,
+  saveSessionStateCloudIfChanged,
+  saveProfilesCloudIfChanged,
+  writeJsonFile,
+  syncLocalFromCloudIfStale,
+  synchronizeSessionsAndProfilesOnStartup,
+  hydrateLocalFromCloud,
+} from "./server/sync.ts";
 import {
   getSessionStateCloud,
   saveSessionStateCloud,
@@ -82,9 +92,8 @@ import {
   getActiveStoreName,
   isMongoEnabled,
   isFirebaseDisabled,
-  isMongoPrimary
+  isMongoPrimary,
 } from "./src/storage.ts";
-
 import {
   normalizeProfileSchedule,
   isDue,
@@ -104,114 +113,10 @@ import {
 } from "./src/utils/scheduler.ts";
 import { cleanCommentForCmc, sanitizeCommentForAntiSpam, generateDynamicUniqueComment } from "./src/utils/formatters.ts";
 
-import express from "express";
-import OpenAI from "openai";
-import dotenv from "dotenv";
-import { createRequire } from "module";
-const customRequire = typeof require !== "undefined" ? require : createRequire(typeof process !== "undefined" && process.cwd ? "file://" + process.cwd() + "/server.js" : "file:///app/server.js");
-const { chromium } = customRequire("playwright") as typeof import("playwright");
-import { GoogleGenAI, Type } from "@google/genai";
-
-dotenv.config({ override: true });
-
 const app = express();
 app.set("trust proxy", true);
-const PORT = Number(process.env.PORT) || 3000;
-
-let OUTPUT_DIR = path.join(process.cwd(), "output");
-let AUTH_DIR = path.join(process.cwd(), "auth");
-
-try {
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  }
-  const testFile = path.join(OUTPUT_DIR, ".write-test");
-  fs.writeFileSync(testFile, "test");
-  fs.unlinkSync(testFile);
-} catch (err) {
-  console.warn("[SERVER] Root output directory is not writable. Falling back to /tmp/bot-output for AWS/Serverless compatibility.");
-  OUTPUT_DIR = "/tmp/bot-output";
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  }
-}
-
-try {
-  if (!fs.existsSync(AUTH_DIR)) {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
-  }
-  const testFile = path.join(AUTH_DIR, ".write-test");
-  fs.writeFileSync(testFile, "test");
-  fs.unlinkSync(testFile);
-} catch (err) {
-  console.warn("[SERVER] Root auth directory is not writable. Falling back to /tmp/bot-auth for AWS/Serverless compatibility.");
-  AUTH_DIR = "/tmp/bot-auth";
-  if (!fs.existsSync(AUTH_DIR)) {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
-  }
-}
-
-// Define File Paths matching project structure
-let LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
-let GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
-let RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
-let POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
-let TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
-let AUTH_STATE_FILE = path.join(AUTH_DIR, "state.json");
-let PROFILES_FILE = path.join(AUTH_DIR, "profiles.json");
-let SETTINGS_FILE = path.join(AUTH_DIR, "settings.json");
-let SCHEDULER_LOG_FILE = path.join(OUTPUT_DIR, "scheduler.log");
-let MARKETING_IMAGES_DIR = path.join(OUTPUT_DIR, "marketing_images");
-
 app.use(express.json({ limit: "50mb" }));
 
-// Session cookie and profile authentication validation helpers
-function sessionHasValidCookies(str: string): boolean {
-  if (!str || !str.trim()) return false;
-  try {
-    const parsed = JSON.parse(str);
-    const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
-    if (!Array.isArray(cookies) || cookies.length === 0) return false;
-    return cookies.some((c: any) =>
-      (c.name === "Authorization" && typeof c.value === "string" && c.value.length > 20) ||
-      (c.name === "u-prod" && typeof c.value === "string" && c.value.length > 20) ||
-      (c.name === "cmc_user_session" && typeof c.value === "string" && c.value.length > 10)
-    );
-  } catch (_) {
-    return false;
-  }
-}
-
-function isProfileSessionActive(profileId?: string | null): boolean {
-  if (profileId) {
-    try {
-      if (fs.existsSync(PROFILES_FILE)) {
-        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
-        const target = profiles.find((p: any) => p.id === profileId);
-        if (target && target.stateJson && sessionHasValidCookies(target.stateJson)) {
-          // If AUTH_STATE_FILE is missing on disk and this is the active profile, auto-hydrate it!
-          if (target.isActive && !fs.existsSync(AUTH_STATE_FILE)) {
-            try {
-              fs.writeFileSync(AUTH_STATE_FILE, target.stateJson, "utf-8");
-            } catch (_) {}
-          }
-          return true;
-        }
-      }
-    } catch (_) {}
-  }
-  if (fs.existsSync(AUTH_STATE_FILE)) {
-    try {
-      const content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
-      if (sessionHasValidCookies(content)) {
-        return true;
-      }
-    } catch (_) {}
-  }
-  return false;
-}
-
-// Intercept specific static file requests to guarantee up-to-date cloud synchronization
 app.get("/output/last_trending.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const queryProfileId = (req.query.profileId as string)?.trim();
@@ -222,13 +127,13 @@ app.get("/output/last_trending.json", (req, res) => {
   }
 
   updateActiveProfilePaths();
-  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "last_trending.json") : LAST_TRENDING_FILE;
+  const targetFile = queryProfileId ? path.join(st.OUTPUT_DIR, queryProfileId, "last_trending.json") : st.LAST_TRENDING_FILE;
 
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
   // Fallback to shared root file if profile file not yet created
-  const rootFile = path.join(OUTPUT_DIR, "last_trending.json");
+  const rootFile = path.join(st.OUTPUT_DIR, "last_trending.json");
   if (fs.existsSync(rootFile)) {
     return res.sendFile(rootFile);
   }
@@ -245,13 +150,13 @@ app.get("/output/generated_messages.json", (req, res) => {
   }
 
   updateActiveProfilePaths();
-  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "generated_messages.json") : GENERATED_MESSAGES_FILE;
+  const targetFile = queryProfileId ? path.join(st.OUTPUT_DIR, queryProfileId, "generated_messages.json") : st.GENERATED_MESSAGES_FILE;
 
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
   }
   // Fallback to shared root file if profile file not yet created
-  const rootFile = path.join(OUTPUT_DIR, "generated_messages.json");
+  const rootFile = path.join(st.OUTPUT_DIR, "generated_messages.json");
   if (fs.existsSync(rootFile)) {
     return res.sendFile(rootFile);
   }
@@ -268,7 +173,7 @@ app.get("/output/results.json", (req, res) => {
   }
 
   updateActiveProfilePaths();
-  const targetFile = queryProfileId ? path.join(OUTPUT_DIR, queryProfileId, "results.json") : RESULTS_FILE;
+  const targetFile = queryProfileId ? path.join(st.OUTPUT_DIR, queryProfileId, "results.json") : st.RESULTS_FILE;
 
   if (fs.existsSync(targetFile)) {
     return res.sendFile(targetFile);
@@ -289,670 +194,17 @@ app.get("/api/results", (req, res) => {
   res.json({ success: true, results });
 });
 
-app.use("/output", express.static(OUTPUT_DIR));
+app.use("/output", express.static(st.OUTPUT_DIR));
 
 try {
-  if (!fs.existsSync(MARKETING_IMAGES_DIR)) {
-    fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+  if (!fs.existsSync(st.MARKETING_IMAGES_DIR)) {
+    fs.mkdirSync(st.MARKETING_IMAGES_DIR, { recursive: true });
   }
 } catch (err) {
   console.error("[SERVER] Error creating MARKETING_IMAGES_DIR:", err);
 }
 
-app.use("/uploads/marketing_images", express.static(MARKETING_IMAGES_DIR));
-
-function getAvailableMarketingImages(): string[] {
-  try {
-    if (!fs.existsSync(MARKETING_IMAGES_DIR)) return [];
-    const validExts = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-    return fs.readdirSync(MARKETING_IMAGES_DIR)
-      .filter(f => validExts.includes(path.extname(f).toLowerCase()))
-      .sort();
-  } catch (_) {
-    return [];
-  }
-}
-
-function getNextSingleMarketingImage(): { filename: string; filePath: string } | null {
-  const images = getAvailableMarketingImages();
-  if (images.length === 0) return null;
-
-  const settings = getLocalBotSettings();
-  if (!settings.imageUploadEnabled) return null;
-
-  let selectedIndex = 0;
-  if (settings.imageSelectionMode === "random") {
-    selectedIndex = Math.floor(Math.random() * images.length);
-  } else {
-    // Cycle mode: pick current index and increment for next post
-    const currentIndex = typeof settings.activeImageIndex === "number" ? settings.activeImageIndex : 0;
-    selectedIndex = (currentIndex >= 0 && currentIndex < images.length) ? currentIndex : 0;
-    const nextIndex = (selectedIndex + 1) % images.length;
-    settings.activeImageIndex = nextIndex;
-    saveLocalBotSettings(settings);
-  }
-
-  const filename = images[selectedIndex];
-  let filePath = path.join(MARKETING_IMAGES_DIR, filename);
-  if (!fs.existsSync(filePath)) {
-    const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
-    if (fs.existsSync(pubPath)) {
-      filePath = pubPath;
-    } else {
-      return null;
-    }
-  }
-  return { filename, filePath };
-}
-
-function getLocalBotSettings(): BotSettings {
-  try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
-      return parseBotSettings(raw);
-    }
-  } catch (_) {}
-  return { schedulerEnabled: false };
-}
-
-function saveLocalBotSettings(settings: BotSettings): void {
-  try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf-8");
-  } catch (err) {
-    console.error("[SERVER] Error writing settings.json:", err);
-  }
-  saveSettingsCloud(settings).catch(() => {});
-}
-
-function escapeTelegramHtml(str: string): string {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-const TELEGRAM_ALERT_COOLDOWN_MS = 20 * 60 * 1000; // 20-minute throttle per category
-const lastTelegramAlertTimes = new Map<string, number>();
-const globalTelegramTimestamps: number[] = [];
-const MAX_TELEGRAM_ALERTS_PER_HOUR = 6;
-
-async function sendTelegramAlert(
-  title: string,
-  message: string,
-  type: "error" | "warning" | "success" | "info" = "info",
-  categoryKey?: string,
-  force: boolean = false
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const settings = getLocalBotSettings();
-    if (!settings.telegramAlertsEnabled) {
-      return { success: false, error: "Telegram alerts are disabled in settings." };
-    }
-    const token = (settings.telegramBotToken || "8698939017:AAHMbpwBznDWBLDJiW9-ogqvYODXbjA3wGU").trim();
-    const chatId = (settings.telegramChatId || "1817931967").trim();
-    if (!token || !chatId) {
-      return { success: false, error: "Missing Telegram Bot Token or Chat ID." };
-    }
-
-    const now = Date.now();
-
-    // Unless forced (e.g. manual user test), enforce strict anti-spam limits
-    if (!force) {
-      // 1. Category cooldown check
-      if (categoryKey) {
-        const lastSent = lastTelegramAlertTimes.get(categoryKey);
-        if (lastSent && now - lastSent < TELEGRAM_ALERT_COOLDOWN_MS) {
-          const remainingMins = Math.ceil((TELEGRAM_ALERT_COOLDOWN_MS - (now - lastSent)) / 60000);
-          console.log(`[TELEGRAM] Throttled alert for '${categoryKey}'. Cooldown active for ${remainingMins}m to prevent Telegram spam.`);
-          return { success: true };
-        }
-      }
-
-      // 2. Global hourly limit check
-      while (globalTelegramTimestamps.length > 0 && globalTelegramTimestamps[0] < now - 3600000) {
-        globalTelegramTimestamps.shift();
-      }
-      if (globalTelegramTimestamps.length >= MAX_TELEGRAM_ALERTS_PER_HOUR) {
-        console.warn(`[TELEGRAM] Throttled alert: Reached maximum emergency limit of ${MAX_TELEGRAM_ALERTS_PER_HOUR} alerts/hour.`);
-        return { success: true };
-      }
-    }
-
-    const icon = type === "error" ? "🚨" : type === "warning" ? "⚠️" : type === "success" ? "✅" : "ℹ️";
-    const text = `${icon} <b>${escapeTelegramHtml(title)}</b>\n\n${escapeTelegramHtml(message)}\n\n🕒 <i>${new Date().toLocaleString()}</i>`;
-
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
-    const data: any = await res.json();
-    if (!data.ok) {
-      console.error("[TELEGRAM] Error sending alert:", data.description);
-      return { success: false, error: data.description };
-    }
-
-    if (categoryKey) {
-      lastTelegramAlertTimes.set(categoryKey, now);
-    }
-    globalTelegramTimestamps.push(now);
-
-    return { success: true };
-  } catch (err) {
-    console.error("[TELEGRAM] Network failure sending alert:", (err as Error).message);
-    return false as any;
-  }
-}
-
-function normalizeProfilesWithSchedule(profiles: any[]): any[] {
-  if (!Array.isArray(profiles)) return [];
-  return profiles.map((p, idx) => {
-    const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
-    let dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
-    // Auto-migrate legacy 500 default to standard 300 cap
-    if (dailyPostLimit === 500) dailyPostLimit = 300;
-    return {
-      ...p,
-      dailyPostLimit,
-      schedule,
-      lastRun,
-    };
-  });
-}
-
-// Ensure PROFILES_FILE exists
-if (!fs.existsSync(PROFILES_FILE)) {
-  try {
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify([], null, 2), "utf-8");
-  } catch (err) {
-    console.error("[SERVER] Error creating initial profiles file:", err);
-  }
-}
-
-function getActiveProfileId(): string | null {
-  try {
-    if (fs.existsSync(PROFILES_FILE)) {
-      const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
-      const active = profiles.find((p: any) => p.isActive);
-      return active ? active.id : null;
-    }
-  } catch (_) {}
-  return null;
-}
-
-function getNextImportedAccountName(profiles: any[]): string {
-  for (let i = 1; i <= 5; i++) {
-    const name = `Imported Account ${i}`;
-    if (!profiles.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-      return name;
-    }
-  }
-  return `Imported Account ${profiles.length + 1}`;
-}
-
-interface ProfileTimestamps {
-  coinsFetchedAt: number | null;
-  coinsFetchedTime: string | null;
-  commentsGeneratedAt: number | null;
-  commentsGeneratedTime: string | null;
-}
-
-function getRealTimestamps(specificProfileId?: string | null): ProfileTimestamps {
-  const activeId = specificProfileId || getActiveProfileId();
-  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
-  const coinsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "last_trending.json") : LAST_TRENDING_FILE;
-  const messagesFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "generated_messages.json") : GENERATED_MESSAGES_FILE;
-
-  const ts = readJsonFile<ProfileTimestamps>(tsFilePath, {
-    coinsFetchedAt: null,
-    coinsFetchedTime: null,
-    commentsGeneratedAt: null,
-    commentsGeneratedTime: null,
-  });
-
-  // If timestamp is not recorded in timestamps.json but data file exists, fallback to file mtime
-  if (!ts.coinsFetchedAt && fs.existsSync(coinsFilePath)) {
-    try {
-      const stat = fs.statSync(coinsFilePath);
-      if (stat.size > 2) {
-        ts.coinsFetchedAt = stat.mtimeMs;
-        ts.coinsFetchedTime = stat.mtime.toISOString();
-      }
-    } catch (_) {}
-  }
-  if (!ts.commentsGeneratedAt && fs.existsSync(messagesFilePath)) {
-    try {
-      const stat = fs.statSync(messagesFilePath);
-      if (stat.size > 2) {
-        ts.commentsGeneratedAt = stat.mtimeMs;
-        ts.commentsGeneratedTime = stat.mtime.toISOString();
-      }
-    } catch (_) {}
-  }
-  return ts;
-}
-
-function updateRealFetchTime(): void {
-  const activeId = getActiveProfileId();
-  const ts = getRealTimestamps(activeId);
-  ts.coinsFetchedAt = Date.now();
-  ts.coinsFetchedTime = new Date().toISOString();
-  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
-  writeJsonFile(tsFilePath, ts);
-  if (tsFilePath !== TIMESTAMPS_FILE) {
-    writeJsonFile(TIMESTAMPS_FILE, ts);
-  }
-  if (activeId) {
-    saveTimestampsCloud(ts, activeId).catch(() => {});
-  }
-}
-
-function updateRealGenerateTime(): void {
-  const activeId = getActiveProfileId();
-  const ts = getRealTimestamps(activeId);
-  ts.commentsGeneratedAt = Date.now();
-  ts.commentsGeneratedTime = new Date().toISOString();
-  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
-  writeJsonFile(tsFilePath, ts);
-  if (tsFilePath !== TIMESTAMPS_FILE) {
-    writeJsonFile(TIMESTAMPS_FILE, ts);
-  }
-  if (activeId) {
-    saveTimestampsCloud(ts, activeId).catch(() => {});
-  }
-}
-
-function clearRealTimestamps(): void {
-  const activeId = getActiveProfileId();
-  const emptyTs = {
-    coinsFetchedAt: null,
-    coinsFetchedTime: null,
-    commentsGeneratedAt: null,
-    commentsGeneratedTime: null,
-  };
-  const tsFilePath = activeId ? path.join(OUTPUT_DIR, activeId, "timestamps.json") : TIMESTAMPS_FILE;
-  writeJsonFile(tsFilePath, emptyTs);
-  if (tsFilePath !== TIMESTAMPS_FILE) {
-    writeJsonFile(TIMESTAMPS_FILE, emptyTs);
-  }
-  if (activeId) {
-    saveTimestampsCloud(emptyTs, activeId).catch(() => {});
-  }
-}
-
-function ensureProfileDirectory(profileId: string): void {
-  if (!profileId) return;
-  const dir = path.join(OUTPUT_DIR, profileId);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const resultsFile = path.join(dir, "results.json");
-  if (!fs.existsSync(resultsFile)) {
-    fs.writeFileSync(resultsFile, "[]", "utf-8");
-  }
-  const progressFile = path.join(dir, "post_progress.json");
-  if (!fs.existsSync(progressFile)) {
-    fs.writeFileSync(progressFile, JSON.stringify({
-      next_index: 0,
-      daily_post_count: 0,
-      daily_post_limit: 300,
-      last_post_date: getTodayDateString()
-    }, null, 2), "utf-8");
-  }
-  const tsFile = path.join(dir, "timestamps.json");
-  if (!fs.existsSync(tsFile)) {
-    fs.writeFileSync(tsFile, JSON.stringify({
-      coinsFetchedAt: null,
-      coinsFetchedTime: null,
-      commentsGeneratedAt: null,
-      commentsGeneratedTime: null
-    }, null, 2), "utf-8");
-  }
-}
-
-function getIsolatedResults(profileId: string | null): PostResult[] {
-  if (!profileId) return [];
-  ensureProfileDirectory(profileId);
-  const profileResultsFile = path.join(OUTPUT_DIR, profileId, "results.json");
-  const raw = readJsonFile<PostResult[]>(profileResultsFile, []);
-  
-  // Strictly isolate: only keep results that explicitly match profileId or legacy within this directory
-  let sanitizedCount = 0;
-  const isolated: PostResult[] = [];
-  
-  for (const r of raw) {
-    if (!r.profileId) {
-      // Legacy item inside this profile's own directory, assign this profileId
-      isolated.push({ ...r, profileId });
-      sanitizedCount++;
-    } else if (r.profileId === profileId) {
-      isolated.push(r);
-    } else {
-      // Rogue item belonging to a different profile, discard immediately!
-      sanitizedCount++;
-    }
-  }
-
-  // If rogue entries or unassigned items were found, persist the sanitized array
-  if (sanitizedCount > 0) {
-    try {
-      fs.writeFileSync(profileResultsFile, JSON.stringify(isolated, null, 2), "utf-8");
-      addLog("warning", `[ISOLATION] Enforced strict isolation on "${profileId}" results (cleaned ${sanitizedCount} entries).`);
-    } catch (_) {}
-  }
-  return isolated;
-}
-
-function updateActiveProfilePaths() {
-  const activeId = getActiveProfileId();
-  if (activeId) {
-    ensureProfileDirectory(activeId);
-    const dir = path.join(OUTPUT_DIR, activeId);
-    LAST_TRENDING_FILE = path.join(dir, "last_trending.json");
-    GENERATED_MESSAGES_FILE = path.join(dir, "generated_messages.json");
-    RESULTS_FILE = path.join(dir, "results.json");
-    POST_PROGRESS_FILE = path.join(dir, "post_progress.json");
-    TIMESTAMPS_FILE = path.join(dir, "timestamps.json");
-  } else {
-    LAST_TRENDING_FILE = path.join(OUTPUT_DIR, "last_trending.json");
-    GENERATED_MESSAGES_FILE = path.join(OUTPUT_DIR, "generated_messages.json");
-    RESULTS_FILE = path.join(OUTPUT_DIR, "results.json");
-    POST_PROGRESS_FILE = path.join(OUTPUT_DIR, "post_progress.json");
-    TIMESTAMPS_FILE = path.join(OUTPUT_DIR, "timestamps.json");
-  }
-  console.log(`[PATHS] Dynamic paths updated. Active profile: ${activeId || "None"}`);
-}
-
-// Initial update of paths
-updateActiveProfilePaths();
-
-// Item 15: Per-Account Daily Post Limit and Progress Structure
-interface BotProgressData {
-  next_index: number;
-  daily_post_count?: number;
-  last_post_date?: string;
-  daily_post_limit?: number;
-  updated_at?: string;
-}
-
-function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getActiveProfile(): any | null {
-  try {
-    if (fs.existsSync(PROFILES_FILE)) {
-      const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
-      return profiles.find((p: any) => p.isActive) || null;
-    }
-  } catch (_) {}
-  return null;
-}
-
-function getAccountDailyPostLimit(profileId?: string | null): number {
-  if (profileId) {
-    try {
-      if (fs.existsSync(PROFILES_FILE)) {
-        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
-        const target = profiles.find((p: any) => p.id === profileId);
-        if (target && typeof target.dailyPostLimit === "number" && target.dailyPostLimit > 0) {
-          if (target.dailyPostLimit === 500) return 300;
-          return target.dailyPostLimit;
-        }
-      }
-    } catch (_) {}
-  } else {
-    const active = getActiveProfile();
-    if (active && typeof active.dailyPostLimit === "number" && active.dailyPostLimit > 0) {
-      if (active.dailyPostLimit === 500) return 300;
-      return active.dailyPostLimit;
-    }
-  }
-  const envVal = Number(process.env.DAILY_POST_LIMIT);
-  if (!isNaN(envVal) && envVal > 0) {
-    if (envVal === 500) return 300; // Auto-migrate legacy 500 from old .env files
-    return envVal;
-  }
-  return 300; // Configurable daily posting limit default: 300 posts/day
-}
-
-function readBotProgress(specificProfileId?: string): BotProgressData {
-  const activeId = specificProfileId || getActiveProfileId();
-  const filePath = activeId ? path.join(OUTPUT_DIR, activeId, "post_progress.json") : POST_PROGRESS_FILE;
-  const todayStr = getTodayDateString();
-  const limit = getAccountDailyPostLimit(activeId);
-  const data = readJsonFile<BotProgressData>(filePath, {
-    next_index: 0,
-    daily_post_count: 0,
-    last_post_date: todayStr,
-    daily_post_limit: limit,
-  });
-
-  if (typeof data.next_index !== "number") {
-    data.next_index = 0;
-  }
-
-  // Roll over daily post count if date stamp is from previous calendar day
-  if (!data.last_post_date || data.last_post_date !== todayStr) {
-    data.daily_post_count = 0;
-    data.last_post_date = todayStr;
-    writeJsonFile(filePath, data);
-    if (activeId) {
-      saveBotProgressCloud(data, activeId).catch(() => {});
-    }
-  } else if (typeof data.daily_post_count !== "number") {
-    data.daily_post_count = 0;
-  }
-
-  data.daily_post_limit = limit;
-  return data;
-}
-
-function saveBotProgress(updates: Partial<BotProgressData>): BotProgressData {
-  const current = readBotProgress();
-  const merged: BotProgressData = {
-    ...current,
-    ...updates,
-    daily_post_limit: updates.daily_post_limit || getAccountDailyPostLimit(),
-    updated_at: new Date().toISOString()
-  };
-  writeJsonFile(POST_PROGRESS_FILE, merged);
-  return merged;
-}
-
-// In-Memory Logs to display in the UI console
-interface LogEntry {
-  timestamp: string;
-  level: "info" | "success" | "warning" | "error";
-  message: string;
-  profileId?: string | null;
-}
-let logs: LogEntry[] = [];
-let schedulerLogsBuffer: LogEntry[] = [];
-
-function isSchedulerLogMessage(message: string): boolean {
-  return (
-    message.includes("[SCHEDULER]") ||
-    message.includes("[SYNC]") ||
-    message.includes("Sequential") ||
-    message.includes("Beginning turn (Account") ||
-    message.includes("Turn (Account") ||
-    message.includes("Launching automated posting loop") ||
-    message.includes("Run finished") ||
-    message.includes("Schedule disabled") ||
-    message.includes("Schedule not due") ||
-    (/^\[[^\]]+\]\s+/.test(message) && (
-      message.includes("Successfully submitted comment") ||
-      message.includes("Queue verified:") ||
-      message.includes("Session verified as ACTIVE") ||
-      message.includes("[SESSION HALT]")
-    ))
-  );
-}
-
-let logSyncTimeout: NodeJS.Timeout | null = null;
-function triggerLogSync() {
-  if (logSyncTimeout) return;
-  logSyncTimeout = setTimeout(() => {
-    logSyncTimeout = null;
-    saveSystemLogsCloud(logs).catch(err => {
-      console.error("[FIREBASE] Error syncing logs to cloud:", err.message);
-    });
-  }, 15000); // Debounce to 15 seconds to prevent excessive write operations during long posting runs
-}
-
-function addLog(level: "info" | "success" | "warning" | "error", message: string, profileId?: string | null) {
-  if (!message || !message.trim()) return;
-  // Deduplicate consecutive identical logs to prevent clutter
-  if (logs.length > 0 && logs[logs.length - 1].message === message) {
-    return;
-  }
-  const timestamp = new Date().toLocaleTimeString();
-  const targetProfileId = profileId !== undefined ? profileId : getActiveProfileId();
-  const entry: LogEntry = { timestamp, level, message, profileId: targetProfileId };
-  logs.push(entry);
-  console.log(`[${level.toUpperCase()}] ${message}`);
-  // Strictly enforce max 200 logs cap (ring-buffer) to prevent unbounded memory growth
-  while (logs.length > 200) {
-    logs.shift();
-  }
-  if (isSchedulerLogMessage(message)) {
-    schedulerLogsBuffer.push(entry);
-    while (schedulerLogsBuffer.length > 300) {
-      schedulerLogsBuffer.shift();
-    }
-    try {
-      const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
-      if (fs.existsSync(SCHEDULER_LOG_FILE)) {
-        const stats = fs.statSync(SCHEDULER_LOG_FILE);
-        if (stats.size > 5 * 1024 * 1024) {
-          const content = fs.readFileSync(SCHEDULER_LOG_FILE, "utf-8");
-          const trimmed = content.split("\n").slice(-1000).join("\n");
-          fs.writeFileSync(SCHEDULER_LOG_FILE, trimmed + "\n", "utf-8");
-        }
-      }
-      fs.appendFileSync(SCHEDULER_LOG_FILE, line, "utf-8");
-    } catch (_) {}
-  }
-  triggerLogSync();
-}
-
-function pruneOldAndCompletedData(targetProfileId?: string | null): {
-  prunedCount: number;
-  remainingCount: number;
-  archivedCount: number;
-  details: string;
-} {
-  try {
-    const settings = getLocalBotSettings();
-    if (settings.autoPruneOldDataEnabled === false) {
-      return { prunedCount: 0, remainingCount: 0, archivedCount: 0, details: "Data retention auto-pruning is disabled in settings." };
-    }
-
-    const retentionDays = settings.dataRetentionDays && settings.dataRetentionDays > 0 ? settings.dataRetentionDays : 7;
-    const maxKeep = settings.maxResultsHistoryCount && settings.maxResultsHistoryCount > 0 ? settings.maxResultsHistoryCount : 300;
-    const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-
-    let targetProfiles: string[] = [];
-    if (targetProfileId) {
-      targetProfiles = [targetProfileId];
-    } else if (fs.existsSync(PROFILES_FILE)) {
-      try {
-        const profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
-        targetProfiles = profiles.map((p: any) => p.id).filter(Boolean);
-      } catch (_) {}
-    }
-
-    let totalPruned = 0;
-    let totalRemaining = 0;
-    let totalArchived = 0;
-
-    const itemsToCheck: { pid: string | null; resFile: string; arcFile: string }[] = targetProfiles.map((pid) => ({
-      pid,
-      resFile: path.join(OUTPUT_DIR, pid, "results.json"),
-      arcFile: path.join(OUTPUT_DIR, pid, "archived_results.json")
-    }));
-    itemsToCheck.push({
-      pid: null,
-      resFile: path.join(OUTPUT_DIR, "results.json"),
-      arcFile: path.join(OUTPUT_DIR, "archived_results.json")
-    });
-
-    for (const item of itemsToCheck) {
-      if (!fs.existsSync(item.resFile)) continue;
-      const allResults = readJsonFile<PostResult[]>(item.resFile, []);
-      if (!allResults || allResults.length === 0) continue;
-
-      const keptResults: PostResult[] = [];
-      const prunedResults: PostResult[] = [];
-
-      for (const res of allResults) {
-        const itemCreated = res.createdAt || (res.timestamp ? new Date(res.timestamp).getTime() : 0);
-        if (itemCreated > 0 && itemCreated < cutoffTime) {
-          prunedResults.push(res);
-        } else {
-          keptResults.push(res);
-        }
-      }
-
-      if (keptResults.length > maxKeep) {
-        const excessCount = keptResults.length - maxKeep;
-        const excess = keptResults.slice(0, excessCount);
-        prunedResults.push(...excess);
-        keptResults.splice(0, excessCount);
-      }
-
-      if (prunedResults.length > 0) {
-        const existingArchive = readJsonFile<PostResult[]>(item.arcFile, []);
-        const mergedArchive = [...existingArchive, ...prunedResults];
-        const cappedArchive = mergedArchive.slice(-2500);
-        writeJsonFile(item.arcFile, cappedArchive);
-        writeJsonFile(item.resFile, keptResults);
-
-        totalPruned += prunedResults.length;
-        totalArchived += prunedResults.length;
-        totalRemaining += keptResults.length;
-
-        if (item.pid) {
-          savePostResultsCloud(keptResults, item.pid).catch(() => {});
-        }
-      } else {
-        totalRemaining += keptResults.length;
-      }
-    }
-
-    if (totalPruned > 0) {
-      addLog("info", `[DATA RETENTION] Auto-pruned ${totalPruned} old submission records older than ${retentionDays} days. Kept ${totalRemaining} active records. Safely archived.`);
-    }
-
-    return {
-      prunedCount: totalPruned,
-      remainingCount: totalRemaining,
-      archivedCount: totalArchived,
-      details: `Pruned ${totalPruned} submissions older than ${retentionDays} days. Active pool size: ${totalRemaining}.`
-    };
-  } catch (err) {
-    console.error("[DATA RETENTION] Error during auto-pruning:", err);
-    return { prunedCount: 0, remainingCount: 0, archivedCount: 0, details: (err as Error).message };
-  }
-}
-
-// Initial data retention check at startup to prune accumulated old data
-setTimeout(() => {
-  try {
-    pruneOldAndCompletedData();
-  } catch (_) {}
-}, 3000);
+app.use("/uploads/marketing_images", express.static(st.MARKETING_IMAGES_DIR));
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   let timeoutId: NodeJS.Timeout;
@@ -966,18 +218,17 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
   });
 }
 
-let isInstallingPlaywright = false;
 async function installPlaywrightChromium(): Promise<void> {
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
     return;
   }
-  if (isInstallingPlaywright) {
-    while (isInstallingPlaywright) {
+  if (st.isInstallingPlaywright) {
+    while (st.isInstallingPlaywright) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     return;
   }
-  isInstallingPlaywright = true;
+  st.isInstallingPlaywright = true;
   try {
     const targetBrowserPath = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.cwd(), ".cache", "ms-playwright");
     const childEnv = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: targetBrowserPath };
@@ -988,7 +239,7 @@ async function installPlaywrightChromium(): Promise<void> {
   } catch (err) {
     addLog("error", `Failed to automatically run playwright install: ${(err as Error).message}`);
   } finally {
-    isInstallingPlaywright = false;
+    st.isInstallingPlaywright = false;
   }
 }
 
@@ -1115,193 +366,63 @@ if (process.env.AUTH_STATE_JSON) {
   addLog("info", "Detected AUTH_STATE_JSON environment variable. Syncing session storage state...");
   try {
     const parsed = JSON.parse(process.env.AUTH_STATE_JSON);
-    fs.writeFileSync(AUTH_STATE_FILE, JSON.stringify(parsed, null, 2), "utf-8");
+    fs.writeFileSync(st.AUTH_STATE_FILE, JSON.stringify(parsed, null, 2), "utf-8");
     addLog("success", "Successfully initialized auth/state.json from AUTH_STATE_JSON environment variable!");
   } catch (err) {
     addLog("error", `Failed to parse AUTH_STATE_JSON environment variable: ${(err as Error).message}`);
   }
-} else if (!fs.existsSync(AUTH_STATE_FILE)) {
+} else if (!fs.existsSync(st.AUTH_STATE_FILE)) {
   addLog("info", "No active auth/state.json session file found on startup. Waiting for profile restoration or login.");
 } else {
   addLog("info", "Found existing auth/state.json session storage state.");
 }
 
 // Interfaces
-interface Coin {
-  name: string;
-  symbol: string;
-  price: number;
-  change_1h?: number;
-  change_24h: number;
-  change_7d?: number;
-  market_cap: number;
-  volume_24h: number;
-  cmc_rank?: number;
-  slug: string;
-  url: string;
-}
-
-interface GeneratedMessage {
-  name: string;
-  symbol: string;
-  url: string;
-  message: string;
-  sentiment?: "bullish" | "bearish" | "neutral";
-}
-
-interface PostResult {
-  name: string;
-  symbol: string;
-  url: string;
-  status: "success" | "captcha" | "expired" | "failed" | "retry" | "skipped";
-  message: string;
-  timestamp: string;
-  createdAt?: number;
-  sentiment?: "bullish" | "bearish" | "neutral";
-  profileId?: string;
-}
-
-// Global State
-let botStatus = "Idle"; // "Idle" | "Fetching" | "Generating" | "Posting" | "Stopping" | "Completed"
-let currentCoinName = "N/A";
-let activePostingTimeout: NodeJS.Timeout | null = null;
-let currentPostingIndex = 0;
-let isPostingRunning = false;
-let isSinglePostingRunning = false;
-let isSingleStopping = false;
-let isGeneratingRunning = false;
-let isStopping = false;
-const runMode = "Real Browser";
-
-// Global Process Mutex System to guarantee strict process isolation
-export type SystemProcessType =
-  | "none"
-  | "single_posting"
-  | "scheduler_cycle"
-  | "continuous_loop"
-  | "fetching_coins"
-  | "generating_comments"
-  | "refresh_fresh"
-  | "retry_single"
-  | "authenticating"
-  | "checking_login"
-  | "clearing_storage";
-
-let activeSystemProcess: SystemProcessType = "none";
-let activeProcessDetails: string = "";
-let activeProcessStartTime: number = 0;
-
-function touchProcessLock(): void {
-  activeProcessStartTime = Date.now();
-}
-
-function acquireProcessLock(type: SystemProcessType, description: string): { success: boolean; reason?: string } {
-  const now = Date.now();
-  if (activeSystemProcess !== "none" && activeSystemProcess !== type) {
-    // Deadlock prevention & self-healing: detect orphaned locks or expired locks
-    const isOrphaned =
-      (activeSystemProcess === "single_posting" && !isSinglePostingRunning && !isPostingRunning) ||
-      (activeSystemProcess === "continuous_loop" && !isPostingRunning && !isGeneratingRunning && !isContinuousLoopActive) ||
-      (activeSystemProcess === "scheduler_cycle" && !isSchedulerCycleRunning) ||
-      (activeSystemProcess === "generating_comments" && !isGeneratingRunning) ||
-      ((activeSystemProcess === "fetching_coins" || activeSystemProcess === "checking_login" || activeSystemProcess === "clearing_storage" || activeSystemProcess === "retry_single") && now - activeProcessStartTime > 3 * 60 * 1000);
-
-    if (isOrphaned) {
-      console.warn(`[PROCESS LOCK] Auto-clearing orphaned or halted ${activeSystemProcess} lock.`);
-      activeSystemProcess = "none";
-      activeProcessDetails = "";
-      activeProcessStartTime = 0;
-    } else if (activeProcessStartTime > 0 && now - activeProcessStartTime > 60 * 60 * 1000) {
-      console.warn(`[PROCESS LOCK] Watchdog auto-clearing stale lock (${activeSystemProcess}) held for >60 minutes.`);
-      activeSystemProcess = "none";
-      activeProcessDetails = "";
-      activeProcessStartTime = 0;
-    } else {
-      const desc = activeProcessDetails || activeSystemProcess;
-      return {
-        success: false,
-        reason: `Another automated process (${desc}) is currently active. Please wait for it to complete or stop it first.`
-      };
-    }
-  }
-  activeSystemProcess = type;
-  activeProcessDetails = description;
-  activeProcessStartTime = now;
-  return { success: true };
-}
-
-function releaseProcessLock(type: SystemProcessType): void {
-  if (activeSystemProcess === type || type === ("all" as any)) {
-    activeSystemProcess = "none";
-    activeProcessDetails = "";
-    activeProcessStartTime = 0;
-  }
-}
-
-let lastOpenAiError: string | null = null;
-let lastGeminiError: string | null = null;
-
-let isContinuousLoopActive = false;
-let isFullFlowAborted = false;
-let nextCycleStartTime: number | null = null;
-let nextCycleTimeout: NodeJS.Timeout | null = null;
-let continuousLoopIntervalMinutes = 20; // Customizable, default 20 minutes
-
-async function interruptibleSleep(ms: number): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < ms) {
-    if (!isPostingRunning || isStopping || isSingleStopping || stopSchedulerRequested || pauseSchedulerRequested) {
-      break;
-    }
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-}
-
 function cancelNextAutomationCycle() {
-  isContinuousLoopActive = false;
-  isFullFlowAborted = true;
-  nextCycleStartTime = null;
-  if (nextCycleTimeout) {
-    clearTimeout(nextCycleTimeout);
-    nextCycleTimeout = null;
+  st.isContinuousLoopActive = false;
+  st.isFullFlowAborted = true;
+  st.nextCycleStartTime = null;
+  if (st.nextCycleTimeout) {
+    clearTimeout(st.nextCycleTimeout);
+    st.nextCycleTimeout = null;
     addLog("info", "Scheduled continuous bot cycle has been cancelled.");
   }
   
   // Stop currently running posting loop or steps if any
-  if (isPostingRunning) {
-    isPostingRunning = false;
+  if (st.isPostingRunning) {
+    st.isPostingRunning = false;
     addLog("warning", "Automated posting sequence has been stopped because the Continuous Automation Loop was disabled.");
   }
-  if (isGeneratingRunning) {
-    isGeneratingRunning = false;
+  if (st.isGeneratingRunning) {
+    st.isGeneratingRunning = false;
     addLog("warning", "Automated generation process has been stopped.");
   }
-  if (botStatus === "Fetching" || botStatus === "Generating" || botStatus === "Posting" || botStatus === "Completed") {
-    botStatus = "Idle";
+  if (st.botStatus === "Fetching" || st.botStatus === "Generating" || st.botStatus === "Posting" || st.botStatus === "Completed") {
+    st.botStatus = "Idle";
   }
 }
 
 async function triggerFullFlowExecution() {
   const activeId = getActiveProfileId();
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const activeProfile = rawProfiles.find(p => p.id === activeId);
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
   const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
 
   if (!activeId || !hasValidAuth) {
     addLog("error", "[AUTOMATION] Continuous automation loop cancelled: Active profile is missing a valid authenticated session. Please log in or import cookies to resume.");
     cancelNextAutomationCycle();
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     return;
   }
 
-  if (isBusy() || isPostingRunning || isGeneratingRunning) {
+  if (isBusy() || st.isPostingRunning || st.isGeneratingRunning) {
     addLog("warning", "Could not trigger automated continuous cycle: an automated process is still currently running. Postponing cycle by 1 minute...");
-    if (isContinuousLoopActive && !nextCycleTimeout) {
-      nextCycleStartTime = Date.now() + 60000;
-      nextCycleTimeout = setTimeout(async () => {
-        nextCycleTimeout = null;
-        if (isContinuousLoopActive) {
+    if (st.isContinuousLoopActive && !st.nextCycleTimeout) {
+      st.nextCycleStartTime = Date.now() + 60000;
+      st.nextCycleTimeout = setTimeout(async () => {
+        st.nextCycleTimeout = null;
+        if (st.isContinuousLoopActive) {
           await triggerFullFlowExecution();
         }
       }, 60000);
@@ -1309,132 +430,83 @@ async function triggerFullFlowExecution() {
     return;
   }
 
-  isFullFlowAborted = false;
+  st.isFullFlowAborted = false;
 
   addLog("info", "========================================");
   addLog("info", "Starting Continuous Loop - Running Full Bot Cycle...");
   addLog("info", "========================================");
 
   // Clear previous results and progress for the new run
-  await writeJsonFile(RESULTS_FILE, []);
+  await writeJsonFile(st.RESULTS_FILE, []);
   saveBotProgress({ next_index: 0 });
 
   try {
     // Step 1: Fetch
     addLog("info", "[FLOW STEP 1/3] Fetching latest trending coins...");
-    botStatus = "Fetching";
+    st.botStatus = "Fetching";
     await executeFetchTrending();
 
-    if (isFullFlowAborted) {
+    if (st.isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Fetching phase.");
-      botStatus = "Idle";
+      st.botStatus = "Idle";
       return;
     }
 
     // Step 2: Generate
     addLog("info", "[FLOW STEP 2/3] Generating custom community comments...");
-    botStatus = "Generating";
-    isGeneratingRunning = true;
+    st.botStatus = "Generating";
+    st.isGeneratingRunning = true;
     try {
       await executeGenerateMessages();
     } finally {
-      isGeneratingRunning = false;
+      st.isGeneratingRunning = false;
     }
 
-    if (isFullFlowAborted) {
+    if (st.isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Generation phase.");
-      botStatus = "Idle";
+      st.botStatus = "Idle";
       return;
     }
 
     // Step 3: Post
     addLog("info", "[FLOW STEP 3/3] Launching automated comment submitter...");
-    isStopping = false;
-    isSingleStopping = false;
-    stopSchedulerRequested = false;
-    isPostingRunning = true;
-    botStatus = "Posting";
-    currentPostingIndex = 0;
+    st.isStopping = false;
+    st.isSingleStopping = false;
+    st.stopSchedulerRequested = false;
+    st.isPostingRunning = true;
+    st.botStatus = "Posting";
+    st.currentPostingIndex = 0;
     runPostingLoop();
   } catch (error) {
     addLog("error", `Scheduled continuous full cycle failed: ${(error as Error).message}`);
-    botStatus = "Idle";
-    isPostingRunning = false;
-    isGeneratingRunning = false;
+    st.botStatus = "Idle";
+    st.isPostingRunning = false;
+    st.isGeneratingRunning = false;
     // Schedule next one anyway if continuous loop is still active
-    if (isContinuousLoopActive) {
+    if (st.isContinuousLoopActive) {
       scheduleNextAutomationCycle();
     }
   }
 }
 
 function scheduleNextAutomationCycle() {
-  if (nextCycleTimeout) {
-    clearTimeout(nextCycleTimeout);
+  if (st.nextCycleTimeout) {
+    clearTimeout(st.nextCycleTimeout);
   }
   
-  const gapMs = continuousLoopIntervalMinutes * 60 * 1000;
-  nextCycleStartTime = Date.now() + gapMs;
-  addLog("info", `Next automated bot cycle is scheduled to start in ${continuousLoopIntervalMinutes} minutes (at ${new Date(nextCycleStartTime).toLocaleTimeString()}).`);
+  const gapMs = st.continuousLoopIntervalMinutes * 60 * 1000;
+  st.nextCycleStartTime = Date.now() + gapMs;
+  addLog("info", `Next automated bot cycle is scheduled to start in ${st.continuousLoopIntervalMinutes} minutes (at ${new Date(st.nextCycleStartTime).toLocaleTimeString()}).`);
   
-  nextCycleTimeout = setTimeout(async () => {
-    nextCycleTimeout = null;
-    nextCycleStartTime = null;
-    if (isContinuousLoopActive) {
+  st.nextCycleTimeout = setTimeout(async () => {
+    st.nextCycleTimeout = null;
+    st.nextCycleStartTime = null;
+    if (st.isContinuousLoopActive) {
       await triggerFullFlowExecution();
     }
   }, gapMs);
 }
 
-interface LoginSession {
-  browser: any;
-  context: any;
-  page: any;
-  email: string;
-}
-let activeLoginSession: LoginSession | null = null;
-let loginState: {
-  status: "idle" | "authenticating" | "requires_otp" | "success" | "failed" | "captcha";
-  message: string;
-} = { status: "idle", message: "" };
-
-let isSchedulerCycleRunning = false;
-let currentSchedulerAccountId: string | null = null;
-let schedulerQueue: string[] = [];
-let stopSchedulerRequested = false;
-let pauseSchedulerRequested = false;
-let stopSchedulerForceTimer: any = null;
-let activePostingBrowser: any = null;
-let activePostingPage: any = null;
-
-function isSchedulerRunning(): boolean {
-  if (isSchedulerCycleRunning) return true;
-  try {
-    const s = getLocalBotSettings();
-    return s.schedulerStatus === "running" || s.schedulerStatus === "paused";
-  } catch (_) {
-    return false;
-  }
-}
-
-function isBusy(): boolean {
-  return (
-    activeSystemProcess !== "none" ||
-    botStatus === "Fetching" ||
-    botStatus === "Generating" ||
-    botStatus === "Posting" ||
-    botStatus === "Stopping" ||
-    botStatus === "Authenticating" ||
-    botStatus === "Verifying Code" ||
-    botStatus === "Checking Login" ||
-    isPostingRunning ||
-    isSinglePostingRunning ||
-    isGeneratingRunning ||
-    isSchedulerCycleRunning
-  );
-}
-
-// Playwright Real Automation Helpers
 
 async function saveDebugScreenshot(page: any, name: string) {
   // Screenshot capture disabled to optimize CPU, memory, and disk space usage
@@ -1735,44 +807,6 @@ async function setupPageResourceBlocking(page: any): Promise<void> {
   }
 }
 
-function normalizeStateJson(stateJsonStr: string): string {
-  try {
-    if (!stateJsonStr || !stateJsonStr.trim()) return stateJsonStr;
-    const state = JSON.parse(stateJsonStr);
-    let changed = false;
-    
-    // Normalize Authorization cookie: CoinMarketCap expects 'BearereyJ...' WITHOUT any space.
-    // If a space exists (e.g. "Bearer eyJ..."), we MUST remove it to ensure the cookie format is correct.
-    if (state && Array.isArray(state.cookies)) {
-      const farFuture = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60; // 1 year in the future
-      state.cookies = state.cookies.map((c: any) => {
-        if (!c || typeof c !== "object") return c;
-
-        if (c.name === "Authorization" && typeof c.value === "string") {
-          if (c.value.startsWith("Bearer eyJ")) {
-            c.value = "Bearer" + c.value.substring(7); // "Bearer " is 7 characters
-            changed = true;
-            addLog("info", "Automatically normalized 'Authorization' cookie value (removed space to match CoinMarketCap's BearereyJ standard).");
-          }
-        }
-        
-        // Push cookie expiration far into the future (1 year) so Playwright/Chromium never discards them
-        if (typeof c.expires !== "number" || c.expires < farFuture) {
-          c.expires = farFuture;
-          changed = true;
-        }
-
-        return c;
-      });
-    }
-    
-    return changed ? JSON.stringify(state, null, 2) : stateJsonStr;
-  } catch (err) {
-    console.error("Error during state.json cookie normalization:", (err as Error).message);
-    return stateJsonStr;
-  }
-}
-
 function extractFingerprintDetails(stateFilePath: string) {
   let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
   let timezoneId = "America/New_York";
@@ -1885,11 +919,11 @@ async function isEditorPostButtonRequiringLogin(page: any): Promise<boolean> {
 
 async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
   // Pre-flight check: If auth/state.json doesn't exist or has no valid session cookies, return immediately without launching browser
-  if (!fs.existsSync(AUTH_STATE_FILE)) {
+  if (!fs.existsSync(st.AUTH_STATE_FILE)) {
     return { status: "expired", message: "No session state file found" };
   }
   try {
-    const rawContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+    const rawContent = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
     if (!sessionHasValidCookies(rawContent)) {
       return { status: "expired", message: "Session cookies missing or expired in auth state" };
     }
@@ -1912,11 +946,11 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
     });
     
     // Extract fingerprint details from user's state.json to maximize session authenticity
-    const { userAgent, timezoneId, locale } = extractFingerprintDetails(AUTH_STATE_FILE);
+    const { userAgent, timezoneId, locale } = extractFingerprintDetails(st.AUTH_STATE_FILE);
     
     addLog("info", `Loading browser context storage state from auth/state.json with fingerprint settings (User-Agent: ${userAgent.substring(0, 40)}..., Timezone: ${timezoneId}, Locale: ${locale})...`);
     const context = await browser.newContext({
-      storageState: AUTH_STATE_FILE,
+      storageState: st.AUTH_STATE_FILE,
       userAgent,
       viewport: { width: 1366, height: 768 },
       locale,
@@ -2046,9 +1080,9 @@ async function checkLoginRealInternal(): Promise<{ status: "success" | "expired"
 
     // Save refreshed storageState back to maintain session longevity
     try {
-      await context.storageState({ path: AUTH_STATE_FILE });
-      if (fs.existsSync(AUTH_STATE_FILE)) {
-        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      await context.storageState({ path: st.AUTH_STATE_FILE });
+      if (fs.existsSync(st.AUTH_STATE_FILE)) {
+        const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
         const activeId = getActiveProfileId();
         await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
         await autoSyncSessionToProfiles(cookiesStr);
@@ -2098,16 +1132,16 @@ async function checkLoginReal(): Promise<{ status: "success" | "expired" | "capt
 }
 
 async function executeStartLogin(email: string, password: string): Promise<{ status: "success" | "requires_otp" | "captcha" | "failed"; message: string }> {
-  loginState = { status: "authenticating", message: "Starting automated credentials login flow..." };
+  st.loginState = { status: "authenticating", message: "Starting automated credentials login flow..." };
   return PlaywrightLock.acquire(async () => {
-    if (activeLoginSession) {
+    if (st.activeLoginSession) {
       addLog("warning", "An active login session exists in memory. Closing it before starting a new one...");
-      await activeLoginSession.browser.close().catch(() => {});
-      activeLoginSession = null;
+      await st.activeLoginSession.browser.close().catch(() => {});
+      st.activeLoginSession = null;
     }
 
     addLog("info", `Starting automated credentials login flow for email: ${email}...`);
-    loginState = { status: "authenticating", message: `Initializing secure headless browser for email: ${email}...` };
+    st.loginState = { status: "authenticating", message: `Initializing secure headless browser for email: ${email}...` };
     let browser: any = null;
     try {
       browser = await launchBrowserResilient({
@@ -2139,7 +1173,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       let loginFormLoadedDirectly = false;
       addLog("info", "Attempting direct navigation to CoinMarketCap Login page...");
-      loginState = { status: "authenticating", message: "Attempting direct navigation to CoinMarketCap Login page..." };
+      st.loginState = { status: "authenticating", message: "Attempting direct navigation to CoinMarketCap Login page..." };
       try {
         await page.goto("https://coinmarketcap.com/login/", {
           waitUntil: "domcontentloaded",
@@ -2162,7 +1196,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       if (!loginFormLoadedDirectly) {
         addLog("info", "Navigating to CoinMarketCap Home page...");
-        loginState = { status: "authenticating", message: "Navigating to CoinMarketCap Home page workflow..." };
+        st.loginState = { status: "authenticating", message: "Navigating to CoinMarketCap Home page workflow..." };
         await page.goto("https://coinmarketcap.com/", {
           waitUntil: "domcontentloaded",
           timeout: 45000
@@ -2335,14 +1369,14 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
         
         addLog("info", `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...`);
-        loginState = { status: "authenticating", message: `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...` };
+        st.loginState = { status: "authenticating", message: `Waiting for email/password input boxes to load (Attempt ${i + 1}/5)...` };
         await page.waitForTimeout(2000);
       }
 
       // Subframe fallback scanning
       if (!emailInput || !passwordInput) {
         addLog("info", "Inputs not found on main frame. Scanning subframes...");
-        loginState = { status: "authenticating", message: "Inputs not found on main frame. Scanning subframes..." };
+        st.loginState = { status: "authenticating", message: "Inputs not found on main frame. Scanning subframes..." };
         for (const frame of page.frames()) {
           try {
             const elEmail = await frame.$('[data-test="email-input"], input.email-input, .email-input, input[type="email"], input[placeholder*="email" i]');
@@ -2364,7 +1398,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
 
       addLog("info", "Entering email and password securely...");
-      loginState = { status: "authenticating", message: "Entering email and password securely..." };
+      st.loginState = { status: "authenticating", message: "Entering email and password securely..." };
       await fillInputResiliently(page, emailInput, email);
       await page.waitForTimeout(400);
       await fillInputResiliently(page, passwordInput, password);
@@ -2464,7 +1498,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       page.on("response", apiResponseListener);
 
       addLog("info", "Submitting login form...");
-      loginState = { status: "authenticating", message: "Submitting login form..." };
+      st.loginState = { status: "authenticating", message: "Submitting login form..." };
 
       // Submit form via both click and Enter key for maximum resilience
       try {
@@ -2482,7 +1516,7 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       }
     
       addLog("info", "Processing credentials with CoinMarketCap...");
-      loginState = { status: "authenticating", message: "Processing credentials with CoinMarketCap..." };
+      st.loginState = { status: "authenticating", message: "Processing credentials with CoinMarketCap..." };
 
       let isSuccessEarly = false;
       let isOtpEarly = false;
@@ -2498,8 +1532,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }).catch(() => false);
         if (hasCaptcha) {
           addLog("error", "Cloudflare Turnstile challenge detected during credentials submission.");
-          activeLoginSession = { browser, context, page, email };
-          loginState = { status: "captcha", message: "Cloudflare Turnstile verification challenge detected." };
+          st.activeLoginSession = { browser, context, page, email };
+          st.loginState = { status: "captcha", message: "Cloudflare Turnstile verification challenge detected." };
           return { status: "captcha", message: "Cloudflare Turnstile challenge detected." };
         }
 
@@ -2571,24 +1605,24 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
 
         if (p % 10 === 0 && p > 0) {
-          loginState = { status: "authenticating", message: `Processing authentication with CoinMarketCap (${Math.round((p / 50) * 100)}%)...` };
+          st.loginState = { status: "authenticating", message: `Processing authentication with CoinMarketCap (${Math.round((p / 50) * 100)}%)...` };
         }
       }
 
       if (detectedError) {
         await browser.close().catch(() => {});
-        loginState = { status: "failed", message: `Login failed: ${detectedError}` };
-        botStatus = "Idle";
+        st.loginState = { status: "failed", message: `Login failed: ${detectedError}` };
+        st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${detectedError}` };
       }
 
       if (isSuccessEarly) {
         addLog("success", "Authentication verified directly after credentials submission!");
-        await context.storageState({ path: AUTH_STATE_FILE });
-        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+        await context.storageState({ path: st.AUTH_STATE_FILE });
+        addLog("success", `Saved login cookies session to ${st.AUTH_STATE_FILE}`);
 
         try {
-          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
           const activeId = getActiveProfileId();
           await saveSessionStateCloud(cookiesStr, activeId || undefined);
           await autoSyncSessionToProfiles(cookiesStr, email);
@@ -2597,15 +1631,15 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
 
         await browser.close().catch(() => {});
-        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
-        botStatus = "Idle";
+        st.loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        st.botStatus = "Idle";
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
       }
 
       if (isOtpEarly) {
         addLog("warning", "CoinMarketCap requests 6-digit security verification code!");
-        activeLoginSession = { browser, context, page, email };
-        loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
+        st.activeLoginSession = { browser, context, page, email };
+        st.loginState = { status: "requires_otp", message: "A 6-digit verification code has been sent to your email. Please enter it to authorize." };
         return { status: "requires_otp", message: "A 6-digit code has been sent to your email. Please enter it to authorize." };
       }
 
@@ -2649,14 +1683,14 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       if (modalErrorMessage) {
         await browser.close().catch(() => {});
-        loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
-        botStatus = "Idle";
+        st.loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
+        st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
       }
 
       // Secondary verification on bitcoin community page
       addLog("info", "Performing secondary verification on community page...");
-      loginState = { status: "authenticating", message: "Verifying live session cookies on CoinMarketCap community..." };
+      st.loginState = { status: "authenticating", message: "Verifying live session cookies on CoinMarketCap community..." };
       try {
         await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 20000 });
       } catch (_) {}
@@ -2674,11 +1708,11 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
 
       if (!editorRequiresLogin && (secondaryAvatar || (hasSecondaryAuth && secondaryEditor))) {
         addLog("success", "Successfully authenticated and verified community access!");
-        await context.storageState({ path: AUTH_STATE_FILE });
-        addLog("success", `Saved login cookies session to ${AUTH_STATE_FILE}`);
+        await context.storageState({ path: st.AUTH_STATE_FILE });
+        addLog("success", `Saved login cookies session to ${st.AUTH_STATE_FILE}`);
 
         try {
-          const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+          const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
           const activeId = getActiveProfileId();
           await saveSessionStateCloud(cookiesStr, activeId || undefined);
           await autoSyncSessionToProfiles(cookiesStr, email);
@@ -2687,8 +1721,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
         }
 
         await browser.close().catch(() => {});
-        loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
-        botStatus = "Idle";
+        st.loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
+        st.botStatus = "Idle";
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
       }
 
@@ -2698,8 +1732,8 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
       const finalMsg = modalErrorMessage 
         ? `Login failed: ${modalErrorMessage}` 
         : (editorRequiresLogin ? "Login incomplete: CoinMarketCap still prompts to Log In on the community page. Please verify your credentials or check for an email verification code." : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.");
-      loginState = { status: "failed", message: finalMsg };
-      botStatus = "Idle";
+      st.loginState = { status: "failed", message: finalMsg };
+      st.botStatus = "Idle";
       return { status: "failed", message: finalMsg };
 
   } catch (error) {
@@ -2708,31 +1742,31 @@ async function executeStartLogin(email: string, password: string): Promise<{ sta
     if (browser) {
       await browser.close().catch(() => {});
     }
-    loginState = { status: "failed", message: errMsg };
+    st.loginState = { status: "failed", message: errMsg };
     return { status: "failed", message: errMsg };
   }
   });
 }
 
 async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "failed"; message: string }> {
-  loginState = { status: "authenticating", message: "Submitting verification code..." };
+  st.loginState = { status: "authenticating", message: "Submitting verification code..." };
   return PlaywrightLock.acquire(async () => {
-  if (!activeLoginSession) {
+  if (!st.activeLoginSession) {
     addLog("error", "No active login session in memory to submit verification code.");
-    loginState = { status: "failed", message: "No active login session in progress." };
+    st.loginState = { status: "failed", message: "No active login session in progress." };
     return { status: "failed", message: "No active login session in progress." };
   }
 
-  const { browser, context, page, email } = activeLoginSession;
+  const { browser, context, page, email } = st.activeLoginSession;
   if (browser && !browser.isConnected()) {
     addLog("error", "Active login session browser has been disconnected or closed. Please restart the login process.");
-    activeLoginSession = null;
-    loginState = { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
+    st.activeLoginSession = null;
+    st.loginState = { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
     return { status: "failed", message: "Login session expired or browser disconnected. Please start login again." };
   }
 
   addLog("info", `Submitting 6-digit verification code: ${otp} for email: ${email}...`);
-  loginState = { status: "authenticating", message: `Submitting 6-digit verification code: ${otp}...` };
+  st.loginState = { status: "authenticating", message: `Submitting 6-digit verification code: ${otp}...` };
 
   try {
     const cleanOtp = otp.trim();
@@ -2784,7 +1818,7 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       if (!codeInput) {
         addLog("error", "Failed to locate security code input field.");
         await browser.close().catch(() => {});
-        activeLoginSession = null;
+        st.activeLoginSession = null;
         return { status: "failed", message: "Could not find the security code input box." };
       }
 
@@ -2831,12 +1865,12 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
     }
 
     addLog("info", "Waiting for authentication submission to complete (up to 10 seconds)...");
-    loginState = { status: "authenticating", message: "Waiting for verification code submission response..." };
+    st.loginState = { status: "authenticating", message: "Waiting for verification code submission response..." };
     await page.waitForTimeout(10000);
 
     // Verify successful session
     addLog("info", "Navigating to CoinMarketCap to verify session active state...");
-    loginState = { status: "authenticating", message: "Navigating to verify session active state..." };
+    st.loginState = { status: "authenticating", message: "Navigating to verify session active state..." };
     await page.goto("https://coinmarketcap.com/currencies/bitcoin/", { waitUntil: "domcontentloaded", timeout: 35000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
@@ -2868,12 +1902,12 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
 
     if (!editorRequiresLogin && (hasAuthCookie || (editor && !isHeaderLoginVisible))) {
       addLog("success", "OTP verification successful! Session is fully active!");
-      await context.storageState({ path: AUTH_STATE_FILE });
-      addLog("success", `Saved authorized session cookies to ${AUTH_STATE_FILE}`);
+      await context.storageState({ path: st.AUTH_STATE_FILE });
+      addLog("success", `Saved authorized session cookies to ${st.AUTH_STATE_FILE}`);
       
       // Sync successfully saved session to Cloud and Auto-Update Profiles
       try {
-        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+        const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
         const activeId = getActiveProfileId();
         await saveSessionStateCloud(cookiesStr, activeId || undefined);
         autoSyncSessionToProfiles(cookiesStr, email);
@@ -2882,8 +1916,8 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       }
 
       await browser.close().catch(() => {});
-      activeLoginSession = null;
-      loginState = { status: "success", message: "Successfully verified and logged in! State loaded." };
+      st.activeLoginSession = null;
+      st.loginState = { status: "success", message: "Successfully verified and logged in! State loaded." };
       return { status: "success", message: "Successfully verified and logged in! State loaded." };
     } else {
       let otpErrorMsg = "";
@@ -2897,25 +1931,25 @@ async function executeSubmitOtp(otp: string): Promise<{ status: "success" | "fai
       addLog("error", `Code submission completed, but verification failed: ${failMessage}`);
       await saveDebugScreenshot(page, "otp_verification_failed");
       await browser.close().catch(() => {});
-      activeLoginSession = null;
-      loginState = { status: "failed", message: failMessage };
+      st.activeLoginSession = null;
+      st.loginState = { status: "failed", message: failMessage };
       return { status: "failed", message: failMessage };
     }
 
   } catch (error) {
     addLog("error", `Exception during OTP submission: ${(error as Error).message}`);
     await browser.close().catch(() => {});
-    activeLoginSession = null;
+    st.activeLoginSession = null;
     return { status: "failed", message: (error as Error).message };
   }
   });
 }
 
 async function executeCancelLogin(): Promise<void> {
-  if (activeLoginSession) {
+  if (st.activeLoginSession) {
     addLog("warning", "Manually cancelling and closing active login session...");
-    await activeLoginSession.browser.close().catch(() => {});
-    activeLoginSession = null;
+    await st.activeLoginSession.browser.close().catch(() => {});
+    st.activeLoginSession = null;
   }
 }
 
@@ -2945,17 +1979,17 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
           "--disable-blink-features=AutomationControlled",
         ]
       });
-      activePostingBrowser = browser;
+      st.activePostingBrowser = browser;
     } else {
       addLog("info", "Re-using existing active Playwright browser instance for posting task.");
     }
 
     // Extract fingerprint details from user's state.json to maximize session authenticity
-    const { userAgent, timezoneId, locale } = extractFingerprintDetails(AUTH_STATE_FILE);
+    const { userAgent, timezoneId, locale } = extractFingerprintDetails(st.AUTH_STATE_FILE);
 
     addLog("info", `Loading browser context storage state from auth/state.json with fingerprint settings (User-Agent: ${userAgent.substring(0, 40)}..., Timezone: ${timezoneId}, Locale: ${locale})...`);
     context = await browser.newContext({
-      storageState: AUTH_STATE_FILE,
+      storageState: st.AUTH_STATE_FILE,
       userAgent,
       viewport: { width: 1366, height: 768 },
       locale,
@@ -2970,13 +2004,13 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     });
 
     page = await context.newPage();
-    activePostingPage = page;
+    st.activePostingPage = page;
     
     // Set explicit navigation and operation timeouts to 90 seconds (Guideline 9)
     page.setDefaultNavigationTimeout(90000);
     page.setDefaultTimeout(90000);
 
-    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+    if (st.isStopping || st.isSingleStopping || !st.isPostingRunning || st.stopSchedulerRequested) {
       return { status: "failed", message: "Posting sequence stopped by user." };
     }
 
@@ -3050,7 +2084,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       }
     } catch (_) {}
 
-    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+    if (st.isStopping || st.isSingleStopping || !st.isPostingRunning || st.stopSchedulerRequested) {
       return { status: "failed", message: "Posting sequence stopped by user." };
     }
 
@@ -3321,7 +2355,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       return { status: "expired", message: "Post button text is Log In" };
     }
     
-    if (isStopping || isSingleStopping || !isPostingRunning || stopSchedulerRequested) {
+    if (st.isStopping || st.isSingleStopping || !st.isPostingRunning || st.stopSchedulerRequested) {
       return { status: "failed", message: "Posting sequence stopped by user." };
     }
 
@@ -3611,9 +2645,9 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
 
     // Save refreshed storageState back to maintain session longevity
     try {
-      await context.storageState({ path: AUTH_STATE_FILE });
-      if (fs.existsSync(AUTH_STATE_FILE)) {
-        const cookiesStr = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      await context.storageState({ path: st.AUTH_STATE_FILE });
+      if (fs.existsSync(st.AUTH_STATE_FILE)) {
+        const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
         const activeId = getActiveProfileId();
         await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
         await autoSyncSessionToProfiles(cookiesStr);
@@ -3627,7 +2661,7 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
     addLog("error", `Playwright posting execution failed: ${(error as Error).message}`);
     return { status: "failed", message: (error as Error).message };
   } finally {
-    activePostingPage = null;
+    st.activePostingPage = null;
     if (page) {
       await page.close().catch(() => {});
     }
@@ -3635,8 +2669,8 @@ async function runRealPostingInternal(url: string, message: string, sentiment: s
       await context.close().catch(() => {});
     }
     if (browser && ownsBrowser) {
-      if (activePostingBrowser === browser) {
-        activePostingBrowser = null;
+      if (st.activePostingBrowser === browser) {
+        st.activePostingBrowser = null;
       }
       await browser.close().catch(() => {});
     }
@@ -3774,357 +2808,6 @@ async function runRealPosting(url: string, message: string, sentiment: string, s
   });
 }
 
-// Load Helper Functions
-function readJsonFile<T>(filePath: string, defaultValue: T): T {
-  try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(content) as T;
-    }
-  } catch (error) {
-    addLog("error", `Failed to read ${path.basename(filePath)}: ${(error as Error).message}`);
-  }
-  return defaultValue;
-}
-
-async function autoSyncSessionToProfiles(stateJson: string, email?: string) {
-  try {
-    if (!stateJson || !stateJson.trim()) return;
-    JSON.parse(stateJson);
-    
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    const cleanEmail = email ? email.trim() : "";
-    
-    // Check if a profile with this email or name already exists
-    const existingIdx = cleanEmail 
-      ? profiles.findIndex(p => p.name.toLowerCase() === cleanEmail.toLowerCase())
-      : -1;
-
-    if (existingIdx >= 0) {
-      // Deactivate other profiles and update this specific profile
-      profiles = profiles.map(p => ({ ...p, isActive: false }));
-      profiles[existingIdx].stateJson = stateJson;
-      profiles[existingIdx].isActive = true;
-      profiles[existingIdx].loginStatus = "logged_in";
-      profiles[existingIdx].updatedAt = new Date().toISOString();
-      addLog("success", `Automatically updated account profile: "${profiles[existingIdx].name}" with new session cookies and activated it.`);
-    } else if (cleanEmail) {
-      // Check if we reached the maximum of 5 accounts
-      if (profiles.length >= 5) {
-        addLog("warning", `Maximum limit of 5 accounts reached. Cannot auto-create profile for "${cleanEmail}". Please delete an old account.`);
-        return;
-      }
-      // Deactivate all others and create a brand new profile for this new account
-      profiles = profiles.map(p => ({ ...p, isActive: false }));
-      const profileId = cleanEmail.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
-      const newProfile = {
-        id: profileId,
-        name: cleanEmail,
-        stateJson,
-        isActive: true,
-        loginStatus: "logged_in",
-        updatedAt: new Date().toISOString()
-      };
-      ensureProfileDirectory(profileId);
-      profiles.push(newProfile);
-      addLog("success", `Automatically created and activated new account profile: "${cleanEmail}"`);
-    } else {
-      // Fallback when no email was provided (e.g. raw cookie paste)
-      const activeIdx = profiles.findIndex(p => p.isActive);
-      if (activeIdx >= 0) {
-        profiles[activeIdx].stateJson = stateJson;
-        profiles[activeIdx].loginStatus = "logged_in";
-        profiles[activeIdx].updatedAt = new Date().toISOString();
-        addLog("success", `Automatically updated active account profile: "${profiles[activeIdx].name}" with new session cookies.`);
-      } else {
-        const name = getNextImportedAccountName(profiles);
-        profiles = profiles.map(p => ({ ...p, isActive: false }));
-        const profileId = name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-") || `profile-${Date.now()}`;
-        ensureProfileDirectory(profileId);
-        profiles.push({
-          id: profileId,
-          name,
-          stateJson,
-          isActive: true,
-          loginStatus: "logged_in",
-          updatedAt: new Date().toISOString()
-        });
-        addLog("success", `Automatically created and activated new account profile: "${name}"`);
-      }
-    }
-    
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-    updateActiveProfilePaths();
-    
-    // Sync to Cloud only if changed
-    await saveProfilesCloudIfChanged(profiles);
-  } catch (error) {
-    console.error("Error during autoSyncSessionToProfiles:", (error as Error).message);
-  }
-}
-
-function writeJsonFileSyncAtomic(filePath: string, data: any): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
-  }
-  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
-  try {
-    const content = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-    fs.writeFileSync(tempPath, content, "utf-8");
-    fs.renameSync(tempPath, filePath);
-  } catch (err) {
-    console.error(`[FS] Error atomic writing ${filePath}:`, (err as Error).message);
-    try {
-      const content = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-      fs.writeFileSync(filePath, content, "utf-8");
-    } catch (_) {}
-    if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch (_) {}
-    }
-  }
-}
-
-const lastCloudSavedHash = new Map<string, string>();
-const hydratedProfiles = new Set<string>();
-
-function getPayloadHash(data: any): string {
-  const str = typeof data === "string" ? data : JSON.stringify(data);
-  return crypto.createHash("sha1").update(str).digest("hex");
-}
-
-async function saveSessionStateCloudIfChanged(stateStr: string, profileId?: string) {
-  const cacheKey = `${AUTH_STATE_FILE}:${profileId || "global"}`;
-  const newHash = getPayloadHash(stateStr);
-  if (lastCloudSavedHash.get(cacheKey) === newHash) {
-    return;
-  }
-  await saveSessionStateCloud(stateStr, profileId);
-  lastCloudSavedHash.set(cacheKey, newHash);
-}
-
-async function saveProfilesCloudIfChanged(profiles: any[]) {
-  const canonical = Array.isArray(profiles)
-    ? profiles.map(p => ({ ...p, updatedAt: undefined }))
-    : profiles;
-  const profilesHash = getPayloadHash(canonical);
-  if (lastCloudSavedHash.get("profiles_file") === profilesHash) {
-    return;
-  }
-  await saveProfilesCloud(profiles);
-  lastCloudSavedHash.set("profiles_file", profilesHash);
-}
-
-async function writeJsonFile<T>(filePath: string, data: T) {
-  try {
-    writeJsonFileSyncAtomic(filePath, data);
-
-    const activeId = getActiveProfileId();
-    const cacheKey = `${filePath}:${activeId || "global"}`;
-    const hashPayload =
-      filePath === POST_PROGRESS_FILE && data && typeof data === "object"
-        ? { ...(data as any), updated_at: undefined }
-        : data;
-    const newHash = getPayloadHash(hashPayload);
-
-    // Skip cloud save if data is unchanged
-    if (lastCloudSavedHash.get(cacheKey) === newHash) {
-      return;
-    }
-
-    // Synchronize to Firestore Cloud Database
-    if (filePath === AUTH_STATE_FILE) {
-      try {
-        await saveSessionStateCloudIfChanged(typeof data === "string" ? data : JSON.stringify(data), activeId || undefined);
-        lastCloudSavedHash.set(cacheKey, newHash);
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing session to cloud:", (err as Error).message);
-      }
-    } else if (filePath === LAST_TRENDING_FILE) {
-      try {
-        await saveTrendingCoinsCloud(data as any, activeId || undefined);
-        lastCloudSavedHash.set(cacheKey, newHash);
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing coins to cloud:", (err as Error).message);
-      }
-    } else if (filePath === GENERATED_MESSAGES_FILE) {
-      try {
-        await saveGeneratedMessagesCloud(data as any, activeId || undefined);
-        lastCloudSavedHash.set(cacheKey, newHash);
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing messages to cloud:", (err as Error).message);
-      }
-    } else if (filePath === RESULTS_FILE) {
-      try {
-        if (activeId) {
-          const isolated = (data as PostResult[]).filter(r => !r.profileId || r.profileId === activeId).map(r => ({ ...r, profileId: activeId }));
-          await savePostResultsCloud(isolated, activeId);
-          lastCloudSavedHash.set(cacheKey, newHash);
-        }
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing results to cloud:", (err as Error).message);
-      }
-    } else if (filePath === POST_PROGRESS_FILE) {
-      const progressObj = data as any;
-      try {
-        await saveBotProgressCloud(progressObj, activeId || undefined);
-        lastCloudSavedHash.set(cacheKey, newHash);
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing progress to cloud:", (err as Error).message);
-      }
-    } else if (filePath === TIMESTAMPS_FILE) {
-      const tsObj = data as any;
-      try {
-        if (activeId) {
-          await saveTimestampsCloud(tsObj, activeId);
-          lastCloudSavedHash.set(cacheKey, newHash);
-        }
-      } catch (err) {
-        console.error("[FIREBASE] Error syncing timestamps to cloud:", (err as Error).message);
-      }
-    }
-  } catch (error) {
-    addLog("error", `Failed to write atomically to ${path.basename(filePath)}: ${(error as Error).message}`);
-  }
-}
-
-let lastCloudSyncTime = 0;
-const CLOUD_SYNC_THROTTLE_MS = 30000; // 30 seconds throttle to strictly protect database quotas
-
-async function syncLocalFromCloudIfStale(force = false) {
-  const now = Date.now();
-  if (!force && (now - lastCloudSyncTime < CLOUD_SYNC_THROTTLE_MS)) {
-    return; // Already synced recently
-  }
-  lastCloudSyncTime = now;
-  try {
-    const activeId = getActiveProfileId();
-    if (!activeId) {
-      return; // No active profile, do not sync profile-scoped data
-    }
-    if (!force && hydratedProfiles.has(activeId)) {
-      return; // Already hydrated for this active profile; skip redundant cloud reads
-    }
-
-    // Always ensure paths are aligned with the active profile FIRST before any sync operations
-    updateActiveProfilePaths();
-
-    // 1. Trending Coins
-    const localCoins = readJsonFile<any[]>(LAST_TRENDING_FILE, []);
-    if (localCoins.length === 0) {
-      // Local is empty, hydrate from cloud
-      const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
-      if (cloudCoins && Array.isArray(cloudCoins) && cloudCoins.length > 0) {
-        fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
-      }
-    }
-
-    // 2. Generated Messages
-    const localMessages = readJsonFile<any[]>(GENERATED_MESSAGES_FILE, []);
-    if (localMessages.length === 0) {
-      const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
-      if (cloudMessages && Array.isArray(cloudMessages) && cloudMessages.length > 0) {
-        fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
-      }
-    }
-
-    // 3. Post Results (Strictly isolated by profileId)
-    if (!isPostingRunning) {
-      const localResults = getIsolatedResults(activeId);
-      if (localResults.length === 0) {
-        const rawCloudResults = await getPostResultsCloud(activeId);
-        const cloudResults = (rawCloudResults || [])
-          .filter((r: any) => !r.profileId || r.profileId === activeId)
-          .map((r: any) => ({ ...r, profileId: activeId }));
-        if (cloudResults.length > 0) {
-          fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
-        }
-      }
-
-      // 4. Bot Progress (Skip overwriting if posting is active)
-      const localProgress = readBotProgress();
-      if (!localProgress || localProgress.next_index === 0) {
-        const cloudProgress = await getBotProgressCloud(activeId || undefined);
-        if (cloudProgress && typeof cloudProgress.next_index === "number") {
-          const merged = {
-            ...localProgress,
-            next_index: cloudProgress.next_index,
-            daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
-            last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
-            daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
-          };
-          fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(merged, null, 2), "utf-8");
-          currentPostingIndex = cloudProgress.next_index;
-        }
-      }
-
-
-      // 4.5 Timestamps
-      if (force) {
-        const cloudTs = await getTimestampsCloud(activeId || undefined);
-        if (cloudTs && (cloudTs.coinsFetchedAt || cloudTs.commentsGeneratedAt)) {
-          const localTs = readJsonFile<ProfileTimestamps>(TIMESTAMPS_FILE, {
-            coinsFetchedAt: null,
-            coinsFetchedTime: null,
-            commentsGeneratedAt: null,
-            commentsGeneratedTime: null,
-          });
-          let tsChanged = false;
-          if (!localTs.coinsFetchedAt && cloudTs.coinsFetchedAt) {
-            localTs.coinsFetchedAt = cloudTs.coinsFetchedAt;
-            localTs.coinsFetchedTime = cloudTs.coinsFetchedTime;
-            tsChanged = true;
-          }
-          if (!localTs.commentsGeneratedAt && cloudTs.commentsGeneratedAt) {
-            localTs.commentsGeneratedAt = cloudTs.commentsGeneratedAt;
-            localTs.commentsGeneratedTime = cloudTs.commentsGeneratedTime;
-            tsChanged = true;
-          }
-          if (tsChanged) {
-            fs.writeFileSync(TIMESTAMPS_FILE, JSON.stringify(localTs, null, 2), "utf-8");
-          }
-        }
-      }
-    }
-
-    // 5. Profiles (Refresh active profile paths while preserving current local active selection)
-    const localProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    if (localProfiles.length === 0 || force) {
-      const cloudProfiles = await getProfilesCloud();
-      if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
-        const currentActiveId = getActiveProfileId();
-        
-        const mergedProfiles = cloudProfiles.map((cp: any) => {
-          const localMatch = localProfiles.find(lp => lp.id === cp.id);
-          return {
-            ...cp,
-            dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 300),
-            isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
-          };
-        });
-
-        // Keep any local-only profiles that haven't synced yet
-        for (const lp of localProfiles) {
-          if (!mergedProfiles.some(mp => mp.id === lp.id)) {
-            mergedProfiles.push(lp);
-          }
-        }
-
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(mergedProfiles, null, 2), "utf-8");
-        updateActiveProfilePaths();
-      }
-    }
-
-    hydratedProfiles.add(activeId);
-  } catch (err) {
-    console.error("[CLOUD-SYNC] Error during throttled cloud-to-local sync:", (err as Error).message);
-  }
-}
-
-// Initialize environment details
-const isOpenAiConfigured = !!process.env.OPENAI_API_KEY;
-const isCmcConfigured = !!process.env.CMC_API_KEY;
-
 addLog("info", `OpenAI API Status: ${isOpenAiConfigured ? "CONFIGURED" : "NOT CONFIGURED (Falls back to static rule-based comments)"}`);
 addLog("info", `CoinMarketCap API Status: ${isCmcConfigured ? "CONFIGURED" : "NOT CONFIGURED (Falls back to live free public crypto markets API)"}`);
 
@@ -4134,22 +2817,22 @@ addLog("info", `CoinMarketCap API Status: ${isCmcConfigured ? "CONFIGURED" : "NO
 
 // 1. Get Session state
 app.get("/api/get-session", (req, res) => {
-  const exists = fs.existsSync(AUTH_STATE_FILE);
+  const exists = fs.existsSync(st.AUTH_STATE_FILE);
   let details = {};
   let content = "";
   if (exists) {
     try {
-      const stats = fs.statSync(AUTH_STATE_FILE);
+      const stats = fs.statSync(st.AUTH_STATE_FILE);
       details = {
         sizeBytes: stats.size,
         updatedAt: stats.mtime,
       };
-      content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      content = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
     } catch (_) {}
   }
   res.json({
     exists,
-    filePath: AUTH_STATE_FILE,
+    filePath: st.AUTH_STATE_FILE,
     details,
     content,
   });
@@ -4157,7 +2840,7 @@ app.get("/api/get-session", (req, res) => {
 
 // 2. Save Session state
 app.post("/api/save-session", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot modify session cookies while the Continuous Automation Loop is active." });
   }
   if (isBusy()) {
@@ -4174,7 +2857,7 @@ app.post("/api/save-session", async (req, res) => {
     // Normalize and heal common cookie format anomalies automatically
     stateJson = normalizeStateJson(stateJson);
     
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     
     // Check if this cookie state already belongs to any profile
     const matchIdx = profiles.findIndex(p => p.stateJson === stateJson);
@@ -4210,14 +2893,14 @@ app.post("/api/save-session", async (req, res) => {
       addLog("success", `Successfully imported cookie session as new profile: "${name}"`);
     }
 
-    fs.writeFileSync(AUTH_STATE_FILE, stateJson, "utf-8");
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    fs.writeFileSync(st.AUTH_STATE_FILE, stateJson, "utf-8");
+    fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     
     // Crucial: Update paths immediately
     updateActiveProfilePaths();
     
     // Reset login flow state to idle on manual session save
-    loginState = { status: "idle", message: "" };
+    st.loginState = { status: "idle", message: "" };
     
     // Sync to Firestore Cloud Database
     const activeId = getActiveProfileId();
@@ -4239,7 +2922,7 @@ app.post("/api/save-session", async (req, res) => {
 
 // 3. Clear session
 app.post("/api/clear-session", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot clear session cookies while the Continuous Automation Loop is active." });
   }
   if (isBusy()) {
@@ -4255,12 +2938,12 @@ app.post("/api/clear-session", async (req, res) => {
       console.error("[FIREBASE] Error clearing session from cloud:", (err as Error).message);
     }
 
-    loginState = { status: "idle", message: "" };
+    st.loginState = { status: "idle", message: "" };
 
     // Mark active profile inactive upon logout / clear-session
     try {
-      if (fs.existsSync(PROFILES_FILE)) {
-        const profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      if (fs.existsSync(st.PROFILES_FILE)) {
+        const profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
         let changed = false;
         const updatedProfiles = profiles.map(p => {
           if (p.isActive) {
@@ -4270,7 +2953,7 @@ app.post("/api/clear-session", async (req, res) => {
           return p;
         });
         if (changed) {
-          fs.writeFileSync(PROFILES_FILE, JSON.stringify(updatedProfiles, null, 2), "utf-8");
+          fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(updatedProfiles, null, 2), "utf-8");
           await saveProfilesCloud(updatedProfiles);
         }
       }
@@ -4279,8 +2962,8 @@ app.post("/api/clear-session", async (req, res) => {
     }
     updateActiveProfilePaths();
 
-    if (fs.existsSync(AUTH_STATE_FILE)) {
-      fs.unlinkSync(AUTH_STATE_FILE);
+    if (fs.existsSync(st.AUTH_STATE_FILE)) {
+      fs.unlinkSync(st.AUTH_STATE_FILE);
       addLog("warning", "Deleted auth/state.json session state.");
       res.json({ success: true, message: "Session state deleted." });
     } else {
@@ -4294,7 +2977,7 @@ app.post("/api/clear-session", async (req, res) => {
 // 3a. Get Profiles
 app.get("/api/profiles", (req, res) => {
   try {
-    const profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     res.json({ success: true, profiles });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -4303,7 +2986,7 @@ app.get("/api/profiles", (req, res) => {
 
 // 3b. Save/Update Profile
 app.post("/api/save-profile", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot add or update profiles while the Continuous Automation Loop is active." });
   }
   if (isBusy()) {
@@ -4317,7 +3000,7 @@ app.post("/api/save-profile", async (req, res) => {
     // Validate JSON
     JSON.parse(stateJson);
 
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     let profileId = id || name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
     
     const existingIndex = profiles.findIndex(p => p.id === profileId);
@@ -4361,7 +3044,7 @@ app.post("/api/save-profile", async (req, res) => {
       profiles.push(profileData);
     }
 
-    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
+    writeJsonFileSyncAtomic(st.PROFILES_FILE, profiles);
     addLog("success", `Saved account profile: "${name}" (Daily limit: ${dailyLimit} posts/day${proxyVal ? `, Proxy: ${proxyVal}` : ""})`);
 
     // Sync to Cloud
@@ -4384,7 +3067,7 @@ app.post("/api/save-profile", async (req, res) => {
 
 // 3bb. Update Account Daily Post Limit
 app.post("/api/update-profile-limit", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot change account limit while the Continuous Automation Loop is active." });
   }
   try {
@@ -4393,14 +3076,14 @@ app.post("/api/update-profile-limit", async (req, res) => {
       return res.status(400).json({ error: "Missing profile id." });
     }
     const limitNum = Math.max(1, Math.min(10000, Number(dailyPostLimit) || 300));
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     const idx = profiles.findIndex(p => p.id === id);
     if (idx === -1) {
       return res.status(404).json({ error: "Profile not found." });
     }
     profiles[idx].dailyPostLimit = limitNum;
     profiles[idx].updatedAt = new Date().toISOString();
-    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
+    writeJsonFileSyncAtomic(st.PROFILES_FILE, profiles);
     await saveProfilesCloud(profiles).catch(() => {});
 
     const activeId = getActiveProfileId();
@@ -4421,14 +3104,14 @@ app.post("/api/update-profile-proxy", async (req, res) => {
     if (!id) {
       return res.status(400).json({ error: "Missing profile id." });
     }
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     const idx = profiles.findIndex(p => p.id === id);
     if (idx === -1) {
       return res.status(404).json({ error: "Profile not found." });
     }
     profiles[idx].proxy = typeof proxy === "string" ? proxy.trim() : "";
     profiles[idx].updatedAt = new Date().toISOString();
-    writeJsonFileSyncAtomic(PROFILES_FILE, profiles);
+    writeJsonFileSyncAtomic(st.PROFILES_FILE, profiles);
     await saveProfilesCloud(profiles).catch(() => {});
 
     const proxyMsg = profiles[idx].proxy ? profiles[idx].proxy : "Direct Connection (No proxy)";
@@ -4445,7 +3128,7 @@ async function activateProfileInternal(id: string): Promise<{
   message: string;
   activeProfile: { id: string; name: string; isActive: boolean; dailyPostLimit: number };
 }> {
-  let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const targetIdx = profiles.findIndex(p => p.id === id);
   if (targetIdx === -1) {
     throw new Error("Profile not found.");
@@ -4457,16 +3140,16 @@ async function activateProfileInternal(id: string): Promise<{
     isActive: idx === targetIdx
   }));
 
-  // Copy to AUTH_STATE_FILE
+  // Copy to st.AUTH_STATE_FILE
   const activeProfile = profiles[targetIdx];
-  fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-  fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+  fs.writeFileSync(st.AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
+  fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
   
   // Crucial: Update active profile paths dynamically!
   updateActiveProfilePaths();
 
   // Ensure target profile subdirectory and isolated storage files are safely initialized
-  const targetDir = path.join(OUTPUT_DIR, activeProfile.id);
+  const targetDir = path.join(st.OUTPUT_DIR, activeProfile.id);
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
@@ -4486,7 +3169,7 @@ async function activateProfileInternal(id: string): Promise<{
 
   // Synchronize in-memory progress index for newly activated profile
   const progress = readBotProgress();
-  currentPostingIndex = progress.next_index || 0;
+  st.currentPostingIndex = progress.next_index || 0;
 
   addLog("success", `Activated account profile: "${activeProfile.name}". Isolated storage and cookies swept.`, activeProfile.id);
 
@@ -4502,7 +3185,7 @@ async function activateProfileInternal(id: string): Promise<{
   }
 
   // Reset login flow state to idle on activation
-  loginState = { status: "idle", message: "" };
+  st.loginState = { status: "idle", message: "" };
 
   return {
     success: true,
@@ -4517,10 +3200,10 @@ async function activateProfileInternal(id: string): Promise<{
 }
 
 app.post("/api/activate-profile", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active. Please click 'Stop Posting' first." });
   }
-  if (isBusy() || isPostingRunning || botStatus === "Posting" || botStatus === "Stopping") {
+  if (isBusy() || st.isPostingRunning || st.botStatus === "Posting" || st.botStatus === "Stopping") {
     return res.status(400).json({ error: "Cannot switch accounts while posting or automation is running. Please click 'Stop Posting' first." });
   }
   try {
@@ -4541,7 +3224,7 @@ app.post("/api/activate-profile", async (req, res) => {
 
 // 3d. Delete Profile
 app.post("/api/delete-profile", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot delete accounts while the Continuous Automation Loop is active." });
   }
   if (isBusy()) {
@@ -4553,7 +3236,7 @@ app.post("/api/delete-profile", async (req, res) => {
       return res.status(400).json({ error: "Missing profile id." });
     }
 
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     const targetIdx = profiles.findIndex(p => {
       const pid = String(p.id || "").trim().toLowerCase();
       const targetId = String(id || "").trim().toLowerCase();
@@ -4569,9 +3252,9 @@ app.post("/api/delete-profile", async (req, res) => {
     profiles.splice(targetIdx, 1);
 
     if (wasActive) {
-      // Clear AUTH_STATE_FILE if active profile was deleted
-      if (fs.existsSync(AUTH_STATE_FILE)) {
-        fs.unlinkSync(AUTH_STATE_FILE);
+      // Clear st.AUTH_STATE_FILE if active profile was deleted
+      if (fs.existsSync(st.AUTH_STATE_FILE)) {
+        fs.unlinkSync(st.AUTH_STATE_FILE);
       }
       try {
         await saveSessionStateCloud("", deletedId);
@@ -4581,7 +3264,7 @@ app.post("/api/delete-profile", async (req, res) => {
     }
 
     // Clean up local profile subdirectory files if they exist
-    const profileDir = path.join(OUTPUT_DIR, deletedId);
+    const profileDir = path.join(st.OUTPUT_DIR, deletedId);
     if (fs.existsSync(profileDir)) {
       try {
         fs.rmSync(profileDir, { recursive: true, force: true });
@@ -4592,9 +3275,9 @@ app.post("/api/delete-profile", async (req, res) => {
     }
 
     // Always reset login flow state to idle on deletion to prevent sticky success banner
-    loginState = { status: "idle", message: "" };
+    st.loginState = { status: "idle", message: "" };
 
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     addLog("warning", `Deleted profile: "${deletedName}"`);
 
     // Reset active paths dynamic fallback
@@ -4612,13 +3295,11 @@ app.post("/api/delete-profile", async (req, res) => {
   }
 });
 
-let cachedHealthResponse: any = null;
-let cachedHealthAt = 0;
 
 app.get("/api/health", (req, res) => {
   const now = Date.now();
-  if (cachedHealthResponse && (now - cachedHealthAt < 60000)) {
-    return res.json(cachedHealthResponse);
+  if (st.cachedHealthResponse && (now - st.cachedHealthAt < 60000)) {
+    return res.json(st.cachedHealthResponse);
   }
 
   const cachedAtIso = new Date(now).toISOString();
@@ -4635,9 +3316,9 @@ app.get("/api/health", (req, res) => {
   // 2. OpenAI / AI Model check
   let openaiStatus: "ok" | "degraded" | "error" = "ok";
   let openaiMessage = "OpenAI API is configured and operational.";
-  if (lastOpenAiError) {
+  if (st.lastOpenAiError) {
     openaiStatus = "error";
-    openaiMessage = `OpenAI error: ${lastOpenAiError}. Please top up your OpenAI credits or check your API key.`;
+    openaiMessage = `OpenAI error: ${st.lastOpenAiError}. Please top up your OpenAI credits or check your API key.`;
   } else if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
     openaiStatus = "error";
     openaiMessage = "OPENAI_API_KEY is not configured. Set OPENAI_API_KEY in environment variables to generate comments.";
@@ -4688,7 +3369,7 @@ app.get("/api/health", (req, res) => {
                     dbCheck.status === "ok" &&
                     accountCheck.status === "ok";
 
-  cachedHealthResponse = {
+  st.cachedHealthResponse = {
     healthy: isHealthy,
     overall: isHealthy ? "ok" : "degraded",
     cachedAt: cachedAtIso,
@@ -4703,9 +3384,9 @@ app.get("/api/health", (req, res) => {
       account: accountCheck,
     },
   };
-  cachedHealthAt = now;
+  st.cachedHealthAt = now;
 
-  res.json(cachedHealthResponse);
+  res.json(st.cachedHealthResponse);
 });
 
 // 4. Status endpoint
@@ -4715,18 +3396,18 @@ app.get("/api/status", async (req, res) => {
   const sessionExists = isProfileSessionActive(activeId);
 
   if (!activeId || !sessionExists) {
-    if (!isPostingRunning && !isSinglePostingRunning && !isSchedulerCycleRunning && !isGeneratingRunning) {
-      isStopping = false;
-      isSingleStopping = false;
-      if (botStatus === "Stopping" || botStatus === "Posting") {
-        botStatus = "Idle";
+    if (!st.isPostingRunning && !st.isSinglePostingRunning && !st.isSchedulerCycleRunning && !st.isGeneratingRunning) {
+      st.isStopping = false;
+      st.isSingleStopping = false;
+      if (st.botStatus === "Stopping" || st.botStatus === "Posting") {
+        st.botStatus = "Idle";
       }
     }
     return res.json({
-      status: (botStatus === "Authenticating" || botStatus === "Verifying Code") ? botStatus : (isStopping ? "Stopping" : botStatus),
-      isStopping,
-      loginState: loginState,
-      runMode,
+      status: (st.botStatus === "Authenticating" || st.botStatus === "Verifying Code") ? st.botStatus : (st.isStopping ? "Stopping" : st.botStatus),
+      isStopping: st.isStopping,
+      loginState: st.loginState,
+      runMode: st.runMode,
       activeProfile: null,
       activeProfileId: null,
       activeProfileName: null,
@@ -4755,14 +3436,14 @@ app.get("/api/status", async (req, res) => {
         openai: isOpenAiConfigured,
         gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         cmc: isCmcConfigured,
-        openaiError: lastOpenAiError,
-        geminiError: lastGeminiError,
+        openaiError: st.lastOpenAiError,
+        geminiError: st.lastGeminiError,
       },
       isContinuousLoopActive: false,
       nextCycleStartTime: null,
-      continuousLoopIntervalMinutes,
-      activeProcess: activeSystemProcess,
-      activeProcessDescription: activeProcessDetails,
+      continuousLoopIntervalMinutes: st.continuousLoopIntervalMinutes,
+      activeProcess: st.activeSystemProcess,
+      activeProcessDescription: st.activeProcessDetails,
       storageInfo: {
         activeStore: getActiveStoreName(),
         isMongoConnected: isMongoEnabled(),
@@ -4784,15 +3465,15 @@ app.get("/api/status", async (req, res) => {
 
   syncLocalFromCloudIfStale().catch(() => {});
 
-  const targetCoinsFile = activeId ? path.join(OUTPUT_DIR, activeId, "last_trending.json") : LAST_TRENDING_FILE;
-  const targetMessagesFile = activeId ? path.join(OUTPUT_DIR, activeId, "generated_messages.json") : GENERATED_MESSAGES_FILE;
+  const targetCoinsFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "last_trending.json") : st.LAST_TRENDING_FILE;
+  const targetMessagesFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "generated_messages.json") : st.GENERATED_MESSAGES_FILE;
   let coins = readJsonFile<Coin[]>(targetCoinsFile, []);
-  if (coins.length === 0 && fs.existsSync(path.join(OUTPUT_DIR, "last_trending.json"))) {
-    coins = readJsonFile<Coin[]>(path.join(OUTPUT_DIR, "last_trending.json"), []);
+  if (coins.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "last_trending.json"))) {
+    coins = readJsonFile<Coin[]>(path.join(st.OUTPUT_DIR, "last_trending.json"), []);
   }
   let messages = readJsonFile<GeneratedMessage[]>(targetMessagesFile, []);
-  if (messages.length === 0 && fs.existsSync(path.join(OUTPUT_DIR, "generated_messages.json"))) {
-    messages = readJsonFile<GeneratedMessage[]>(path.join(OUTPUT_DIR, "generated_messages.json"), []);
+  if (messages.length === 0 && fs.existsSync(path.join(st.OUTPUT_DIR, "generated_messages.json"))) {
+    messages = readJsonFile<GeneratedMessage[]>(path.join(st.OUTPUT_DIR, "generated_messages.json"), []);
   }
   const rawResults = getIsolatedResults(activeId);
   const results = rawResults.filter(r => r.profileId === activeId);
@@ -4823,22 +3504,22 @@ app.get("/api/status", async (req, res) => {
         : "Generated comments are over 2 days old (>48h)"
   ) : null;
 
-  if (!isPostingRunning && !isSinglePostingRunning && !isSchedulerCycleRunning && !isGeneratingRunning) {
-    isStopping = false;
-    isSingleStopping = false;
-    if (botStatus === "Stopping" || botStatus === "Posting") {
-      botStatus = "Idle";
+  if (!st.isPostingRunning && !st.isSinglePostingRunning && !st.isSchedulerCycleRunning && !st.isGeneratingRunning) {
+    st.isStopping = false;
+    st.isSingleStopping = false;
+    if (st.botStatus === "Stopping" || st.botStatus === "Posting") {
+      st.botStatus = "Idle";
     }
   }
 
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const activeProfile = rawProfiles.find(p => p.id === activeId);
 
   res.json({
-    status: isStopping ? "Stopping" : botStatus,
-    isStopping,
-    loginState,
-    runMode,
+    status: st.isStopping ? "Stopping" : st.botStatus,
+    isStopping: st.isStopping,
+    loginState: st.loginState,
+    runMode: st.runMode,
     activeProfile: activeProfile ? { id: activeProfile.id, name: activeProfile.name } : (activeId ? { id: activeId, name: activeId } : null),
     activeProfileId: activeId,
     activeProfileName: activeProfile?.name || activeId,
@@ -4849,11 +3530,11 @@ app.get("/api/status", async (req, res) => {
     trending: coins,
     generated: messages,
     results,
-    progressIndex: Math.max(0, Math.min(isPostingRunning ? currentPostingIndex : (progress.next_index || 0), Math.max(coins.length, messages.length))),
+    progressIndex: Math.max(0, Math.min(st.isPostingRunning ? st.currentPostingIndex : (progress.next_index || 0), Math.max(coins.length, messages.length))),
     dailyPostCount: progress.daily_post_count || 0,
     dailyPostLimit,
     lastPostDate: progress.last_post_date || getTodayDateString(),
-    currentCoin: currentCoinName,
+    currentCoin: st.currentCoinName,
     coinsFetchedAt: coins.length > 0 ? ts.coinsFetchedAt : null,
     coinsFetchedTime: coins.length > 0 ? ts.coinsFetchedTime : null,
     commentsGeneratedAt: messages.length > 0 ? ts.commentsGeneratedAt : null,
@@ -4867,14 +3548,14 @@ app.get("/api/status", async (req, res) => {
       openai: isOpenAiConfigured,
       gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
       cmc: isCmcConfigured,
-      openaiError: lastOpenAiError,
-      geminiError: lastGeminiError,
+      openaiError: st.lastOpenAiError,
+      geminiError: st.lastGeminiError,
     },
-    isContinuousLoopActive,
-    nextCycleStartTime,
-    continuousLoopIntervalMinutes,
-    activeProcess: activeSystemProcess,
-    activeProcessDescription: activeProcessDetails,
+    isContinuousLoopActive: st.isContinuousLoopActive,
+    nextCycleStartTime: st.nextCycleStartTime,
+    continuousLoopIntervalMinutes: st.continuousLoopIntervalMinutes,
+    activeProcess: st.activeSystemProcess,
+    activeProcessDescription: st.activeProcessDetails,
     storageInfo: {
       activeStore: getActiveStoreName(),
       isMongoConnected: isMongoEnabled(),
@@ -4906,7 +3587,7 @@ app.post("/api/set-run-mode", (req, res) => {
 app.get("/api/marketing-images/file/:filename", (req, res) => {
   try {
     const filename = path.basename(req.params.filename);
-    let targetPath = path.join(MARKETING_IMAGES_DIR, filename);
+    let targetPath = path.join(st.MARKETING_IMAGES_DIR, filename);
     if (!fs.existsSync(targetPath)) {
       const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
       if (fs.existsSync(pubPath)) {
@@ -4942,7 +3623,7 @@ function pruneMarketingImages(keepCount: number): { pruned: string[]; remaining:
     }
 
     const withMtime = images.map(filename => {
-      const fullPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const fullPath = path.join(st.MARKETING_IMAGES_DIR, filename);
       let mtime = 0;
       try {
         mtime = fs.statSync(fullPath).mtimeMs;
@@ -4952,7 +3633,7 @@ function pruneMarketingImages(keepCount: number): { pruned: string[]; remaining:
 
     const toPrune = withMtime.slice(keepCount).map(x => x.filename);
     for (const filename of toPrune) {
-      const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const outPath = path.join(st.MARKETING_IMAGES_DIR, filename);
       const pubPath = path.join(pubDir, filename);
       if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
       if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
@@ -4972,7 +3653,7 @@ app.get("/api/marketing-images", (req, res) => {
     const settings = getLocalBotSettings();
 
     const formatted = images.map(filename => {
-      const fullPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const fullPath = path.join(st.MARKETING_IMAGES_DIR, filename);
       let sizeBytes = 0;
       let updatedAt = new Date().toISOString();
       try {
@@ -5061,7 +3742,7 @@ app.delete("/api/marketing-images", (req, res) => {
     if (!filename || filename.includes("..") || filename.includes("/")) {
       return res.status(400).json({ success: false, error: "Invalid filename" });
     }
-    const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+    const outPath = path.join(st.MARKETING_IMAGES_DIR, filename);
     const pubPath = path.join(process.cwd(), "public", "uploads", "marketing_images", filename);
 
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
@@ -5117,14 +3798,14 @@ app.post("/api/marketing-images/upload", (req, res) => {
     }
 
     const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
-    if (!fs.existsSync(MARKETING_IMAGES_DIR)) fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+    if (!fs.existsSync(st.MARKETING_IMAGES_DIR)) fs.mkdirSync(st.MARKETING_IMAGES_DIR, { recursive: true });
     if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
 
     // If replaceExisting is true (e.g. daily fresh batch), clear old images
     if (replaceExisting) {
       const existing = getAvailableMarketingImages();
       for (const file of existing) {
-        const outF = path.join(MARKETING_IMAGES_DIR, file);
+        const outF = path.join(st.MARKETING_IMAGES_DIR, file);
         const pubF = path.join(pubDir, file);
         if (fs.existsSync(outF)) fs.unlinkSync(outF);
         if (fs.existsSync(pubF)) fs.unlinkSync(pubF);
@@ -5157,7 +3838,7 @@ app.post("/api/marketing-images/upload", (req, res) => {
         continue;
       }
 
-      const outPath = path.join(MARKETING_IMAGES_DIR, cleanName);
+      const outPath = path.join(st.MARKETING_IMAGES_DIR, cleanName);
       const pubPath = path.join(pubDir, cleanName);
 
       fs.writeFileSync(outPath, buffer);
@@ -5191,13 +3872,13 @@ async function importImagesFromExternalSources(inputUrlOrText: string, replaceEx
   message: string;
 }> {
   const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
-  if (!fs.existsSync(MARKETING_IMAGES_DIR)) fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+  if (!fs.existsSync(st.MARKETING_IMAGES_DIR)) fs.mkdirSync(st.MARKETING_IMAGES_DIR, { recursive: true });
   if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
 
   if (replaceExisting) {
     const existing = getAvailableMarketingImages();
     for (const file of existing) {
-      const outF = path.join(MARKETING_IMAGES_DIR, file);
+      const outF = path.join(st.MARKETING_IMAGES_DIR, file);
       const pubF = path.join(pubDir, file);
       if (fs.existsSync(outF)) fs.unlinkSync(outF);
       if (fs.existsSync(pubF)) fs.unlinkSync(pubF);
@@ -5263,7 +3944,7 @@ async function importImagesFromExternalSources(inputUrlOrText: string, replaceEx
                 if (validation.valid) {
                   const ext = validation.format || "png";
                   const filename = `gdrive_${fid.slice(0, 8)}_${Date.now()}_${i + 1}.${ext}`;
-                  fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, filename), buffer);
+                  fs.writeFileSync(path.join(st.MARKETING_IMAGES_DIR, filename), buffer);
                   fs.writeFileSync(path.join(pubDir, filename), buffer);
                   importedCount++;
                   downloaded = true;
@@ -5303,7 +3984,7 @@ async function importImagesFromExternalSources(inputUrlOrText: string, replaceEx
             if (validation.valid) {
               const ext = validation.format || "png";
               const filename = `gdrive_${fid.slice(0, 8)}_${Date.now()}.${ext}`;
-              fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, filename), buffer);
+              fs.writeFileSync(path.join(st.MARKETING_IMAGES_DIR, filename), buffer);
               fs.writeFileSync(path.join(pubDir, filename), buffer);
               importedCount++;
               downloaded = true;
@@ -5351,7 +4032,7 @@ async function importImagesFromExternalSources(inputUrlOrText: string, replaceEx
         }
         if (!urlFilename.endsWith(`.${ext}`)) urlFilename += `.${ext}`;
 
-        fs.writeFileSync(path.join(MARKETING_IMAGES_DIR, urlFilename), buffer);
+        fs.writeFileSync(path.join(st.MARKETING_IMAGES_DIR, urlFilename), buffer);
         fs.writeFileSync(path.join(pubDir, urlFilename), buffer);
         importedCount++;
         addLog("success", `[URL IMPORT] Imported image: ${urlFilename} (${Math.round(buffer.length / 1024)} KB, ${ext.toUpperCase()})`);
@@ -5411,7 +4092,7 @@ app.post("/api/marketing-images/batch-delete", (req, res) => {
       const filename = String(raw || "").trim();
       if (!filename || filename.includes("..") || filename.includes("/")) continue;
 
-      const outPath = path.join(MARKETING_IMAGES_DIR, filename);
+      const outPath = path.join(st.MARKETING_IMAGES_DIR, filename);
       const pubPath = path.join(pubDir, filename);
 
       if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
@@ -5432,7 +4113,7 @@ app.post("/api/marketing-images/clear-all", (req, res) => {
     const pubDir = path.join(process.cwd(), "public", "uploads", "marketing_images");
 
     for (const file of images) {
-      const outPath = path.join(MARKETING_IMAGES_DIR, file);
+      const outPath = path.join(st.MARKETING_IMAGES_DIR, file);
       const pubPath = path.join(pubDir, file);
       if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
       if (fs.existsSync(pubPath)) fs.unlinkSync(pubPath);
@@ -5452,16 +4133,16 @@ app.post("/api/set-continuous-loop", (req, res) => {
     return res.status(409).json({ error: "Cannot enable continuous loop while multi-account scheduler is enabled. Pause or stop the scheduler to change settings." });
   }
   const { active, intervalMinutes } = req.body;
-  if (active && !isContinuousLoopActive && isBusy()) {
+  if (active && !st.isContinuousLoopActive && isBusy()) {
     addLog("warning", "Cannot enable Continuous Automation Loop while another manual action is already running.");
     return res.status(400).json({ success: false, error: "Cannot enable Continuous Automation Loop while another manual action is already running." });
   }
 
-  if (active && !isContinuousLoopActive) {
+  if (active && !st.isContinuousLoopActive) {
     const activeId = getActiveProfileId();
-    const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     const activeProfile = rawProfiles.find(p => p.id === activeId);
-    const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+    const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
     const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
     if (!activeId || !hasValidAuth) {
       addLog("error", "Cannot enable Continuous Automation Loop without an active, authenticated account session.");
@@ -5472,20 +4153,20 @@ app.post("/api/set-continuous-loop", (req, res) => {
   let intervalChanged = false;
   if (intervalMinutes !== undefined && typeof intervalMinutes === "number" && intervalMinutes > 0) {
     const safeMins = Math.max(5, Math.round(intervalMinutes));
-    if (continuousLoopIntervalMinutes !== safeMins) {
-      continuousLoopIntervalMinutes = safeMins;
+    if (st.continuousLoopIntervalMinutes !== safeMins) {
+      st.continuousLoopIntervalMinutes = safeMins;
       intervalChanged = true;
-      addLog("info", `Continuous Loop cooldown interval updated to ${continuousLoopIntervalMinutes} minutes (minimum enforced: 5 minutes).`);
+      addLog("info", `Continuous Loop cooldown interval updated to ${st.continuousLoopIntervalMinutes} minutes (minimum enforced: 5 minutes).`);
     }
   }
 
   if (active !== undefined) {
     const nextActive = !!active;
-    if (nextActive !== isContinuousLoopActive) {
-      isContinuousLoopActive = nextActive;
-      if (isContinuousLoopActive) {
-        addLog("success", `Continuous Automation Loop enabled (${continuousLoopIntervalMinutes}-minute interval).`);
-        if (botStatus === "Completed" || botStatus === "Idle") {
+    if (nextActive !== st.isContinuousLoopActive) {
+      st.isContinuousLoopActive = nextActive;
+      if (st.isContinuousLoopActive) {
+        addLog("success", `Continuous Automation Loop enabled (${st.continuousLoopIntervalMinutes}-minute interval).`);
+        if (st.botStatus === "Completed" || st.botStatus === "Idle") {
           addLog("info", "Starting first automated cycle immediately...");
           triggerFullFlowExecution().catch(err => {
             addLog("error", `Failed to start automated continuous cycle: ${err.message}`);
@@ -5499,26 +4180,24 @@ app.post("/api/set-continuous-loop", (req, res) => {
   }
 
   // Ensure dynamic rescheduling works whether active parameter was passed or not
-  if (isContinuousLoopActive && intervalChanged) {
-    if (nextCycleTimeout !== null || (!isBusy() && !isPostingRunning && !isGeneratingRunning)) {
-      addLog("info", `Rescheduling next continuous cycle to ${continuousLoopIntervalMinutes} minutes from now due to interval change.`);
+  if (st.isContinuousLoopActive && intervalChanged) {
+    if (st.nextCycleTimeout !== null || (!isBusy() && !st.isPostingRunning && !st.isGeneratingRunning)) {
+      addLog("info", `Rescheduling next continuous cycle to ${st.continuousLoopIntervalMinutes} minutes from now due to interval change.`);
       scheduleNextAutomationCycle();
     } else {
-      addLog("info", `[AUTOMATION] New interval (${continuousLoopIntervalMinutes}m) will apply cleanly after current cycle completes.`);
+      addLog("info", `[AUTOMATION] New interval (${st.continuousLoopIntervalMinutes}m) will apply cleanly after current cycle completes.`);
     }
   }
 
-  res.json({ success: true, isContinuousLoopActive, nextCycleStartTime, continuousLoopIntervalMinutes });
+  res.json({ success: true, isContinuousLoopActive: st.isContinuousLoopActive, nextCycleStartTime: st.nextCycleStartTime, continuousLoopIntervalMinutes: st.continuousLoopIntervalMinutes });
 });
 
 // 4.6. Check system dependencies & Playwright health (with automatic startup warm-up & fast cache)
-let cachedSystemCheckResult: any = null;
-let cachedSystemCheckAt = 0;
 
 async function runSystemDiagnosticsCheck(force = false): Promise<any> {
   const now = Date.now();
-  if (!force && cachedSystemCheckResult && (now - cachedSystemCheckAt < 5 * 60 * 1000)) {
-    return cachedSystemCheckResult;
+  if (!force && st.cachedSystemCheckResult && (now - st.cachedSystemCheckAt < 5 * 60 * 1000)) {
+    return st.cachedSystemCheckResult;
   }
 
   const playwrightInstalled = typeof chromium !== "undefined";
@@ -5587,8 +4266,8 @@ async function runSystemDiagnosticsCheck(force = false): Promise<any> {
     checkedAt: new Date(now).toISOString(),
   };
 
-  cachedSystemCheckResult = result;
-  cachedSystemCheckAt = now;
+  st.cachedSystemCheckResult = result;
+  st.cachedSystemCheckAt = now;
   return result;
 }
 
@@ -5661,7 +4340,7 @@ app.get("/api/verify-env", (req, res) => {
   const hasCmc = !!process.env.CMC_API_KEY;
   const hasFirebaseConfig = !!(process.env.FIREBASE_CONFIG || process.env.FIREBASE_API_KEY || fs.existsSync(path.join(process.cwd(), "firebase-applet-config.json")));
   const hasMongo = !!process.env.MONGO_URI;
-  const hasAuthState = !!(process.env.AUTH_STATE_JSON || (fs.existsSync(AUTH_STATE_FILE) && fs.statSync(AUTH_STATE_FILE).size > 100));
+  const hasAuthState = !!(process.env.AUTH_STATE_JSON || (fs.existsSync(st.AUTH_STATE_FILE) && fs.statSync(st.AUTH_STATE_FILE).size > 100));
 
   res.json({
     status: "ok",
@@ -5695,14 +4374,14 @@ app.get("/api/verify-env", (req, res) => {
     },
     session: {
       sessionImported: hasAuthState,
-      sessionFileExists: fs.existsSync(AUTH_STATE_FILE)
+      sessionFileExists: fs.existsSync(st.AUTH_STATE_FILE)
     }
   });
 });
 
 // 5. Check login session (Runs real headless Playwright against CoinMarketCap)
 app.post("/api/check-login", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot check session while the Continuous Automation Loop is active." });
   }
   const lock = acquireProcessLock("checking_login", "Verifying CoinMarketCap session");
@@ -5710,21 +4389,21 @@ app.post("/api/check-login", async (req, res) => {
     return res.status(409).json({ error: lock.reason });
   }
   addLog("info", "Checking live login session validity on CoinMarketCap using Playwright...");
-  botStatus = "Checking Login";
+  st.botStatus = "Checking Login";
 
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
   if (!sessionExists) {
     releaseProcessLock("checking_login");
     addLog("error", "Login check failed: auth/state.json does not exist. Please upload active session cookies.");
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     
     try {
-      let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
       const activeIdx = profiles.findIndex(p => p.isActive);
       if (activeIdx >= 0) {
         profiles[activeIdx].loginStatus = "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
         await saveProfilesCloudIfChanged(profiles);
       }
     } catch (_) {}
@@ -5737,31 +4416,31 @@ app.post("/api/check-login", async (req, res) => {
     
     // Update active profile loginStatus
     try {
-      let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
       const activeIdx = profiles.findIndex(p => p.isActive);
       if (activeIdx >= 0) {
         profiles[activeIdx].loginStatus = result.status === "success" ? "logged_in" : "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
         await saveProfilesCloudIfChanged(profiles);
       }
     } catch (err) {
       console.error("Error updating profile status in check-login:", (err as Error).message);
     }
 
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     return res.json(result);
   } catch (err) {
     addLog("error", `Real login verification failed: ${(err as Error).message}`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
 
     try {
-      let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
       const activeIdx = profiles.findIndex(p => p.isActive);
       if (activeIdx >= 0) {
         profiles[activeIdx].loginStatus = "expired";
         profiles[activeIdx].updatedAt = new Date().toISOString();
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
         await saveProfilesCloudIfChanged(profiles);
       }
     } catch (_) {}
@@ -5779,10 +4458,10 @@ app.post("/api/start-login", async (req, res) => {
     return res.status(400).json({ error: "Missing email or password." });
   }
 
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot start login while the Continuous Automation Loop is active." });
   }
-  if (isBusy() || activeSystemProcess !== "none") {
+  if (isBusy() || st.activeSystemProcess !== "none") {
     return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish." });
   }
 
@@ -5792,7 +4471,7 @@ app.post("/api/start-login", async (req, res) => {
   }
 
   // 1. Check profiles
-  let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const existingProfile = profiles.find(p => p.name.toLowerCase() === email.toLowerCase());
 
   // 2. Check if we reached the maximum of 5 accounts only if creating a new profile
@@ -5801,25 +4480,25 @@ app.post("/api/start-login", async (req, res) => {
     return res.status(400).json({ error: "Maximum limit of 5 accounts reached. Please delete an existing profile to add a new one." });
   }
 
-  botStatus = "Authenticating";
-  loginState = { status: "authenticating", message: "Initializing secure credentials login flow..." };
+  st.botStatus = "Authenticating";
+  st.loginState = { status: "authenticating", message: "Initializing secure credentials login flow..." };
 
   // Run asynchronously in background to prevent 504 Gateway Timeout on AWS/Nginx proxy
   executeStartLogin(email, password)
     .then((result) => {
       const mappedStatus = result.status === "requires_otp" ? "requires_otp" : (result.status === "success" ? "success" : "failed");
-      loginState = { status: mappedStatus, message: result.message };
+      st.loginState = { status: mappedStatus, message: result.message };
       if (result.status !== "requires_otp") {
-        botStatus = "Idle";
+        st.botStatus = "Idle";
         releaseProcessLock("authenticating");
       } else {
-        botStatus = "Verifying Code";
+        st.botStatus = "Verifying Code";
       }
     })
     .catch((error) => {
-      botStatus = "Idle";
+      st.botStatus = "Idle";
       releaseProcessLock("authenticating");
-      loginState = { status: "failed", message: (error as Error).message };
+      st.loginState = { status: "failed", message: (error as Error).message };
     });
 
   return res.json({ status: "authenticating", message: "Automated login flow initiated. Please wait..." });
@@ -5832,31 +4511,31 @@ app.post("/api/submit-otp", async (req, res) => {
     return res.status(400).json({ error: "Missing OTP verification code." });
   }
 
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot submit OTP while the Continuous Automation Loop is active." });
   }
 
-  botStatus = "Verifying Code";
-  loginState = { status: "authenticating", message: "Submitting 6-digit verification code..." };
+  st.botStatus = "Verifying Code";
+  st.loginState = { status: "authenticating", message: "Submitting 6-digit verification code..." };
 
   // Run asynchronously in background to prevent 504 Gateway Timeout on AWS/Nginx proxy
   executeSubmitOtp(otp)
     .then((result) => {
       releaseProcessLock("authenticating");
-      loginState = { status: result.status, message: result.message };
-      botStatus = "Idle";
+      st.loginState = { status: result.status, message: result.message };
+      st.botStatus = "Idle";
       if (result.status === "success") {
         setTimeout(() => {
-          if (loginState.status === "success") {
-            loginState = { status: "idle", message: "" };
+          if (st.loginState.status === "success") {
+            st.loginState = { status: "idle", message: "" };
           }
         }, 15000);
       }
     })
     .catch((error) => {
       releaseProcessLock("authenticating");
-      botStatus = "Idle";
-      loginState = { status: "failed", message: (error as Error).message };
+      st.botStatus = "Idle";
+      st.loginState = { status: "failed", message: (error as Error).message };
     });
 
   return res.json({ status: "authenticating", message: "OTP submission initiated. Please wait..." });
@@ -5864,18 +4543,18 @@ app.post("/api/submit-otp", async (req, res) => {
 
 // 5.3. Cancel active login session
 app.post("/api/cancel-login", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot cancel login while the Continuous Automation Loop is active." });
   }
   releaseProcessLock("authenticating");
   try {
     await executeCancelLogin();
-    botStatus = "Idle";
-    loginState = { status: "idle", message: "Login session cancelled." };
+    st.botStatus = "Idle";
+    st.loginState = { status: "idle", message: "Login session cancelled." };
     return res.json({ success: true, message: "Login session cancelled." });
   } catch (error) {
-    botStatus = "Idle";
-    loginState = { status: "idle", message: (error as Error).message };
+    st.botStatus = "Idle";
+    st.loginState = { status: "idle", message: (error as Error).message };
     return res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -5884,13 +4563,13 @@ app.post("/api/cancel-login", async (req, res) => {
 app.post("/api/reset-login-state", async (req, res) => {
   releaseProcessLock("authenticating");
   try {
-    if (activeLoginSession) {
-      await activeLoginSession.browser.close().catch(() => {});
-      activeLoginSession = null;
+    if (st.activeLoginSession) {
+      await st.activeLoginSession.browser.close().catch(() => {});
+      st.activeLoginSession = null;
     }
   } catch (_) {}
-  botStatus = "Idle";
-  loginState = { status: "idle", message: "" };
+  st.botStatus = "Idle";
+  st.loginState = { status: "idle", message: "" };
   return res.json({ success: true, message: "Login state reset to idle." });
 });
 
@@ -5901,7 +4580,7 @@ app.post("/api/retry-single", async (req, res) => {
     return res.status(400).json({ error: "Missing coin symbol." });
   }
 
-  if (isBusy() || isPostingRunning || isGeneratingRunning || isSchedulerCycleRunning) {
+  if (isBusy() || st.isPostingRunning || st.isGeneratingRunning || st.isSchedulerCycleRunning) {
     return res.status(409).json({ error: "Another automated process is currently active. Please wait for the current coin to finish." });
   }
 
@@ -5911,17 +4590,17 @@ app.post("/api/retry-single", async (req, res) => {
   }
 
   // Lock status to active posting so other frontend elements disable and pause updates correctly
-  isPostingRunning = true;
-  botStatus = "Posting";
-  currentCoinName = symbol;
+  st.isPostingRunning = true;
+  st.botStatus = "Posting";
+  st.currentCoinName = symbol;
 
   try {
     addLog("info", `Initiating manual individual retry for coin ticker ${symbol}...`);
-    const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+    const messages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
     let item = messages.find(m => m.symbol.toLowerCase() === symbol.toLowerCase());
     
     if (!item) {
-      const resultsList = readJsonFile<PostResult[]>(RESULTS_FILE, []);
+      const resultsList = readJsonFile<PostResult[]>(st.RESULTS_FILE, []);
       const matchedResult = resultsList.find(r => r.symbol.toLowerCase() === symbol.toLowerCase());
       if (matchedResult) {
         item = {
@@ -5957,8 +4636,8 @@ app.post("/api/retry-single", async (req, res) => {
       addLog("error", `CRITICAL Error during manual retry automation: ${messageText}`);
     }
 
-    // Update in RESULTS_FILE
-    const results = readJsonFile<PostResult[]>(RESULTS_FILE, []);
+    // Update in st.RESULTS_FILE
+    const results = readJsonFile<PostResult[]>(st.RESULTS_FILE, []);
     const existingIdx = results.findIndex(r => r.symbol.toLowerCase() === symbol.toLowerCase());
     
     const newResultEntry: PostResult = {
@@ -5979,7 +4658,7 @@ app.post("/api/retry-single", async (req, res) => {
       results.push(newResultEntry);
     }
 
-    await writeJsonFile(RESULTS_FILE, results);
+    await writeJsonFile(st.RESULTS_FILE, results);
     const retryPid = getActiveProfileId();
     if (retryPid) savePostResultsCloud(results, retryPid).catch(() => {});
     
@@ -5995,9 +4674,9 @@ app.post("/api/retry-single", async (req, res) => {
     return res.status(500).json({ error: (error as Error).message });
   } finally {
     releaseProcessLock("retry_single");
-    isPostingRunning = false;
-    botStatus = "Idle";
-    currentCoinName = "N/A";
+    st.isPostingRunning = false;
+    st.botStatus = "Idle";
+    st.currentCoinName = "N/A";
   }
 });
 
@@ -6294,12 +4973,12 @@ async function executeFetchTrending(options?: { skipSaveToActiveProfile?: boolea
   const targetedCoins = targetCount > 0 ? resolvedCoins.slice(0, targetCount) : resolvedCoins;
 
   if (!options?.skipSaveToActiveProfile) {
-    await writeJsonFile(LAST_TRENDING_FILE, targetedCoins);
+    await writeJsonFile(st.LAST_TRENDING_FILE, targetedCoins);
     updateRealFetchTime();
     // Clear obsolete comments from previous batch so data is never inconsistent
-    await writeJsonFile(GENERATED_MESSAGES_FILE, []);
+    await writeJsonFile(st.GENERATED_MESSAGES_FILE, []);
     saveBotProgress({ next_index: 0 });
-    currentPostingIndex = 0;
+    st.currentPostingIndex = 0;
   }
   return { coins: targetedCoins, creditCount };
 }
@@ -6351,7 +5030,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
   // 1. Primary Model: OpenAI gpt-4o-mini
   if (process.env.OPENAI_API_KEY) {
     try {
-      lastOpenAiError = null; // Reset previous error if we have a key and are trying again
+      st.lastOpenAiError = null; // Reset previous error if we have a key and are trying again
       const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
       addLog("info", "Initializing OpenAI SDK with gpt-4o-mini...");
       const openai = new OpenAI({
@@ -6360,12 +5039,12 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
 
       const batchSize = 10;
       for (let i = 0; i < coins.length; i += batchSize) {
-        if (!isGeneratingRunning) {
+        if (!st.isGeneratingRunning) {
           addLog("warning", "Comment generation aborted by user.");
           break;
         }
         const chunk = coins.slice(i, i + batchSize);
-        const schedPrefix = isSchedulerCycleRunning ? "[SCHEDULER] " : "";
+        const schedPrefix = st.isSchedulerCycleRunning ? "[SCHEDULER] " : "";
         addLog("info", `${schedPrefix}Generating batch of comments ${Math.floor(i / batchSize) + 1}/${Math.ceil(coins.length / batchSize)} with gpt-4o-mini...`);
 
         const prompt = `
@@ -6430,7 +5109,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     } catch (apiError) {
       const errMsg = (apiError as Error).message;
       addLog("error", `OpenAI API Call failed: ${errMsg}.`);
-      lastOpenAiError = errMsg;
+      st.lastOpenAiError = errMsg;
     }
   }
 
@@ -6440,7 +5119,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
 
   if (missingForGemini.length > 0 && geminiKey) {
     try {
-      lastGeminiError = null; // Reset previous error if we have a key and are trying again
+      st.lastGeminiError = null; // Reset previous error if we have a key and are trying again
       addLog("info", `Using Gemini API (gemini-2.5-flash) to generate ${missingForGemini.length} missing comments...`);
       const ai = new GoogleGenAI({
         apiKey: geminiKey,
@@ -6453,7 +5132,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
 
       const batchSize = 10;
       for (let i = 0; i < missingForGemini.length; i += batchSize) {
-        if (!isGeneratingRunning) {
+        if (!st.isGeneratingRunning) {
           addLog("warning", "Comment generation aborted by user.");
           break;
         }
@@ -6557,7 +5236,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
     } catch (geminiError) {
       const errMsg = (geminiError as Error).message;
       addLog("error", `Gemini API Call failed: ${errMsg}.`);
-      lastGeminiError = errMsg;
+      st.lastGeminiError = errMsg;
     }
   }
 
@@ -6588,7 +5267,7 @@ async function generateMessagesForCoins(coins: Coin[]): Promise<GeneratedMessage
 }
 
 async function executeGenerateMessages(coinsInput?: Coin[]): Promise<number> {
-  let coins = coinsInput || readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  let coins = coinsInput || readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
     throw new Error("No trending coins found in output/last_trending.json. Please fetch trending coins first.");
   }
@@ -6599,7 +5278,7 @@ async function executeGenerateMessages(coinsInput?: Coin[]): Promise<number> {
     coins = coins.slice(0, targetCount);
   }
   const generatedMessages = await generateMessagesForCoins(coins);
-  await writeJsonFile(GENERATED_MESSAGES_FILE, generatedMessages);
+  await writeJsonFile(st.GENERATED_MESSAGES_FILE, generatedMessages);
   saveBotProgress({ next_index: 0 });
   updateRealGenerateTime();
   return generatedMessages.length;
@@ -6607,7 +5286,7 @@ async function executeGenerateMessages(coinsInput?: Coin[]): Promise<number> {
 
 // 6. Fetch Trending Coins Endpoint (Mutex and Progress Locked)
 app.post("/api/fetch-trending", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
   const lock = acquireProcessLock("fetching_coins", "Fetching trending coins from CoinMarketCap");
@@ -6615,7 +5294,7 @@ app.post("/api/fetch-trending", async (req, res) => {
     return res.status(409).json({ error: lock.reason });
   }
 
-  if (isPostingRunning) {
+  if (st.isPostingRunning) {
     releaseProcessLock("fetching_coins");
     addLog("warning", "Operation blocked: A posting run is actively executing in the background. Please stop posting before fetching new coins.");
     return res.status(400).json({
@@ -6624,17 +5303,17 @@ app.post("/api/fetch-trending", async (req, res) => {
   }
 
   addLog("info", "Starting cryptocurrency listings fetch...");
-  botStatus = "Fetching";
+  st.botStatus = "Fetching";
 
   try {
     const { coins, creditCount } = await executeFetchTrending();
     addLog("success", `Successfully fetched ${coins.length} coins. (Credits consumed: ${creditCount})`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     const ts = getRealTimestamps();
     res.json({ status: "success", coins, totalCoins: coins.length, credit_count: creditCount, coinsFetchedAt: ts.coinsFetchedAt, coinsFetchedTime: ts.coinsFetchedTime });
   } catch (error) {
     addLog("error", `Failed fetching coins: ${(error as Error).message}`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     res.status(500).json({ status: "error", message: (error as Error).message });
   } finally {
     releaseProcessLock("fetching_coins");
@@ -6643,7 +5322,7 @@ app.post("/api/fetch-trending", async (req, res) => {
 
 // 7. Generate community messages Endpoint (Mutex and Progress Locked)
 app.post("/api/generate-messages", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
   const lock = acquireProcessLock("generating_comments", "Generating AI comments for coins");
@@ -6653,7 +5332,7 @@ app.post("/api/generate-messages", async (req, res) => {
 
   updateActiveProfilePaths();
 
-  if (isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning) {
+  if (st.isPostingRunning || st.isSinglePostingRunning || st.isSchedulerCycleRunning) {
     releaseProcessLock("generating_comments");
     addLog("warning", "Operation blocked: A posting run is actively executing in the background. Please stop posting before generating comments.");
     return res.status(400).json({
@@ -6662,42 +5341,42 @@ app.post("/api/generate-messages", async (req, res) => {
   }
 
   // DATA CONSISTENCY CHECK: Ensure we actually have trending coins
-  const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  const coins = readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []);
   if (coins.length === 0) {
     releaseProcessLock("generating_comments");
     addLog("error", "Data inconsistency: Trending coins list is empty. Please fetch trending data first.");
     return res.status(400).json({ error: "Cannot generate comments: Trending coins list is empty. Please fetch trending data first." });
   }
 
-  const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const prevMessages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
   const prevProgress = readBotProgress();
   if (prevMessages.length > 0 && prevProgress.next_index > 0 && prevProgress.next_index < prevMessages.length) {
     addLog("info", `Regenerating community comments for trending coins (previous progress was ${prevProgress.next_index}/${prevMessages.length} posted; resetting progress index to 0).`);
   }
 
   addLog("info", "Starting community comments generation...");
-  botStatus = "Generating";
-  isGeneratingRunning = true;
+  st.botStatus = "Generating";
+  st.isGeneratingRunning = true;
 
   try {
     const count = await executeGenerateMessages();
     addLog("success", `Successfully generated community comments for all ${count} coins! Saved to generated_messages.json.`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     const ts = getRealTimestamps();
     res.json({ status: "success", count, totalGenerated: count, commentsGeneratedAt: ts.commentsGeneratedAt, commentsGeneratedTime: ts.commentsGeneratedTime });
   } catch (error) {
     addLog("error", `Failed message generation: ${(error as Error).message}`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     res.status(500).json({ status: "error", message: (error as Error).message });
   } finally {
-    isGeneratingRunning = false;
+    st.isGeneratingRunning = false;
     releaseProcessLock("generating_comments");
   }
 });
 
 // 7.5. Fetch fresh trending coins AND generate comments in one streamlined sequence
 app.post("/api/fetch-and-generate-fresh", async (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while Continuous Automation Loop is active." });
   }
   const lock = acquireProcessLock("refresh_fresh", "Refreshing trending coins & AI comments");
@@ -6707,17 +5386,17 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
 
   try {
     addLog("info", "[FRESH RUN] Fetching new cryptocurrency trending listings from CoinMarketCap...");
-    botStatus = "Fetching";
+    st.botStatus = "Fetching";
     const { coins, creditCount } = await executeFetchTrending();
     addLog("success", `[FRESH RUN] Successfully fetched ${coins.length} coins. (Credits consumed: ${creditCount})`);
 
     addLog("info", "[FRESH RUN] Automatically generating updated AI comments for all coins...");
-    botStatus = "Generating";
-    isGeneratingRunning = true;
+    st.botStatus = "Generating";
+    st.isGeneratingRunning = true;
     const count = await executeGenerateMessages();
     addLog("success", `[FRESH RUN] Successfully generated fresh community comments for all ${count} coins! Ready for posting.`);
-    botStatus = "Idle";
-    isGeneratingRunning = false;
+    st.botStatus = "Idle";
+    st.isGeneratingRunning = false;
 
     const ts = getRealTimestamps();
     res.json({
@@ -6728,8 +5407,8 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
       commentsGeneratedAt: ts.commentsGeneratedAt,
     });
   } catch (error) {
-    botStatus = "Idle";
-    isGeneratingRunning = false;
+    st.botStatus = "Idle";
+    st.isGeneratingRunning = false;
     addLog("error", `[FRESH RUN] Failed to refresh trending data & comments: ${(error as Error).message}`);
     res.status(500).json({ error: (error as Error).message });
   } finally {
@@ -6739,10 +5418,10 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
 
 // 8. Start posting sequence (Loop)
 app.post("/api/post-chat", (req, res) => {
-  if (isContinuousLoopActive) {
+  if (st.isContinuousLoopActive) {
     return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
-  if (isPostingRunning || isSinglePostingRunning) {
+  if (st.isPostingRunning || st.isSinglePostingRunning) {
     return res.json({ status: "success", message: "Bot posting sequence is already active." });
   }
 
@@ -6751,8 +5430,8 @@ app.post("/api/post-chat", (req, res) => {
     return res.status(409).json({ error: lock.reason });
   }
 
-  const coins = readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
-  const messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const coins = readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []);
+  const messages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
 
   if (coins.length === 0) {
     releaseProcessLock("single_posting");
@@ -6797,14 +5476,14 @@ app.post("/api/post-chat", (req, res) => {
     });
   }
 
-  isStopping = false;
-  isSingleStopping = false;
-  isPostingRunning = true;
-  isSinglePostingRunning = true;
-  botStatus = "Posting";
+  st.isStopping = false;
+  st.isSingleStopping = false;
+  st.isPostingRunning = true;
+  st.isSinglePostingRunning = true;
+  st.botStatus = "Posting";
   addLog("info", "Initiating automated posting cycle...");
 
-  currentPostingIndex = 0;
+  st.currentPostingIndex = 0;
 
   // Start asynchronous runner
   runPostingLoop().catch((err) => {
@@ -6830,9 +5509,6 @@ export interface PostingLoopSummary {
   stopReason: "completed" | "stopped_daily_limit" | "stopped_captcha" | "skipped_expired" | "stopped_by_user" | "failed";
 }
 
-const activeProfileRunLocks = new Set<string>();
-
-// Asynchronous Posting Loop
 async function runPostingLoop(options: PostingLoopOptions = {}): Promise<PostingLoopSummary> {
   const isSchedulerCall = Boolean(options.accountLogPrefix);
   const scheduleNextCycle = options.scheduleNextCycle ?? true;
@@ -6841,17 +5517,17 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
   // Reset cancellation flags for this specific execution context
   if (!isSchedulerCall) {
-    isStopping = false;
-    isSingleStopping = false;
-    isSinglePostingRunning = true;
+    st.isStopping = false;
+    st.isSingleStopping = false;
+    st.isSinglePostingRunning = true;
   }
-  isPostingRunning = true;
+  st.isPostingRunning = true;
 
   const isHaltRequested = () => {
     if (isSchedulerCall) {
-      return stopSchedulerRequested || pauseSchedulerRequested;
+      return st.stopSchedulerRequested || st.pauseSchedulerRequested;
     }
-    return isSingleStopping || isStopping || !isPostingRunning;
+    return st.isSingleStopping || st.isStopping || !st.isPostingRunning;
   };
 
   const logWithPrefix = (level: "info" | "success" | "warning" | "error", message: string, profileId?: string) => {
@@ -6860,14 +5536,14 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
   let activeId = getActiveProfileId();
   const runProfileKey = activeId || "active_default";
-  if (activeProfileRunLocks.has(runProfileKey)) {
+  if (st.activeProfileRunLocks.has(runProfileKey)) {
     logWithPrefix("warning", `[MUTEX LOCK] Posting run is already active for account profile "${runProfileKey}". Rejecting concurrent trigger to prevent race condition.`);
     return { posted: 0, failed: 0, stopReason: "failed" };
   }
-  activeProfileRunLocks.add(runProfileKey);
+  st.activeProfileRunLocks.add(runProfileKey);
 
   updateActiveProfilePaths();
-  let messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  let messages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
   let results = getIsolatedResults(activeId);
   
   let consecutiveFailures = 0;
@@ -6877,18 +5553,18 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
   let stopReason: PostingLoopSummary["stopReason"] = "completed";
 
   try {
-    currentCoinName = "Verifying Session...";
+    st.currentCoinName = "Verifying Session...";
     logWithPrefix("info", "Always verifying active session status before posting...");
     try {
       const loginCheck = await checkLoginReal();
       if (loginCheck.status !== "success") {
         const haltReason = loginCheck.status === "expired" ? "skipped_expired" : loginCheck.status === "captcha" ? "stopped_captcha" : "failed";
         logWithPrefix("error", `[SESSION HALT] Automated session check failed: ${loginCheck.status} (${loginCheck.message}). Halting posting sequence to protect account.`);
-        isPostingRunning = false;
-        if (!isSchedulerCall) isSinglePostingRunning = false;
-        botStatus = "Idle";
-        currentCoinName = "N/A";
-        if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
+        st.isPostingRunning = false;
+        if (!isSchedulerCall) st.isSinglePostingRunning = false;
+        st.botStatus = "Idle";
+        st.currentCoinName = "N/A";
+        if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
           cancelNextAutomationCycle();
           logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to unauthenticated / ${loginCheck.status} session.`);
         }
@@ -6898,10 +5574,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       }
     } catch (err) {
       logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
-      isPostingRunning = false;
-      if (!isSchedulerCall) isSinglePostingRunning = false;
-      botStatus = "Idle";
-      currentCoinName = "N/A";
+      st.isPostingRunning = false;
+      if (!isSchedulerCall) st.isSinglePostingRunning = false;
+      st.botStatus = "Idle";
+      st.currentCoinName = "N/A";
       return { posted: 0, failed: 0, stopReason: "failed" };
     }
 
@@ -6913,7 +5589,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     // CRITICAL: Re-read active paths, messages, and results after session check and autoSyncSessionToProfiles!
     updateActiveProfilePaths();
     activeId = getActiveProfileId();
-    messages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+    messages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
     results = getIsolatedResults(activeId);
 
     const botSettings = getLocalBotSettings();
@@ -6925,10 +5601,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 
     if (messages.length === 0) {
       logWithPrefix("error", "Data inconsistency: Generated comments queue is empty for this account. Please generate comments before posting.");
-      isPostingRunning = false;
-      if (!isSchedulerCall) isSinglePostingRunning = false;
-      botStatus = "Idle";
-      currentCoinName = "N/A";
+      st.isPostingRunning = false;
+      if (!isSchedulerCall) st.isSinglePostingRunning = false;
+      st.botStatus = "Idle";
+      st.currentCoinName = "N/A";
       return { posted: 0, failed: 0, stopReason: "completed" };
     }
 
@@ -6973,19 +5649,19 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     const pendingList = messages.filter(msgItem => !isProcessedInCurrentBatch(msgItem.symbol, results).processed);
     if (pendingList.length === 0) {
       logWithPrefix("success", `All ${messages.length} coins in the queue have already been processed in this cycle. No pending coins left to post.`);
-      isPostingRunning = false;
-      if (!isSchedulerCall) isSinglePostingRunning = false;
-      botStatus = "Completed";
-      currentCoinName = "N/A";
-      if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
-        logWithPrefix("info", `[AUTOMATION] All coins already processed. Triggering ${continuousLoopIntervalMinutes}-minute gap interval before next cycle...`);
+      st.isPostingRunning = false;
+      if (!isSchedulerCall) st.isSinglePostingRunning = false;
+      st.botStatus = "Completed";
+      st.currentCoinName = "N/A";
+      if (st.isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
+        logWithPrefix("info", `[AUTOMATION] All coins already processed. Triggering ${st.continuousLoopIntervalMinutes}-minute gap interval before next cycle...`);
         scheduleNextAutomationCycle();
       }
       return { posted: 0, failed: 0, stopReason: "completed" };
     }
 
     const firstPendingIdx = messages.findIndex(msgItem => !isProcessedInCurrentBatch(msgItem.symbol, results).processed);
-    currentPostingIndex = firstPendingIdx !== -1 ? firstPendingIdx : 0;
+    st.currentPostingIndex = firstPendingIdx !== -1 ? firstPendingIdx : 0;
     const initialPendingCount = pendingList.length;
     let activeQueueNum = 0;
 
@@ -6996,11 +5672,11 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     }
 
     // Re-assert posting state
-    isPostingRunning = true;
+    st.isPostingRunning = true;
     if (!isSchedulerCall) {
-      isSinglePostingRunning = true;
+      st.isSinglePostingRunning = true;
     }
-    botStatus = "Posting";
+    st.botStatus = "Posting";
 
     if (isHaltRequested()) {
       return { posted: 0, failed: 0, stopReason: "stopped_by_user" };
@@ -7019,18 +5695,18 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         ]
       });
       if (sharedBrowser) {
-        activePostingBrowser = sharedBrowser;
+        st.activePostingBrowser = sharedBrowser;
         logWithPrefix("info", "Shared Playwright browser instance pre-launched successfully.");
       }
     } catch (browserErr) {
       logWithPrefix("warning", `Pre-launching shared browser failed: ${(browserErr as Error).message}. Will launch context on-demand for individual posts.`);
       sharedBrowser = null;
-      activePostingBrowser = null;
+      st.activePostingBrowser = null;
     }
 
-    while (isPostingRunning && !isHaltRequested() && currentPostingIndex < messages.length) {
+    while (st.isPostingRunning && !isHaltRequested() && st.currentPostingIndex < messages.length) {
       touchProcessLock();
-      const item = messages[currentPostingIndex];
+      const item = messages[st.currentPostingIndex];
       
       const MAX_DAILY_POSTS = getAccountDailyPostLimit(activeId);
       const progressData = readBotProgress(activeId || undefined);
@@ -7040,10 +5716,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       if (dailyPostCount >= MAX_DAILY_POSTS) {
         stopReason = "stopped_daily_limit";
         logWithPrefix("warning", `[DAILY LIMIT] Account reached daily limit of ${MAX_DAILY_POSTS} posts for ${todayStr} (Count: ${dailyPostCount}/${MAX_DAILY_POSTS}). Halting run.`);
-        isPostingRunning = false;
-        if (!isSchedulerCall) isSinglePostingRunning = false;
-        botStatus = "Completed";
-        if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
+        st.isPostingRunning = false;
+        if (!isSchedulerCall) st.isSinglePostingRunning = false;
+        st.botStatus = "Completed";
+        if (st.isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
           scheduleNextAutomationCycle();
         }
         break;
@@ -7054,21 +5730,21 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       const batchCheck = isProcessedInCurrentBatch(item?.symbol, currentResults);
       if (batchCheck.processed) {
         logWithPrefix("info", `[SKIP] Coin ${item.symbol} was already posted in this cycle/batch (${batchCheck.status}). Moving to next.`);
-        currentPostingIndex++;
-        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        st.currentPostingIndex++;
+        saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
         continue;
       }
 
       activeQueueNum++;
-      currentCoinName = `${item.name} (${item.symbol})`;
-      saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+      st.currentCoinName = `${item.name} (${item.symbol})`;
+      saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
       logWithPrefix("info", `----------------------------------------`);
-      logWithPrefix("info", `Executing Post Sequence [Queue Item #${activeQueueNum} of ${initialPendingCount} remaining]: ${currentCoinName}`);
+      logWithPrefix("info", `Executing Post Sequence [Queue Item #${activeQueueNum} of ${initialPendingCount} remaining]: ${st.currentCoinName}`);
 
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
 
-      if (!isPostingRunning || isHaltRequested()) {
+      if (!st.isPostingRunning || isHaltRequested()) {
         stopReason = "stopped_by_user";
         break;
       }
@@ -7093,9 +5769,9 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
       }
 
       // Check if user requested stop during or before this post action (CRITICAL: Do NOT mark as failure!)
-      if (!isPostingRunning || isHaltRequested() || isStopping || isSingleStopping || messageText.toLowerCase().includes("closed") || messageText.toLowerCase().includes("destroyed") || messageText.toLowerCase().includes("disconnected") || messageText.toLowerCase().includes("interrupted")) {
+      if (!st.isPostingRunning || isHaltRequested() || st.isStopping || st.isSingleStopping || messageText.toLowerCase().includes("closed") || messageText.toLowerCase().includes("destroyed") || messageText.toLowerCase().includes("disconnected") || messageText.toLowerCase().includes("interrupted")) {
         stopReason = "stopped_by_user";
-        logWithPrefix("warning", `[HALTED BY OPERATOR] Posting gracefully paused for ${item.symbol}. Queue position safely preserved at #${currentPostingIndex + 1} with no failure logged.`);
+        logWithPrefix("warning", `[HALTED BY OPERATOR] Posting gracefully paused for ${item.symbol}. Queue position safely preserved at #${st.currentPostingIndex + 1} with no failure logged.`);
         break;
       }
 
@@ -7118,10 +5794,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(RESULTS_FILE, results);
+        writeJsonFile(st.RESULTS_FILE, results);
         
-        currentPostingIndex++;
-        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        st.currentPostingIndex++;
+        saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
         // [ANTI-BAN SAFEGUARD] Organic Trader Simulation: Every 6 posts, take a natural browsing/reading pause (60-90s)
         if (runPosted > 0 && runPosted % 6 === 0) {
@@ -7144,10 +5820,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(RESULTS_FILE, results);
+        writeJsonFile(st.RESULTS_FILE, results);
         
-        currentPostingIndex++;
-        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        st.currentPostingIndex++;
+        saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
       } else if (outcome === "retry") {
         // [ANTI-BAN PROTECTION] Rate limited by CoinMarketCap: DO NOT immediately hammer the next coin!
         logWithPrefix("warning", `[ANTI-BAN PROTECTION] CoinMarketCap temporary rate-limit detected for ${item.symbol}: "${messageText}".`);
@@ -7165,10 +5841,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(RESULTS_FILE, results);
+        writeJsonFile(st.RESULTS_FILE, results);
         
-        currentPostingIndex++;
-        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        st.currentPostingIndex++;
+        saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
         
         // Deep cooling period to allow CMC rate limit window to completely expire
         await interruptibleSleep(180000);
@@ -7191,10 +5867,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
           profileId: activeId || undefined,
         } as any);
         if (results.length > 500) results = results.slice(-500);
-        writeJsonFile(RESULTS_FILE, results);
+        writeJsonFile(st.RESULTS_FILE, results);
         
-        currentPostingIndex++;
-        saveBotProgress({ next_index: currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
+        st.currentPostingIndex++;
+        saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
         if (outcome === "expired" || outcome === "captcha") {
           stopReason = outcome === "expired" ? "skipped_expired" : "stopped_captcha";
@@ -7207,10 +5883,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
               "single_session_out"
             ).catch(() => {});
           }
-          isPostingRunning = false;
-          if (!isSchedulerCall) isSinglePostingRunning = false;
-          botStatus = "Idle";
-          if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
+          st.isPostingRunning = false;
+          if (!isSchedulerCall) st.isSinglePostingRunning = false;
+          st.botStatus = "Idle";
+          if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
             cancelNextAutomationCycle();
             logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to ${outcome} session state. Re-authenticate account to resume.`);
           }
@@ -7235,10 +5911,10 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
               `scheduler_consecutive_failures_${activeId}`
             ).catch(() => {});
           }
-          isPostingRunning = false;
-          if (!isSchedulerCall) isSinglePostingRunning = false;
-          botStatus = "Idle";
-          if (isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
+          st.isPostingRunning = false;
+          if (!isSchedulerCall) st.isSinglePostingRunning = false;
+          st.botStatus = "Idle";
+          if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
             cancelNextAutomationCycle();
             logWithPrefix("error", "[AUTOMATION] Continuous automation loop disabled due to 3 consecutive authentication failures.");
           }
@@ -7247,7 +5923,7 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         logWithPrefix("info", "Skipping to next coin to maintain end-to-end automation run...");
       }
 
-      if (!isPostingRunning || isHaltRequested()) {
+      if (!st.isPostingRunning || isHaltRequested()) {
         stopReason = "stopped_by_user";
         break;
       }
@@ -7278,23 +5954,23 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
     if (isHaltRequested()) {
       stopReason = "stopped_by_user";
       logWithPrefix("warning", "Posting loop paused: stop command was received.");
-    } else if (currentPostingIndex >= messages.length || runPosted + runFailed >= initialPendingCount) {
+    } else if (st.currentPostingIndex >= messages.length || runPosted + runFailed >= initialPendingCount) {
       stopReason = "completed";
       if (runFailed > 0) {
         logWithPrefix("warning", `Automated posting run finished with partial failures: ${runPosted} verified posted on CoinMarketCap, ${runFailed} failed/unposted.`);
       } else {
         logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Verified Posted: ${runPosted}, Failed: 0)`);
       }
-      botStatus = "Completed";
-      isPostingRunning = false;
-      if (!isSchedulerCall) isSinglePostingRunning = false;
+      st.botStatus = "Completed";
+      st.isPostingRunning = false;
+      if (!isSchedulerCall) st.isSinglePostingRunning = false;
 
       // Auto-prune old data and clean completed batch pointers ONLY when all items succeeded (runFailed === 0)
       try {
         const botSettings = getLocalBotSettings();
         if (botSettings.autoPruneCompletedBatches !== false && runFailed === 0) {
           saveBotProgress({ next_index: 0 });
-          currentPostingIndex = 0;
+          st.currentPostingIndex = 0;
           logWithPrefix("info", `[BATCH COMPLETED] All assigned comments verified posted in this cycle. Ephemeral queue pointer reset to 0.`);
         }
         if (botSettings.autoPruneOldDataEnabled !== false && runFailed === 0) {
@@ -7304,42 +5980,42 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
         console.error("[BATCH COMPLETED] Cleanup error:", cleanErr);
       }
 
-      if (isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
-        logWithPrefix("info", `[AUTOMATION] Continuous automation mode is enabled. Triggering ${continuousLoopIntervalMinutes}-minute gap interval...`);
+      if (st.isContinuousLoopActive && scheduleNextCycle && !isSchedulerCall) {
+        logWithPrefix("info", `[AUTOMATION] Continuous automation mode is enabled. Triggering ${st.continuousLoopIntervalMinutes}-minute gap interval...`);
         scheduleNextAutomationCycle();
       }
     } else if (stopReason === "stopped_daily_limit" || stopReason === "stopped_captcha" || stopReason === "skipped_expired" || stopReason === "failed") {
-      botStatus = "Idle";
-      isPostingRunning = false;
-      if (!isSchedulerCall) isSinglePostingRunning = false;
-    } else if (!isPostingRunning) {
+      st.botStatus = "Idle";
+      st.isPostingRunning = false;
+      if (!isSchedulerCall) st.isSinglePostingRunning = false;
+    } else if (!st.isPostingRunning) {
       logWithPrefix("info", `Posting run settled. (Posted: ${runPosted}, Failed: ${runFailed})`);
-      botStatus = "Idle";
+      st.botStatus = "Idle";
     }
   } catch (loopErr) {
     stopReason = "failed";
     logWithPrefix("error", `Critical error in automated posting loop: ${(loopErr as Error).message}`);
   } finally {
-    activeProfileRunLocks.delete(runProfileKey);
+    st.activeProfileRunLocks.delete(runProfileKey);
     if (sharedBrowser) {
       logWithPrefix("info", "Closing shared Playwright browser instance...");
       await sharedBrowser.close().catch(() => {});
       sharedBrowser = null;
     }
-    activePostingBrowser = null;
-    activePostingPage = null;
+    st.activePostingBrowser = null;
+    st.activePostingPage = null;
     if (!isSchedulerCall) {
-      isSinglePostingRunning = false;
-      isSingleStopping = false;
+      st.isSinglePostingRunning = false;
+      st.isSingleStopping = false;
       releaseProcessLock("single_posting");
       releaseProcessLock("continuous_loop");
     }
-    isPostingRunning = isSchedulerCycleRunning;
-    isStopping = false;
-    if (botStatus !== "Completed") {
-      botStatus = "Idle";
+    st.isPostingRunning = st.isSchedulerCycleRunning;
+    st.isStopping = false;
+    if (st.botStatus !== "Completed") {
+      st.botStatus = "Idle";
     }
-    currentCoinName = "N/A";
+    st.currentCoinName = "N/A";
     logWithPrefix("info", "Posting engine has fully halted and settled.");
   }
 
@@ -7349,24 +6025,24 @@ async function runPostingLoop(options: PostingLoopOptions = {}): Promise<Posting
 // 9. Stop posting loop
 app.post("/api/stop-posting", async (req, res) => {
   const wasRunning =
-    isPostingRunning ||
-    isSinglePostingRunning ||
-    isSchedulerCycleRunning ||
-    isGeneratingRunning ||
-    botStatus === "Posting" ||
-    botStatus === "Generating" ||
-    botStatus === "Stopping";
+    st.isPostingRunning ||
+    st.isSinglePostingRunning ||
+    st.isSchedulerCycleRunning ||
+    st.isGeneratingRunning ||
+    st.botStatus === "Posting" ||
+    st.botStatus === "Generating" ||
+    st.botStatus === "Stopping";
 
-  isStopping = false;
-  isSingleStopping = false;
-  isPostingRunning = false;
-  isSinglePostingRunning = false;
-  isGeneratingRunning = false;
-  isFullFlowAborted = true;
-  isContinuousLoopActive = false;
+  st.isStopping = false;
+  st.isSingleStopping = false;
+  st.isPostingRunning = false;
+  st.isSinglePostingRunning = false;
+  st.isGeneratingRunning = false;
+  st.isFullFlowAborted = true;
+  st.isContinuousLoopActive = false;
   cancelNextAutomationCycle();
   cancelNextSchedulerCycle();
-  stopSchedulerRequested = true;
+  st.stopSchedulerRequested = true;
 
   const currentBotSettings = getLocalBotSettings();
   if (currentBotSettings.schedulerEnabled) {
@@ -7374,28 +6050,28 @@ app.post("/api/stop-posting", async (req, res) => {
     addLog("warning", "[SCHEDULER] 24-hour continuous scheduler halted and disabled by stop command.");
   }
 
-  if (isSchedulerCycleRunning) {
+  if (st.isSchedulerCycleRunning) {
     addLog("warning", "[SCHEDULER] Stop requested during scheduled multi-account cycle. Halting current account cleanly and skipping remaining queue.");
   }
 
   // Abort any active Playwright browser/page immediately to prevent lingering
-  if (activePostingPage) {
+  if (st.activePostingPage) {
     try {
-      await activePostingPage.close().catch(() => {});
+      await st.activePostingPage.close().catch(() => {});
     } catch (_) {}
-    activePostingPage = null;
+    st.activePostingPage = null;
   }
-  if (activePostingBrowser) {
+  if (st.activePostingBrowser) {
     try {
       addLog("info", "Closing active browser instance immediately to halt posting action...");
-      await activePostingBrowser.close().catch(() => {});
+      await st.activePostingBrowser.close().catch(() => {});
     } catch (_) {}
-    activePostingBrowser = null;
+    st.activePostingBrowser = null;
   }
 
   releaseProcessLock("all" as any);
-  botStatus = "Idle";
-  currentCoinName = "N/A";
+  st.botStatus = "Idle";
+  st.currentCoinName = "N/A";
 
   if (wasRunning) {
     addLog("info", "Automated posting engine halted cleanly. All background tasks and locks released.");
@@ -7408,10 +6084,10 @@ app.post("/api/stop-posting", async (req, res) => {
 
 // 10. Full flow execution
 app.post("/api/full-flow", async (req, res) => {
-  if (isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning || isGeneratingRunning) {
+  if (st.isPostingRunning || st.isSinglePostingRunning || st.isSchedulerCycleRunning || st.isGeneratingRunning) {
     return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish or stop it first." });
   }
-  if (isBusy() || isPostingRunning || isSinglePostingRunning || isSchedulerCycleRunning) {
+  if (isBusy() || st.isPostingRunning || st.isSinglePostingRunning || st.isSchedulerCycleRunning) {
     return res.status(409).json({ error: "Another automated process is currently running. Please wait for it to finish or stop it first." });
   }
   const lock = acquireProcessLock("continuous_loop", "Full bot flow cycle");
@@ -7420,9 +6096,9 @@ app.post("/api/full-flow", async (req, res) => {
   }
 
   const activeId = getActiveProfileId();
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const activeProfile = rawProfiles.find(p => p.id === activeId);
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
   const hasValidAuth = sessionExists && activeProfile?.stateJson && sessionHasValidCookies(activeProfile.stateJson);
 
   if (!activeId || !hasValidAuth) {
@@ -7436,29 +6112,29 @@ app.post("/api/full-flow", async (req, res) => {
   addLog("info", "========================================");
 
   try {
-    const prevMessages = readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+    const prevMessages = readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
     const prevProgress = readBotProgress();
 
     const reqContinuous = req.body.continuous !== undefined ? !!req.body.continuous : true;
-    isContinuousLoopActive = reqContinuous;
-    const reqInterval = req.body.intervalMinutes !== undefined ? Math.max(5, Math.round(Number(req.body.intervalMinutes))) : continuousLoopIntervalMinutes;
+    st.isContinuousLoopActive = reqContinuous;
+    const reqInterval = req.body.intervalMinutes !== undefined ? Math.max(5, Math.round(Number(req.body.intervalMinutes))) : st.continuousLoopIntervalMinutes;
     if (reqInterval > 0) {
-      continuousLoopIntervalMinutes = Math.max(5, reqInterval);
+      st.continuousLoopIntervalMinutes = Math.max(5, reqInterval);
     }
-    if (isContinuousLoopActive) {
-      addLog("info", `[AUTOMATION] Continuous Loop Mode has been ENABLED for this execution sequence (${continuousLoopIntervalMinutes}-minute gap).`);
+    if (st.isContinuousLoopActive) {
+      addLog("info", `[AUTOMATION] Continuous Loop Mode has been ENABLED for this execution sequence (${st.continuousLoopIntervalMinutes}-minute gap).`);
     }
 
     if (prevMessages.length > 0 && prevProgress.next_index < prevMessages.length) {
       addLog("info", `[FLOW RESUME] A posting run is already in progress (${prevProgress.next_index}/${prevMessages.length} posted). Skipping storage reset.`);
       addLog("info", `[FLOW RESUME] Resuming the posting sequence from index ${prevProgress.next_index}...`);
       
-      if (!isPostingRunning) {
-        isStopping = false;
-        isSingleStopping = false;
-        isPostingRunning = true;
-        botStatus = "Posting";
-        currentPostingIndex = prevProgress.next_index;
+      if (!st.isPostingRunning) {
+        st.isStopping = false;
+        st.isSingleStopping = false;
+        st.isPostingRunning = true;
+        st.botStatus = "Posting";
+        st.currentPostingIndex = prevProgress.next_index;
         runPostingLoop();
       }
 
@@ -7469,46 +6145,46 @@ app.post("/api/full-flow", async (req, res) => {
     }
 
     addLog("info", "[FLOW FRESH] All previous coins posted or no previous run. Starting clean full cycle...");
-    writeJsonFile(RESULTS_FILE, []);
+    writeJsonFile(st.RESULTS_FILE, []);
     saveBotProgress({ next_index: 0 });
 
-    isFullFlowAborted = false;
+    st.isFullFlowAborted = false;
 
     // Step 1: Fetch
     addLog("info", "[FLOW STEP 1/3] Fetching latest trending coins...");
-    botStatus = "Fetching";
+    st.botStatus = "Fetching";
     await executeFetchTrending();
 
-    if (isFullFlowAborted) {
+    if (st.isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Fetching phase.");
-      botStatus = "Idle";
+      st.botStatus = "Idle";
       return res.json({ success: false, message: "Sequence aborted by user." });
     }
 
     // Step 2: Generate
     addLog("info", "[FLOW STEP 2/3] Generating custom community comments...");
-    botStatus = "Generating";
-    isGeneratingRunning = true;
+    st.botStatus = "Generating";
+    st.isGeneratingRunning = true;
     try {
       await executeGenerateMessages();
     } finally {
-      isGeneratingRunning = false;
+      st.isGeneratingRunning = false;
     }
 
-    if (isFullFlowAborted) {
+    if (st.isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Generation phase.");
-      botStatus = "Idle";
+      st.botStatus = "Idle";
       releaseProcessLock("continuous_loop");
       return res.json({ success: false, message: "Sequence aborted by user." });
     }
 
     // Step 3: Post
     addLog("info", "[FLOW STEP 3/3] Launching automated comment submitter...");
-    isStopping = false;
-    isSingleStopping = false;
-    isPostingRunning = true;
-    botStatus = "Posting";
-    currentPostingIndex = 0;
+    st.isStopping = false;
+    st.isSingleStopping = false;
+    st.isPostingRunning = true;
+    st.botStatus = "Posting";
+    st.currentPostingIndex = 0;
     runPostingLoop();
 
     res.json({
@@ -7518,10 +6194,10 @@ app.post("/api/full-flow", async (req, res) => {
   } catch (error) {
     releaseProcessLock("continuous_loop");
     addLog("error", `Full Flow failed: ${(error as Error).message}`);
-    botStatus = "Idle";
-    isPostingRunning = false;
-    isGeneratingRunning = false;
-    if (isContinuousLoopActive) {
+    st.botStatus = "Idle";
+    st.isPostingRunning = false;
+    st.isGeneratingRunning = false;
+    if (st.isContinuousLoopActive) {
       scheduleNextAutomationCycle();
     }
     res.status(500).json({ error: (error as Error).message });
@@ -7532,12 +6208,12 @@ app.post("/api/full-flow", async (req, res) => {
 app.post("/api/clear-all", async (req, res) => {
   const forceReset = Boolean(req.body?.force);
   const processRunning =
-    isPostingRunning ||
-    isSinglePostingRunning ||
-    isSchedulerCycleRunning ||
-    isGeneratingRunning ||
-    isContinuousLoopActive ||
-    (isBusy() && activeSystemProcess !== "none");
+    st.isPostingRunning ||
+    st.isSinglePostingRunning ||
+    st.isSchedulerCycleRunning ||
+    st.isGeneratingRunning ||
+    st.isContinuousLoopActive ||
+    (isBusy() && st.activeSystemProcess !== "none");
 
   if (processRunning && !forceReset) {
     return res.status(409).json({
@@ -7546,13 +6222,13 @@ app.post("/api/clear-all", async (req, res) => {
   }
 
   cancelNextAutomationCycle();
-  isContinuousLoopActive = false;
-  isPostingRunning = false;
-  isSinglePostingRunning = false;
-  isGeneratingRunning = false;
-  isStopping = false;
-  isSingleStopping = false;
-  botStatus = "Idle";
+  st.isContinuousLoopActive = false;
+  st.isPostingRunning = false;
+  st.isSinglePostingRunning = false;
+  st.isGeneratingRunning = false;
+  st.isStopping = false;
+  st.isSingleStopping = false;
+  st.botStatus = "Idle";
   releaseProcessLock("all" as any);
 
   const lock = acquireProcessLock("clearing_storage", "Resetting storage and clearing stats");
@@ -7561,14 +6237,14 @@ app.post("/api/clear-all", async (req, res) => {
   }
   try {
     updateActiveProfilePaths();
-    logs = [];
+    st.logs = [];
     const activeId = getActiveProfileId();
 
     // Safely archive any current results into the 7-day retention archive before clearing active display
     try {
       const activeResults = getIsolatedResults(activeId);
       if (activeResults.length > 0) {
-        const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+        const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
         const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
         const mergedArchive = [...existingArchive, ...activeResults];
         writeJsonFile(arcFile, mergedArchive.slice(-3000));
@@ -7576,18 +6252,18 @@ app.post("/api/clear-all", async (req, res) => {
       }
     } catch (_) {}
 
-    writeJsonFile(LAST_TRENDING_FILE, []);
-    writeJsonFile(GENERATED_MESSAGES_FILE, []);
-    writeJsonFile(RESULTS_FILE, []);
+    writeJsonFile(st.LAST_TRENDING_FILE, []);
+    writeJsonFile(st.GENERATED_MESSAGES_FILE, []);
+    writeJsonFile(st.RESULTS_FILE, []);
     
     // Preserve daily limit count unless explicitly requested
     saveBotProgress({ next_index: 0 });
     clearRealTimestamps();
-    currentPostingIndex = 0;
-    currentCoinName = "N/A";
-    botStatus = "Idle";
-    isStopping = false;
-    isSingleStopping = false;
+    st.currentPostingIndex = 0;
+    st.currentCoinName = "N/A";
+    st.botStatus = "Idle";
+    st.isStopping = false;
+    st.isSingleStopping = false;
 
     // Dynamic Cloud Firestore synchronization for active profile
     try {
@@ -7611,12 +6287,12 @@ app.post("/api/clear-all", async (req, res) => {
 // 11b. Safe Reset Today's Queue & Submissions (Safely archives submissions to 7-day retention; preserves logins, cookies, and profiles)
 app.post("/api/queue/reset-daily", async (req, res) => {
   if (
-    isPostingRunning ||
-    isSinglePostingRunning ||
-    isSchedulerCycleRunning ||
-    isGeneratingRunning ||
-    isContinuousLoopActive ||
-    (isBusy() && activeSystemProcess !== "none")
+    st.isPostingRunning ||
+    st.isSinglePostingRunning ||
+    st.isSchedulerCycleRunning ||
+    st.isGeneratingRunning ||
+    st.isContinuousLoopActive ||
+    (isBusy() && st.activeSystemProcess !== "none")
   ) {
     return res.status(409).json({
       success: false,
@@ -7631,7 +6307,7 @@ app.post("/api/queue/reset-daily", async (req, res) => {
     try {
       const currentResults = getIsolatedResults(activeId);
       if (currentResults.length > 0) {
-        const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+        const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
         const existingArchive = readJsonFile<PostResult[]>(arcFile, []);
         const mergedArchive = [...existingArchive, ...currentResults];
         writeJsonFile(arcFile, mergedArchive.slice(-3000));
@@ -7641,7 +6317,7 @@ app.post("/api/queue/reset-daily", async (req, res) => {
       console.warn("Could not archive existing results prior to reset:", (arcErr as Error).message);
     }
 
-    writeJsonFile(RESULTS_FILE, []);
+    writeJsonFile(st.RESULTS_FILE, []);
     
     // 2. Reset queue pointer back to 0; only reset daily post count if explicitly requested
     const progressUpdate: Partial<BotProgressData> = { next_index: 0 };
@@ -7649,8 +6325,8 @@ app.post("/api/queue/reset-daily", async (req, res) => {
       progressUpdate.daily_post_count = 0;
     }
     saveBotProgress(progressUpdate);
-    currentPostingIndex = 0;
-    currentCoinName = "N/A";
+    st.currentPostingIndex = 0;
+    st.currentCoinName = "N/A";
     
     if (activeId) {
       await savePostResultsCloud([], activeId).catch(() => {});
@@ -7688,7 +6364,7 @@ app.get("/api/data/retention-stats", (req, res) => {
     const activeResults = getIsolatedResults(activeId);
     
     // Check archive count
-    const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+    const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
     const archivedResults = readJsonFile<PostResult[]>(arcFile, []);
 
     res.json({
@@ -7739,7 +6415,7 @@ app.get("/api/download/archived_submissions.csv", (req, res) => {
   try {
     updateActiveProfilePaths();
     const activeId = getActiveProfileId();
-    const arcFile = activeId ? path.join(OUTPUT_DIR, activeId, "archived_results.json") : path.join(OUTPUT_DIR, "archived_results.json");
+    const arcFile = activeId ? path.join(st.OUTPUT_DIR, activeId, "archived_results.json") : path.join(st.OUTPUT_DIR, "archived_results.json");
     const archived = readJsonFile<PostResult[]>(arcFile, []);
 
     let csv = "Timestamp,Asset Name,Symbol,Sentiment,Post Status,Log Message,Target URL\n";
@@ -7757,11 +6433,9 @@ app.get("/api/download/archived_submissions.csv", (req, res) => {
 // ==========================================
 // 11b.3. Company Admin Authentication & Sharing Gate
 // ==========================================
-const activeAdminSessions = new Set<string>();
-
 function generateAdminToken(): string {
   const token = "admin_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
-  activeAdminSessions.add(token);
+  st.activeAdminSessions.add(token);
   return token;
 }
 
@@ -7782,7 +6456,7 @@ function verifyAdminRequest(req: express.Request): boolean {
     return true;
   }
 
-  return activeAdminSessions.has(token);
+  return st.activeAdminSessions.has(token);
 }
 
 app.post("/api/auth/login", (req, res) => {
@@ -7821,11 +6495,11 @@ app.get("/api/auth/status", (req, res) => {
     const authenticated = !authRequired || verifyAdminRequest(req);
     const schedulerState = {
       enabled: !!settings.schedulerEnabled,
-      cycleRunning: isSchedulerCycleRunning,
-      postingRunning: isPostingRunning || isSinglePostingRunning,
-      botStatus,
-      nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
-      isContinuousLoopActive,
+      cycleRunning: st.isSchedulerCycleRunning,
+      postingRunning: st.isPostingRunning || st.isSinglePostingRunning,
+      botStatus: st.botStatus,
+      nextCycleAt: st.nextSchedulerCycleStartTime ? new Date(st.nextSchedulerCycleStartTime).toISOString() : null,
+      isContinuousLoopActive: st.isContinuousLoopActive,
     };
 
     res.json({
@@ -7880,7 +6554,7 @@ app.post("/api/auth/toggle-auth", (req, res) => {
 // 11c. Fleet Health Check: Probe & Verify All Account Sessions at Once
 app.post("/api/profiles/verify-all", async (req, res) => {
   try {
-    const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     const profiles = normalizeProfilesWithSchedule(rawProfiles);
     const results: any[] = [];
     let healthyCount = 0;
@@ -7998,15 +6672,15 @@ app.post("/api/settings/target-coins", (req, res) => {
   }
 });
 
-// 12. Get current logs stream with per-profile isolation
+// 12. Get current st.logs stream with per-profile isolation
 app.get("/api/logs", (req, res) => {
   const queryProfileId = req.query.profileId as string | undefined;
   const activeId = queryProfileId || getActiveProfileId();
   if (activeId) {
-    const profileLogs = logs.filter(l => !l.profileId || l.profileId === activeId);
+    const profileLogs = st.logs.filter(l => !l.profileId || l.profileId === activeId);
     return res.json({ logs: profileLogs.slice(-100) });
   }
-  res.json({ logs: logs.slice(-100) });
+  res.json({ logs: st.logs.slice(-100) });
 });
 
 // ============================================================================
@@ -8025,8 +6699,8 @@ function escapeCsvField(val: any): string {
 app.get("/api/download/trending_coins.csv", (req, res) => {
   updateActiveProfilePaths();
   const activeId = getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
-  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
+  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []);
   let csv = "Name,Symbol,Price,Change_1h,Change_24h,Change_7d,Market_Cap,Volume_24h,Rank,Slug,Url\n";
   coins.forEach(c => {
     csv += `${escapeCsvField(c.name)},${escapeCsvField(c.symbol)},${escapeCsvField(c.price)},${escapeCsvField(c.change_1h || 0)},${escapeCsvField(c.change_24h)},${escapeCsvField(c.change_7d || 0)},${escapeCsvField(c.market_cap)},${escapeCsvField(c.volume_24h)},${escapeCsvField(c.cmc_rank || "")},${escapeCsvField(c.slug)},${escapeCsvField(c.url)}\n`;
@@ -8039,8 +6713,8 @@ app.get("/api/download/trending_coins.csv", (req, res) => {
 app.get("/api/download/generated_comments.csv", (req, res) => {
   updateActiveProfilePaths();
   const activeId = getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
-  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
+  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
   let csv = "Asset Name,Symbol,Sentiment,Generated Comment,Target URL\n";
   messages.forEach(m => {
     csv += `${escapeCsvField(m.name)},${escapeCsvField(m.symbol)},${escapeCsvField(m.sentiment || "bullish")},${escapeCsvField(m.message || "")},${escapeCsvField(m.url)}\n`;
@@ -8053,7 +6727,7 @@ app.get("/api/download/generated_comments.csv", (req, res) => {
 app.get("/api/download/post_submissions.csv", (req, res) => {
   updateActiveProfilePaths();
   const activeId = getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
   const results = (!activeId || !sessionExists) ? [] : getIsolatedResults(activeId);
   let csv = "Timestamp,Asset Name,Symbol,Sentiment,Post Status,Log Message,Target URL\n";
   results.forEach(r => {
@@ -8067,9 +6741,9 @@ app.get("/api/download/post_submissions.csv", (req, res) => {
 app.get("/api/download/overall_report.csv", (req, res) => {
   updateActiveProfilePaths();
   const activeId = getActiveProfileId();
-  const sessionExists = fs.existsSync(AUTH_STATE_FILE);
-  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(LAST_TRENDING_FILE, []);
-  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []);
+  const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
+  const coins = (!activeId || !sessionExists) ? [] : readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []);
+  const messages = (!activeId || !sessionExists) ? [] : readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []);
   const results = (!activeId || !sessionExists) ? [] : getIsolatedResults(activeId);
   const successCount = results.filter(r => r.status === "success").length;
   const failedCount = results.filter(r => r.status !== "success").length;
@@ -8082,7 +6756,7 @@ app.get("/api/download/overall_report.csv", (req, res) => {
   csv += `${escapeCsvField("Successful Posts")},${escapeCsvField(successCount)},${escapeCsvField("Successfully posted comments")}\n`;
   csv += `${escapeCsvField("Failed/Skipped Posts")},${escapeCsvField(failedCount)},${escapeCsvField("Posts that failed or were manually skipped")}\n`;
   csv += `${escapeCsvField("Overall Success Rate")},${escapeCsvField(`${successRate}%`)},${escapeCsvField("Success rate percentage")}\n`;
-  csv += `${escapeCsvField("Execution Mode")},${escapeCsvField(runMode)},${escapeCsvField("Execution environment configuration")}\n`;
+  csv += `${escapeCsvField("Execution Mode")},${escapeCsvField(st.runMode)},${escapeCsvField("Execution environment configuration")}\n`;
   csv += `${escapeCsvField("Report Generated At")},${escapeCsvField(new Date().toLocaleString())},${escapeCsvField("Timestamp of export")}\n`;
 
   res.setHeader("Content-Type", "text/csv");
@@ -8099,13 +6773,13 @@ function updateProfileLastRun(
   lastRunData: { at: string; status: LastRunStatus; posted: number; failed: number }
 ): void {
   try {
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     profiles = normalizeProfilesWithSchedule(profiles);
     const targetIdx = profiles.findIndex(p => p.id === profileId);
     if (targetIdx !== -1) {
       profiles[targetIdx].lastRun = lastRunData;
       profiles[targetIdx].updatedAt = new Date().toISOString();
-      fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+      fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
       saveProfilesCloud(profiles).catch(err => console.error("[STORAGE] Error syncing lastRun to cloud:", err));
     }
   } catch (err) {
@@ -8117,7 +6791,7 @@ function updateProfileSchedule(
   profileId: string,
   schedulePatch: { enabled?: boolean; frequency?: ScheduleFrequency; customHours?: number; order?: number; useForNow?: boolean }
 ): any {
-  let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   profiles = normalizeProfilesWithSchedule(profiles);
   const targetIdx = profiles.findIndex(p => p.id === profileId);
   if (targetIdx === -1) {
@@ -8134,22 +6808,17 @@ function updateProfileSchedule(
   };
   profiles[targetIdx].schedule = updatedSchedule;
   profiles[targetIdx].updatedAt = new Date().toISOString();
-  fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+  fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
   saveProfilesCloud(profiles).catch(err => console.error("[STORAGE] Error syncing schedule to cloud:", err));
   return profiles[targetIdx];
 }
 
-let schedulerCycleIntervalMinutes = 360;
-let schedulerCycleTimeout: NodeJS.Timeout | null = null;
-let nextSchedulerCycleStartTime: number | null = null;
-let lastSchedulerCycleStartTime: number | null = null;
-
 function cancelNextSchedulerCycle() {
-  if (schedulerCycleTimeout) {
-    clearTimeout(schedulerCycleTimeout);
-    schedulerCycleTimeout = null;
+  if (st.schedulerCycleTimeout) {
+    clearTimeout(st.schedulerCycleTimeout);
+    st.schedulerCycleTimeout = null;
   }
-  nextSchedulerCycleStartTime = null;
+  st.nextSchedulerCycleStartTime = null;
 }
 
 function scheduleNextSchedulerCycle(delayMsOverride?: number) {
@@ -8157,7 +6826,7 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled) return;
 
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const profiles = normalizeProfilesWithSchedule(rawProfiles);
   const hasAnyAuth = profiles.some(p => p.stateJson && sessionHasValidCookies(p.stateJson));
   if (!hasAnyAuth) {
@@ -8194,8 +6863,8 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     
     // Deduct the actual execution duration of the completed cycle
     // e.g. If posting ~85 coins across 3 accounts took 88 minutes, sleep 272 minutes so cycle + rest gap = 360 minutes (6 hours = 4 cycles in 24h)
-    if (lastSchedulerCycleStartTime) {
-      const cycleDurationMs = Math.max(0, Date.now() - lastSchedulerCycleStartTime);
+    if (st.lastSchedulerCycleStartTime) {
+      const cycleDurationMs = Math.max(0, Date.now() - st.lastSchedulerCycleStartTime);
       gapMs = Math.max(15 * 60 * 1000, targetIntervalMs - cycleDurationMs);
       const cycleDurationMins = Math.round(cycleDurationMs / 60000);
       const remainingCooldownMins = Math.round(gapMs / 60000);
@@ -8212,19 +6881,19 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     sessionDesc = `${peakInfo.session.label}`;
   }
 
-  nextSchedulerCycleStartTime = Date.now() + gapMs;
+  st.nextSchedulerCycleStartTime = Date.now() + gapMs;
   addLog(
     "info",
-    `[SCHEDULER] Next cycle: ${sessionDesc} (at ${new Date(nextSchedulerCycleStartTime).toLocaleTimeString()}). Today's progress: ${dailyCycles}/${maxCycles} cycles.`
+    `[SCHEDULER] Next cycle: ${sessionDesc} (at ${new Date(st.nextSchedulerCycleStartTime).toLocaleTimeString()}). Today's progress: ${dailyCycles}/${maxCycles} cycles.`
   );
 
-  schedulerCycleTimeout = setTimeout(async () => {
-    schedulerCycleTimeout = null;
-    nextSchedulerCycleStartTime = null;
+  st.schedulerCycleTimeout = setTimeout(async () => {
+    st.schedulerCycleTimeout = null;
+    st.nextSchedulerCycleStartTime = null;
     const currentSettings = getLocalBotSettings();
     if (!currentSettings.schedulerEnabled) return;
 
-    if (isPostingRunning || isSinglePostingRunning || isContinuousLoopActive || isBusy() || activeSystemProcess !== "none") {
+    if (st.isPostingRunning || st.isSinglePostingRunning || st.isContinuousLoopActive || isBusy() || st.activeSystemProcess !== "none") {
       addLog("warning", "[SCHEDULER] Another task is currently active. Postponing scheduled cycle by 2 minutes...");
       scheduleNextSchedulerCycle(2 * 60 * 1000);
       return;
@@ -8239,11 +6908,11 @@ function scheduleNextSchedulerCycle(delayMsOverride?: number) {
 }
 
 async function runScheduledCycle(): Promise<void> {
-  if (isSchedulerCycleRunning) {
+  if (st.isSchedulerCycleRunning) {
     addLog("warning", "[SCHEDULER] A scheduled multi-account cycle is already running. Skipping overlapping execution.");
     return;
   }
-  if ((isBusy() && activeSystemProcess !== "none") || isSinglePostingRunning || isPostingRunning) {
+  if ((isBusy() && st.activeSystemProcess !== "none") || st.isSinglePostingRunning || st.isPostingRunning) {
     addLog("warning", "[SCHEDULER] Another process or manual posting is currently active. Postponing scheduled cycle by 2 minutes...");
     scheduleNextSchedulerCycle(2 * 60 * 1000);
     return;
@@ -8262,29 +6931,29 @@ async function runScheduledCycle(): Promise<void> {
     return;
   }
 
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const profiles = normalizeProfilesWithSchedule(rawProfiles);
   const hasAnyAuth = profiles.some(p => p.stateJson && sessionHasValidCookies(p.stateJson));
   if (!hasAnyAuth) {
     addLog("error", "[SCHEDULER] Cannot execute scheduled cycle: No accounts have valid authenticated sessions. Stopping 24-hr scheduler.");
     releaseProcessLock("scheduler_cycle");
-    isSchedulerCycleRunning = false;
+    st.isSchedulerCycleRunning = false;
     const currentSettings = getLocalBotSettings();
     saveLocalBotSettings({ ...currentSettings, schedulerEnabled: false });
     cancelNextSchedulerCycle();
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     return;
   }
 
   // Preserve user's current active profile so their manual view & work are NEVER displaced!
   const initialActiveProfileId = getActiveProfileId();
 
-  isSchedulerCycleRunning = true;
-  lastSchedulerCycleStartTime = Date.now();
-  stopSchedulerRequested = false;
-  pauseSchedulerRequested = false;
-  isStopping = false;
-  botStatus = "Fetching";
+  st.isSchedulerCycleRunning = true;
+  st.lastSchedulerCycleStartTime = Date.now();
+  st.stopSchedulerRequested = false;
+  st.pauseSchedulerRequested = false;
+  st.isStopping = false;
+  st.botStatus = "Fetching";
 
   try {
     addLog("info", "==================================================");
@@ -8293,9 +6962,9 @@ async function runScheduledCycle(): Promise<void> {
 
     const initialSettings = getLocalBotSettings();
     const savedPos = initialSettings.schedulerSavedPosition;
-    const schedulerCoinsFile = path.join(OUTPUT_DIR, "scheduler_cycle_coins.json");
-    const schedulerMessagesFile = path.join(OUTPUT_DIR, "scheduler_cycle_messages.json");
-    const schedulerPartitionsFile = path.join(OUTPUT_DIR, "scheduler_cycle_partitions.json");
+    const schedulerCoinsFile = path.join(st.OUTPUT_DIR, "scheduler_cycle_coins.json");
+    const schedulerMessagesFile = path.join(st.OUTPUT_DIR, "scheduler_cycle_messages.json");
+    const schedulerPartitionsFile = path.join(st.OUTPUT_DIR, "scheduler_cycle_partitions.json");
     let coins: Coin[] = [];
     let messages: GeneratedMessage[] = [];
     let dueAccounts: SchedulableProfile[] = [];
@@ -8306,16 +6975,16 @@ async function runScheduledCycle(): Promise<void> {
       addLog("info", `[SCHEDULER] Resuming cycle from saved position: Account [${savedPos.currentAccountId}] paused at ${savedPos.pausedAt}`);
 
       // Continue with the full cycle coins, messages, and pre-sliced partitions without re-fetching or generating
-      coins = readJsonFile<Coin[]>(schedulerCoinsFile, readJsonFile<Coin[]>(LAST_TRENDING_FILE, []));
-      messages = readJsonFile<GeneratedMessage[]>(schedulerMessagesFile, readJsonFile<GeneratedMessage[]>(GENERATED_MESSAGES_FILE, []));
+      coins = readJsonFile<Coin[]>(schedulerCoinsFile, readJsonFile<Coin[]>(st.LAST_TRENDING_FILE, []));
+      messages = readJsonFile<GeneratedMessage[]>(schedulerMessagesFile, readJsonFile<GeneratedMessage[]>(st.GENERATED_MESSAGES_FILE, []));
       savedPartitions = readJsonFile<Record<string, { coins: Coin[]; messages: GeneratedMessage[] }>>(schedulerPartitionsFile, {});
       if (messages.length === 0 && savedPos.currentAccountId) {
-        const accDir = path.join(OUTPUT_DIR, savedPos.currentAccountId);
+        const accDir = path.join(st.OUTPUT_DIR, savedPos.currentAccountId);
         coins = readJsonFile<Coin[]>(path.join(accDir, "last_trending.json"), []);
         messages = readJsonFile<GeneratedMessage[]>(path.join(accDir, "generated_messages.json"), []);
       }
 
-      const allProfiles = normalizeProfilesWithSchedule(readJsonFile<any[]>(PROFILES_FILE, []));
+      const allProfiles = normalizeProfilesWithSchedule(readJsonFile<any[]>(st.PROFILES_FILE, []));
       const savedQueue = savedPos.queue;
       const currentAccIndex = savedQueue.indexOf(savedPos.currentAccountId);
       const remainingAccountIds = currentAccIndex !== -1 ? savedQueue.slice(currentAccIndex) : savedQueue;
@@ -8324,7 +6993,7 @@ async function runScheduledCycle(): Promise<void> {
         .map(id => allProfiles.find(p => p.id === id))
         .filter((p): p is SchedulableProfile => Boolean(p));
 
-      schedulerQueue = remainingAccountIds;
+      st.schedulerQueue = remainingAccountIds;
       addLog("info", `[SCHEDULER] Resuming queue (${dueAccounts.length} accounts): ${dueAccounts.map(a => a.name).join(" -> ")}`);
     } else {
       // 0. Auto-prune old submission records before cycle begins
@@ -8343,21 +7012,21 @@ async function runScheduledCycle(): Promise<void> {
         writeJsonFile(schedulerCoinsFile, coins);
       } catch (fetchErr) {
         addLog("error", `[SCHEDULER] Failed to fetch trending coins: ${(fetchErr as Error).message}. Marking cycle failed.`);
-        botStatus = "Idle";
+        st.botStatus = "Idle";
         return;
       }
 
-      if (stopSchedulerRequested || pauseSchedulerRequested) {
+      if (st.stopSchedulerRequested || st.pauseSchedulerRequested) {
         addLog("warning", "[SCHEDULER] Cycle stopped by user after fetching.");
-        botStatus = "Idle";
+        st.botStatus = "Idle";
         return;
       }
 
       // 2. Generate comments ONCE for the coin list
       try {
         addLog("info", `[SCHEDULER] Generating comments for ${coins.length} coins once for all accounts...`);
-        botStatus = "Generating";
-        isGeneratingRunning = true;
+        st.botStatus = "Generating";
+        st.isGeneratingRunning = true;
         messages = await generateMessagesForCoins(coins);
         if (!messages || messages.length === 0) {
           throw new Error("No comments were generated.");
@@ -8365,20 +7034,20 @@ async function runScheduledCycle(): Promise<void> {
         writeJsonFile(schedulerMessagesFile, messages);
       } catch (genErr) {
         addLog("error", `[SCHEDULER] Failed to generate comments: ${(genErr as Error).message}. Marking cycle failed.`);
-        botStatus = "Idle";
+        st.botStatus = "Idle";
         return;
       } finally {
-        isGeneratingRunning = false;
+        st.isGeneratingRunning = false;
       }
 
-      if (stopSchedulerRequested || pauseSchedulerRequested) {
+      if (st.stopSchedulerRequested || st.pauseSchedulerRequested) {
         addLog("warning", "[SCHEDULER] Cycle stopped by user after comment generation.");
-        botStatus = "Idle";
+        st.botStatus = "Idle";
         return;
       }
 
       // 3. Due accounts calculation
-      let rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+      let rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
       let profiles = normalizeProfilesWithSchedule(rawProfiles);
       const now = new Date();
       dueAccounts = orderDueAccounts(profiles, now);
@@ -8393,12 +7062,12 @@ async function runScheduledCycle(): Promise<void> {
         }
       });
 
-      schedulerQueue = dueAccounts.map(a => a.id);
+      st.schedulerQueue = dueAccounts.map(a => a.id);
       addLog("info", `[SCHEDULER] Due queue (${dueAccounts.length} accounts): ${dueAccounts.map(a => a.name).join(" -> ") || "No accounts due"}`);
 
       if (dueAccounts.length === 0) {
         addLog("info", "[SCHEDULER] No accounts are currently due. Cycle complete.");
-        botStatus = "Completed";
+        st.botStatus = "Completed";
         return;
       }
 
@@ -8447,10 +7116,10 @@ async function runScheduledCycle(): Promise<void> {
       if (unpostedMessages.length === 0) return;
       let upcomingAccounts = dueAccounts.slice(currentIdx + 1);
       // If the last account in the queue failed and a standby backup account is available, append standby to the queue
-      if (upcomingAccounts.length === 0 && standbyPool.length > 0 && !stopSchedulerRequested && !isStopping) {
+      if (upcomingAccounts.length === 0 && standbyPool.length > 0 && !st.stopSchedulerRequested && !st.isStopping) {
         const standby = standbyPool.shift()!;
         dueAccounts.push(standby);
-        schedulerQueue.push(standby.id);
+        st.schedulerQueue.push(standby.id);
         savedPartitions[standby.id] = { coins: [], messages: [] };
         upcomingAccounts = [standby];
         addLog("info", `[SCHEDULER] Added standby account [${standby.name}] to end of queue to handle ${unpostedMessages.length} remaining unposted coins from [${failedAccName}].`);
@@ -8492,22 +7161,22 @@ async function runScheduledCycle(): Promise<void> {
     // 4. Run each due account sequentially, awaiting each one fully before the next
     for (let idx = 0; idx < dueAccounts.length; idx++) {
       let account = dueAccounts[idx];
-      currentSchedulerAccountId = account.id;
+      st.currentSchedulerAccountId = account.id;
 
       // a. Check if pause or stop was requested
-      if (stopSchedulerRequested || isStopping || pauseSchedulerRequested) {
-        const remQueue = schedulerQueue.slice(idx);
+      if (st.stopSchedulerRequested || st.isStopping || st.pauseSchedulerRequested) {
+        const remQueue = st.schedulerQueue.slice(idx);
         const curSettings = getLocalBotSettings();
         saveLocalBotSettings({
           ...curSettings,
-          schedulerStatus: pauseSchedulerRequested ? "paused" : "stopped",
+          schedulerStatus: st.pauseSchedulerRequested ? "paused" : "stopped",
           schedulerSavedPosition: {
-            queue: remQueue.length > 0 ? remQueue : schedulerQueue,
+            queue: remQueue.length > 0 ? remQueue : st.schedulerQueue,
             currentAccountId: account.id,
             pausedAt: new Date().toISOString(),
           },
         });
-        addLog("warning", `[SCHEDULER] ${pauseSchedulerRequested ? "Pause" : "Stop"} active. Saved position for account [${account.name || account.id}].`);
+        addLog("warning", `[SCHEDULER] ${st.pauseSchedulerRequested ? "Pause" : "Stop"} active. Saved position for account [${account.name || account.id}].`);
         break;
       }
 
@@ -8571,11 +7240,11 @@ async function runScheduledCycle(): Promise<void> {
         });
 
         let standbyReady = false;
-        if (standbyPool.length > 0 && !stopSchedulerRequested && !isStopping) {
+        if (standbyPool.length > 0 && !st.stopSchedulerRequested && !st.isStopping) {
           const standby = standbyPool.shift()!;
           addLog("info", `[SCHEDULER] Auto-Failover: Primary account [${account.name}] was skipped (${skipStatus}). Deploying standby account [${standby.name}] for this partition of ${accountMessages.length} coins...`);
           account = standby;
-          currentSchedulerAccountId = account.id;
+          st.currentSchedulerAccountId = account.id;
 
           try {
             await activateProfileInternal(account.id);
@@ -8627,7 +7296,7 @@ async function runScheduledCycle(): Promise<void> {
       const todayStr = getTodayDateString();
       const dailyCount = progressData.daily_post_count || 0;
 
-      const accountDir = path.join(OUTPUT_DIR, account.id);
+      const accountDir = path.join(st.OUTPUT_DIR, account.id);
       if (!fs.existsSync(accountDir)) {
         fs.mkdirSync(accountDir, { recursive: true });
       }
@@ -8644,24 +7313,24 @@ async function runScheduledCycle(): Promise<void> {
 
       // Synchronize batch timestamp so the account knows this cycle has a fresh generation timestamp
       const cycleTs: ProfileTimestamps = {
-        coinsFetchedAt: lastSchedulerCycleStartTime,
-        coinsFetchedTime: new Date(lastSchedulerCycleStartTime).toISOString(),
-        commentsGeneratedAt: lastSchedulerCycleStartTime,
-        commentsGeneratedTime: new Date(lastSchedulerCycleStartTime).toISOString(),
+        coinsFetchedAt: st.lastSchedulerCycleStartTime,
+        coinsFetchedTime: new Date(st.lastSchedulerCycleStartTime).toISOString(),
+        commentsGeneratedAt: st.lastSchedulerCycleStartTime,
+        commentsGeneratedTime: new Date(st.lastSchedulerCycleStartTime).toISOString(),
       };
       writeJsonFile(path.join(accountDir, "timestamps.json"), cycleTs);
 
       // Synchronize in-memory paths & pointers
       updateActiveProfilePaths();
-      writeJsonFile(LAST_TRENDING_FILE, accountCoins);
-      writeJsonFile(GENERATED_MESSAGES_FILE, accountMessages);
-      writeJsonFile(RESULTS_FILE, existingAccountResults);
-      writeJsonFile(TIMESTAMPS_FILE, cycleTs);
-      currentPostingIndex = 0;
+      writeJsonFile(st.LAST_TRENDING_FILE, accountCoins);
+      writeJsonFile(st.GENERATED_MESSAGES_FILE, accountMessages);
+      writeJsonFile(st.RESULTS_FILE, existingAccountResults);
+      writeJsonFile(st.TIMESTAMPS_FILE, cycleTs);
+      st.currentPostingIndex = 0;
 
       // Run posting loop for this account awaiting it fully
-      isPostingRunning = true;
-      botStatus = "Posting";
+      st.isPostingRunning = true;
+      st.botStatus = "Posting";
       addLog("info", `[${account.name}] Launching automated posting loop for ${accountMessages.length} assigned coins in this cycle (Daily Cap: ${dailyCount}/${maxDaily})...`);
 
       const summary = await runPostingLoop({
@@ -8674,7 +7343,7 @@ async function runScheduledCycle(): Promise<void> {
       totalCycleFailed += summary.failed;
 
       // Save lastRun status to profile
-      const finalStatus = (stopSchedulerRequested || isStopping) ? "stopped_by_user" : summary.stopReason;
+      const finalStatus = (st.stopSchedulerRequested || st.isStopping) ? "stopped_by_user" : summary.stopReason;
       updateProfileLastRun(account.id, {
         at: new Date().toISOString(),
         status: finalStatus,
@@ -8693,14 +7362,14 @@ async function runScheduledCycle(): Promise<void> {
 
       // If this account stopped early or failed part of its partition (not paused/stopped by user),
       // redistribute its remaining unposted coins to the remaining accounts in this cycle!
-      if (!pauseSchedulerRequested && !stopSchedulerRequested && !isStopping && summary.posted < accountMessages.length) {
+      if (!st.pauseSchedulerRequested && !st.stopSchedulerRequested && !st.isStopping && summary.posted < accountMessages.length) {
         const updatedAccResults = getIsolatedResults(account.id);
         const normSym = (s?: string) => String(s || "").replace(/^\$/, "").trim().toLowerCase();
         const postedSymsInThisTurn = new Set(
           updatedAccResults
             .filter(r => {
               const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
-              return r.status === "success" && (!isNaN(rTime) ? rTime >= (lastSchedulerCycleStartTime - 60000) : true);
+              return r.status === "success" && (!isNaN(rTime) ? rTime >= (st.lastSchedulerCycleStartTime - 60000) : true);
             })
             .map(r => normSym(r.symbol))
         );
@@ -8711,25 +7380,25 @@ async function runScheduledCycle(): Promise<void> {
         }
       }
 
-      if (pauseSchedulerRequested || stopSchedulerRequested || isStopping) {
-        const remQueue = schedulerQueue.slice(idx + (summary.stopReason === "completed" ? 1 : 0));
+      if (st.pauseSchedulerRequested || st.stopSchedulerRequested || st.isStopping) {
+        const remQueue = st.schedulerQueue.slice(idx + (summary.stopReason === "completed" ? 1 : 0));
         const nextAccId = remQueue[0] || account.id;
         const curSettings = getLocalBotSettings();
         saveLocalBotSettings({
           ...curSettings,
-          schedulerStatus: pauseSchedulerRequested ? "paused" : "stopped",
+          schedulerStatus: st.pauseSchedulerRequested ? "paused" : "stopped",
           schedulerSavedPosition: remQueue.length > 0 ? {
             queue: remQueue,
             currentAccountId: nextAccId,
             pausedAt: new Date().toISOString(),
           } : null,
         });
-        addLog("info", `[SCHEDULER] Cycle ${pauseSchedulerRequested ? "paused" : "stopped"}. Position saved at account [${nextAccId}].`);
+        addLog("info", `[SCHEDULER] Cycle ${st.pauseSchedulerRequested ? "paused" : "stopped"}. Position saved at account [${nextAccId}].`);
         break;
       }
     }
 
-    if (!pauseSchedulerRequested && !stopSchedulerRequested && !isStopping) {
+    if (!st.pauseSchedulerRequested && !st.stopSchedulerRequested && !st.isStopping) {
       const curSettings = getLocalBotSettings();
       saveLocalBotSettings({
         ...curSettings,
@@ -8738,7 +7407,7 @@ async function runScheduledCycle(): Promise<void> {
       });
     }
 
-    if (totalCyclePosted === 0 && dueAccounts.length > 0 && !stopSchedulerRequested && !isStopping) {
+    if (totalCyclePosted === 0 && dueAccounts.length > 0 && !st.stopSchedulerRequested && !st.isStopping) {
       addLog("warning", "[SCHEDULER] Cycle circuit breaker: All accounts in this cycle failed pre-flight checks. Pausing until next scheduled cycle.");
       sendTelegramAlert(
         "CRITICAL: ALL ACCOUNTS SESSION OUT - MANUAL ATTENTION REQUIRED",
@@ -8768,10 +7437,10 @@ async function runScheduledCycle(): Promise<void> {
 
     addLog("info", "==================================================");
     addLog("success", `[SCHEDULER] Sequential multi-account scheduled cycle finished. (Cycle ${updatedDailyCycles}/${maxCycles} completed for today).`);
-    botStatus = "Completed";
+    st.botStatus = "Completed";
   } catch (err) {
     addLog("error", `[SCHEDULER] Fatal error in scheduled cycle: ${(err as Error).message}`);
-    botStatus = "Idle";
+    st.botStatus = "Idle";
     sendTelegramAlert(
       "EMERGENCY: Background Cycle Disrupted",
       `The 24-part background posting cycle crashed unexpectedly.\n\nError: ${(err as Error).message}\n\n👉 ACTION REQUIRED: Manual check needed in Admin Diagnostics.`,
@@ -8780,20 +7449,20 @@ async function runScheduledCycle(): Promise<void> {
     ).catch(() => {});
   } finally {
     releaseProcessLock("scheduler_cycle");
-    isSchedulerCycleRunning = false;
-    currentSchedulerAccountId = null;
-    schedulerQueue = [];
-    isPostingRunning = isSinglePostingRunning;
-    if (!isSinglePostingRunning && botStatus !== "Completed") {
-      botStatus = "Idle";
+    st.isSchedulerCycleRunning = false;
+    st.currentSchedulerAccountId = null;
+    st.schedulerQueue = [];
+    st.isPostingRunning = st.isSinglePostingRunning;
+    if (!st.isSinglePostingRunning && st.botStatus !== "Completed") {
+      st.botStatus = "Idle";
     }
 
-    if (stopSchedulerForceTimer) {
-      clearTimeout(stopSchedulerForceTimer);
-      stopSchedulerForceTimer = null;
+    if (st.stopSchedulerForceTimer) {
+      clearTimeout(st.stopSchedulerForceTimer);
+      st.stopSchedulerForceTimer = null;
     }
-    pauseSchedulerRequested = false;
-    stopSchedulerRequested = false;
+    st.pauseSchedulerRequested = false;
+    st.stopSchedulerRequested = false;
 
     // Restore original active profile so user's manual UI view is NEVER altered
     if (initialActiveProfileId) {
@@ -8813,7 +7482,7 @@ async function runScheduledCycle(): Promise<void> {
 // Scheduler Endpoints (Part 3)
 app.get("/api/scheduler", (req, res) => {
   const settings = getLocalBotSettings();
-  const rawProfiles = readJsonFile<any[]>(PROFILES_FILE, []);
+  const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const profiles = normalizeProfilesWithSchedule(rawProfiles);
 
   const accounts = profiles.map(p => {
@@ -8833,7 +7502,7 @@ app.get("/api/scheduler", (req, res) => {
   const maxCycles = settings.maxCyclesPerDay || 4;
   const peakInfo = getNextPeakTradingSession(new Date());
 
-  const schedulerStatus = isSchedulerCycleRunning
+  const schedulerStatus = st.isSchedulerCycleRunning
     ? "running"
     : (settings.schedulerStatus || (settings.schedulerSavedPosition ? "paused" : (settings.schedulerEnabled ? "running" : "stopped")));
 
@@ -8847,11 +7516,11 @@ app.get("/api/scheduler", (req, res) => {
     maxCyclesPerDay: maxCycles,
     dailyCycleCount: dailyCycles,
     lastCycleDate: settings.lastCycleDate || todayStr,
-    cycleRunning: isSchedulerCycleRunning,
-    currentAccountId: currentSchedulerAccountId,
-    nextCycleAt: nextSchedulerCycleStartTime ? new Date(nextSchedulerCycleStartTime).toISOString() : null,
+    cycleRunning: st.isSchedulerCycleRunning,
+    currentAccountId: st.currentSchedulerAccountId,
+    nextCycleAt: st.nextSchedulerCycleStartTime ? new Date(st.nextSchedulerCycleStartTime).toISOString() : null,
     nextPeakSession: peakInfo.session,
-    queue: schedulerQueue,
+    queue: st.schedulerQueue,
     accounts,
     targetCoinsCount: typeof settings.targetCoinsCount === "number" ? settings.targetCoinsCount : 0,
   });
@@ -8900,15 +7569,15 @@ app.post("/api/scheduler/settings", (req, res) => {
   if (enabled !== undefined) {
     addLog("info", `[SCHEDULER] Sequential multi-account scheduler set to: ${nextEnabled ? "ENABLED" : "DISABLED"} (Mode: ${nextMode}, Max: ${nextMaxCycles} cycles/day)`);
 
-    if (nextEnabled && !isSchedulerCycleRunning) {
+    if (nextEnabled && !st.isSchedulerCycleRunning) {
       scheduleNextSchedulerCycle(1000);
     } else if (!nextEnabled) {
       cancelNextSchedulerCycle();
-      if (isSchedulerCycleRunning) {
-        stopSchedulerRequested = true;
+      if (st.isSchedulerCycleRunning) {
+        st.stopSchedulerRequested = true;
       }
     }
-  } else if (updated.schedulerEnabled && !isSchedulerCycleRunning) {
+  } else if (updated.schedulerEnabled && !st.isSchedulerCycleRunning) {
     scheduleNextSchedulerCycle();
   }
 
@@ -8931,7 +7600,7 @@ app.post("/api/scheduler/reorder-accounts", (req, res) => {
     if (!Array.isArray(orderedIds)) {
       return res.status(400).json({ error: "Missing or invalid orderedIds array." });
     }
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
+    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     profiles = normalizeProfilesWithSchedule(profiles);
 
     orderedIds.forEach((id: string, index: number) => {
@@ -8944,7 +7613,7 @@ app.post("/api/scheduler/reorder-accounts", (req, res) => {
     });
 
     profiles.sort((a, b) => (a.schedule?.order || 0) - (b.schedule?.order || 0));
-    fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+    fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     saveProfilesCloud(profiles).catch(err => console.error("[STORAGE] Error syncing reordered profiles to cloud:", err));
 
     addLog("info", `[SCHEDULER] Reordered ${orderedIds.length} accounts in sequence.`);
@@ -8991,13 +7660,13 @@ app.get("/api/scheduler/files-info", (req, res) => {
   };
 
   const files = [
-    getInfo(SETTINGS_FILE, "settings", "Scheduler & Bot Settings", "auth/settings.json (Stores scheduler master switch & configuration)"),
-    getInfo(PROFILES_FILE, "profiles", "Accounts & Schedules", "auth/profiles.json (Stores account profiles, schedule order, frequencies, and run history)"),
-    getInfo(LAST_TRENDING_FILE, "trending", "Trending Coins Cache", "output/last_trending.json (Trending coins fetched once per cycle and shared across accounts)"),
-    getInfo(GENERATED_MESSAGES_FILE, "comments", "Generated Comments Cache", "output/generated_messages.json (LLM comments generated once per cycle for all accounts)"),
-    getInfo(RESULTS_FILE, "results", "Post Submissions Log", "output/results.json (Historical log of all post submissions by all accounts)"),
-    getInfo(POST_PROGRESS_FILE, "progress", "Posting Progress State", "output/post_progress.json (Pointer index and daily limit counters)"),
-    getInfo(SCHEDULER_LOG_FILE, "scheduler_log", "Scheduler Execution Log", "output/scheduler.log (Chronological log of sequential cycles, account switches, and results)"),
+    getInfo(st.SETTINGS_FILE, "settings", "Scheduler & Bot Settings", "auth/settings.json (Stores scheduler master switch & configuration)"),
+    getInfo(st.PROFILES_FILE, "profiles", "Accounts & Schedules", "auth/profiles.json (Stores account profiles, schedule order, frequencies, and run history)"),
+    getInfo(st.LAST_TRENDING_FILE, "trending", "Trending Coins Cache", "output/last_trending.json (Trending coins fetched once per cycle and shared across accounts)"),
+    getInfo(st.GENERATED_MESSAGES_FILE, "comments", "Generated Comments Cache", "output/generated_messages.json (LLM comments generated once per cycle for all accounts)"),
+    getInfo(st.RESULTS_FILE, "results", "Post Submissions Log", "output/results.json (Historical log of all post submissions by all accounts)"),
+    getInfo(st.POST_PROGRESS_FILE, "progress", "Posting Progress State", "output/post_progress.json (Pointer index and daily limit counters)"),
+    getInfo(st.SCHEDULER_LOG_FILE, "scheduler_log", "Scheduler Execution Log", "output/scheduler.log (Chronological log of sequential cycles, account switches, and results)"),
   ];
 
   res.json({ success: true, files });
@@ -9006,13 +7675,13 @@ app.get("/api/scheduler/files-info", (req, res) => {
 app.get("/api/scheduler/file-content", (req, res) => {
   const { key } = req.query;
   let targetPath = "";
-  if (key === "settings") targetPath = SETTINGS_FILE;
-  else if (key === "profiles") targetPath = PROFILES_FILE;
-  else if (key === "trending") targetPath = LAST_TRENDING_FILE;
-  else if (key === "comments") targetPath = GENERATED_MESSAGES_FILE;
-  else if (key === "results") targetPath = RESULTS_FILE;
-  else if (key === "progress") targetPath = POST_PROGRESS_FILE;
-  else if (key === "scheduler_log") targetPath = SCHEDULER_LOG_FILE;
+  if (key === "settings") targetPath = st.SETTINGS_FILE;
+  else if (key === "profiles") targetPath = st.PROFILES_FILE;
+  else if (key === "trending") targetPath = st.LAST_TRENDING_FILE;
+  else if (key === "comments") targetPath = st.GENERATED_MESSAGES_FILE;
+  else if (key === "results") targetPath = st.RESULTS_FILE;
+  else if (key === "progress") targetPath = st.POST_PROGRESS_FILE;
+  else if (key === "scheduler_log") targetPath = st.SCHEDULER_LOG_FILE;
   else return res.status(400).json({ error: "Invalid file key." });
 
   if (!fs.existsSync(targetPath)) {
@@ -9030,13 +7699,13 @@ app.get("/api/scheduler/file-download", (req, res) => {
   const { key } = req.query;
   let targetPath = "";
   let filename = "download.json";
-  if (key === "settings") { targetPath = SETTINGS_FILE; filename = "settings.json"; }
-  else if (key === "profiles") { targetPath = PROFILES_FILE; filename = "profiles.json"; }
-  else if (key === "trending") { targetPath = LAST_TRENDING_FILE; filename = "last_trending.json"; }
-  else if (key === "comments") { targetPath = GENERATED_MESSAGES_FILE; filename = "generated_messages.json"; }
-  else if (key === "results") { targetPath = RESULTS_FILE; filename = "results.json"; }
-  else if (key === "progress") { targetPath = POST_PROGRESS_FILE; filename = "post_progress.json"; }
-  else if (key === "scheduler_log") { targetPath = SCHEDULER_LOG_FILE; filename = "scheduler_execution.log"; }
+  if (key === "settings") { targetPath = st.SETTINGS_FILE; filename = "settings.json"; }
+  else if (key === "profiles") { targetPath = st.PROFILES_FILE; filename = "profiles.json"; }
+  else if (key === "trending") { targetPath = st.LAST_TRENDING_FILE; filename = "last_trending.json"; }
+  else if (key === "comments") { targetPath = st.GENERATED_MESSAGES_FILE; filename = "generated_messages.json"; }
+  else if (key === "results") { targetPath = st.RESULTS_FILE; filename = "results.json"; }
+  else if (key === "progress") { targetPath = st.POST_PROGRESS_FILE; filename = "post_progress.json"; }
+  else if (key === "scheduler_log") { targetPath = st.SCHEDULER_LOG_FILE; filename = "scheduler_execution.log"; }
   else return res.status(400).json({ error: "Invalid file key." });
 
   if (!fs.existsSync(targetPath)) {
@@ -9046,11 +7715,11 @@ app.get("/api/scheduler/file-download", (req, res) => {
 });
 
 app.get("/api/scheduler/logs", (req, res) => {
-  if (schedulerLogsBuffer.length === 0 && fs.existsSync(SCHEDULER_LOG_FILE)) {
+  if (st.schedulerLogsBuffer.length === 0 && fs.existsSync(st.SCHEDULER_LOG_FILE)) {
     try {
-      const content = fs.readFileSync(SCHEDULER_LOG_FILE, "utf-8");
+      const content = fs.readFileSync(st.SCHEDULER_LOG_FILE, "utf-8");
       const lines = content.split("\n").filter(Boolean).slice(-200);
-      schedulerLogsBuffer = lines.map(line => {
+      st.schedulerLogsBuffer = lines.map(line => {
         const m = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)$/);
         if (m) {
           const timeStr = new Date(m[1]).toLocaleTimeString();
@@ -9065,20 +7734,20 @@ app.get("/api/scheduler/logs", (req, res) => {
       });
     } catch (_) {}
   }
-  const combined = schedulerLogsBuffer.length > 0
-    ? schedulerLogsBuffer
-    : logs.filter(l => isSchedulerLogMessage(l.message));
+  const combined = st.schedulerLogsBuffer.length > 0
+    ? st.schedulerLogsBuffer
+    : st.logs.filter(l => isSchedulerLogMessage(l.message));
   res.json({ success: true, logs: combined.slice(-200) });
 });
 
 app.get("/api/scheduler/logs/download", (req, res) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="scheduler_execution.log"');
-  if (fs.existsSync(SCHEDULER_LOG_FILE)) {
-    const stream = fs.createReadStream(SCHEDULER_LOG_FILE);
+  if (fs.existsSync(st.SCHEDULER_LOG_FILE)) {
+    const stream = fs.createReadStream(st.SCHEDULER_LOG_FILE);
     return stream.pipe(res);
   }
-  const schedLogs = logs.filter(l =>
+  const schedLogs = st.logs.filter(l =>
     l.message.includes("[SCHEDULER]") ||
     l.message.includes("[SYNC]") ||
     l.message.includes("Run finished") ||
@@ -9142,7 +7811,7 @@ app.post("/api/scheduler/run-now", (req, res) => {
   if (!settings.schedulerEnabled && !settings.schedulerSavedPosition) {
     return res.status(400).json({ error: "Scheduler is disabled. Please enable 'Run accounts in sequence' first." });
   }
-  if (isBusy() || isSchedulerCycleRunning) {
+  if (isBusy() || st.isSchedulerCycleRunning) {
     return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
   }
 
@@ -9156,7 +7825,7 @@ app.post("/api/scheduler/run-now", (req, res) => {
       addLog("error", `[SCHEDULER] Error in manual cycle: ${(err as Error).message}`);
     });
   } else {
-    isSchedulerCycleRunning = true;
+    st.isSchedulerCycleRunning = true;
   }
 
   res.json({ success: true, message: "Sequential scheduled cycle started." });
@@ -9164,18 +7833,18 @@ app.post("/api/scheduler/run-now", (req, res) => {
 
 app.post("/api/scheduler/pause", async (req, res) => {
   const settings = getLocalBotSettings();
-  if (!isSchedulerCycleRunning && !settings.schedulerEnabled && !settings.schedulerSavedPosition) {
+  if (!st.isSchedulerCycleRunning && !settings.schedulerEnabled && !settings.schedulerSavedPosition) {
     return res.status(400).json({ error: "Scheduler is not currently running." });
   }
 
-  pauseSchedulerRequested = true;
+  st.pauseSchedulerRequested = true;
   cancelNextSchedulerCycle();
   if (process.env.VITEST) {
-    isSchedulerCycleRunning = false;
+    st.isSchedulerCycleRunning = false;
   }
 
-  const queueToSave = schedulerQueue.length > 0 ? schedulerQueue : (settings.schedulerSavedPosition?.queue || []);
-  const accountToSave = currentSchedulerAccountId || settings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
+  const queueToSave = st.schedulerQueue.length > 0 ? st.schedulerQueue : (settings.schedulerSavedPosition?.queue || []);
+  const accountToSave = st.currentSchedulerAccountId || settings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
 
   const updatedSettings: BotSettings = {
     ...settings,
@@ -9194,12 +7863,12 @@ app.post("/api/scheduler/pause", async (req, res) => {
 
 app.post("/api/scheduler/resume", async (req, res) => {
   const currentSettings = getLocalBotSettings();
-  if (isBusy() || isSchedulerCycleRunning) {
+  if (isBusy() || st.isSchedulerCycleRunning) {
     return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
   }
 
-  pauseSchedulerRequested = false;
-  stopSchedulerRequested = false;
+  st.pauseSchedulerRequested = false;
+  st.stopSchedulerRequested = false;
 
   const updatedSettings: BotSettings = {
     ...currentSettings,
@@ -9214,23 +7883,23 @@ app.post("/api/scheduler/resume", async (req, res) => {
       addLog("error", `[SCHEDULER] Error in resumed cycle: ${(err as Error).message}`);
     });
   } else {
-    isSchedulerCycleRunning = true;
+    st.isSchedulerCycleRunning = true;
   }
 
   res.json({ success: true, message: "Scheduler resumed.", status: "running", state: "RUNNING" });
 });
 
 app.post("/api/scheduler/stop", async (req, res) => {
-  stopSchedulerRequested = true;
+  st.stopSchedulerRequested = true;
   cancelNextSchedulerCycle();
   cancelNextAutomationCycle();
   if (process.env.VITEST) {
-    isSchedulerCycleRunning = false;
+    st.isSchedulerCycleRunning = false;
   }
 
   const currentSettings = getLocalBotSettings();
-  const queueToSave = schedulerQueue.length > 0 ? schedulerQueue : (currentSettings.schedulerSavedPosition?.queue || []);
-  const accountToSave = currentSchedulerAccountId || currentSettings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
+  const queueToSave = st.schedulerQueue.length > 0 ? st.schedulerQueue : (currentSettings.schedulerSavedPosition?.queue || []);
+  const accountToSave = st.currentSchedulerAccountId || currentSettings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
 
   saveLocalBotSettings({
     ...currentSettings,
@@ -9245,18 +7914,18 @@ app.post("/api/scheduler/stop", async (req, res) => {
 
   addLog("warning", "[SCHEDULER] Stop requested. Letting current coin finish first (force closing after 2 minutes if needed)...");
 
-  if (stopSchedulerForceTimer) {
-    clearTimeout(stopSchedulerForceTimer);
+  if (st.stopSchedulerForceTimer) {
+    clearTimeout(st.stopSchedulerForceTimer);
   }
-  stopSchedulerForceTimer = setTimeout(async () => {
-    if (activePostingBrowser || activePostingPage) {
+  st.stopSchedulerForceTimer = setTimeout(async () => {
+    if (st.activePostingBrowser || st.activePostingPage) {
       addLog("warning", "[SCHEDULER] Force-closing browser after 2-minute graceful stop timeout.");
       try {
-        if (activePostingPage) await activePostingPage.close().catch(() => {});
-        if (activePostingBrowser) await activePostingBrowser.close().catch(() => {});
+        if (st.activePostingPage) await st.activePostingPage.close().catch(() => {});
+        if (st.activePostingBrowser) await st.activePostingBrowser.close().catch(() => {});
       } catch (_) {}
-      activePostingBrowser = null;
-      activePostingPage = null;
+      st.activePostingBrowser = null;
+      st.activePostingPage = null;
     }
   }, 120000);
 
@@ -9356,173 +8025,6 @@ app.post("/api/telegram/test", async (req, res) => {
 // VITE OR STATIC FILES SERVING MIDDLEWARE
 // ============================================================================
 
-function synchronizeSessionsAndProfilesOnStartup() {
-  try {
-    let profiles = readJsonFile<any[]>(PROFILES_FILE, []);
-    const sessionExists = fs.existsSync(AUTH_STATE_FILE);
-    let sessionContent = "";
-    if (sessionExists) {
-      sessionContent = fs.readFileSync(AUTH_STATE_FILE, "utf-8").trim();
-    }
-
-    const hasValidLocalSession = sessionExists && sessionHasValidCookies(sessionContent);
-    const activeProfile = profiles.find(p => p.isActive);
-
-    if (hasValidLocalSession) {
-      // We have a verified local session file with real cookies
-      if (activeProfile) {
-        if (activeProfile.stateJson !== sessionContent) {
-          // Update active profile's cookies with the session file cookies
-          activeProfile.stateJson = sessionContent;
-          activeProfile.updatedAt = new Date().toISOString();
-          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error syncing profiles on startup sync:", err.message));
-          addLog("success", `[SYNC] Synchronized active profile "${activeProfile.name}" with auth/state.json cookies.`);
-        }
-      } else {
-        // We have a valid session with real cookies but no active profile. Create/activate one!
-        const name = "Imported Session";
-        const profileId = `profile-${Date.now()}`;
-        const newProfile = {
-          id: profileId,
-          name,
-          stateJson: sessionContent,
-          isActive: true,
-          updatedAt: new Date().toISOString()
-        };
-        profiles.push(newProfile);
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving new profile on startup sync:", err.message));
-        addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
-      }
-    } else {
-      // Session file does not exist or has empty/invalid cookies.
-      // Do we have an active profile with valid cookies?
-      if (activeProfile && sessionHasValidCookies(activeProfile.stateJson)) {
-        // Restore session file from active profile!
-        fs.writeFileSync(AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-        saveSessionStateCloud(activeProfile.stateJson, activeProfile.id).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
-        addLog("success", `[SYNC] Restored auth/state.json session state from active profile "${activeProfile.name}".`);
-      } else {
-        // No valid local session and active profile has no valid cookies.
-        // Mark inactive if activeProfile has no valid cookies, but do NOT auto-create empty profiles
-        let changed = false;
-        profiles = profiles.map(p => {
-          if (p.isActive && !sessionHasValidCookies(p.stateJson)) {
-            changed = true;
-            return { ...p, isActive: false };
-          }
-          return p;
-        });
-        if (changed) {
-          fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving profiles on startup sync:", err.message));
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in synchronizeSessionsAndProfilesOnStartup:", (err as Error).message);
-  }
-}
-
-async function hydrateLocalFromCloud() {
-  addLog("info", `[STORAGE] Hydrating local ephemeral storage from ${getActiveStoreName()} cloud database...`);
-  try {
-    // 1. Profiles FIRST so active profile id is known for subsequent scoped hydrations (Item 2 & 3)
-    try {
-      const cloudProfiles = await getProfilesCloud();
-      if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
-        addLog("success", `[FIREBASE] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
-      }
-    } catch (e) {
-      console.error("[FIREBASE] Could not hydrate profiles from cloud:", e);
-    }
-
-    // Refresh active profile file paths immediately after profiles are loaded (Item 3)
-    updateActiveProfilePaths();
-    const activeId = getActiveProfileId();
-
-    // 2. Session cookies for the active profile (Item 2)
-    const cloudSession = await getSessionStateCloud(activeId || undefined);
-    if (cloudSession && sessionHasValidCookies(cloudSession)) {
-      const normalizedSession = normalizeStateJson(cloudSession);
-      fs.writeFileSync(AUTH_STATE_FILE, normalizedSession, "utf-8");
-      addLog("success", "[FIREBASE] Hydrated login session cookies from Firestore!");
-      
-      // If the session was corrected, write the normalized version back to Firestore
-      if (normalizedSession !== cloudSession) {
-        addLog("info", "[FIREBASE] Automatically updating Firestore cloud with corrected/normalized session cookies...");
-        saveSessionStateCloud(normalizedSession, activeId || undefined).catch((e) => {
-          console.error("[FIREBASE] Error updating normalized session back to cloud:", e.message);
-        });
-      }
-    } else {
-      addLog("info", "[FIREBASE] No session cookies found in Firestore for current active profile.");
-    }
-
-    // 3. Trending Coins for active profile (Item 2)
-    const cloudCoins = await getTrendingCoinsCloud(activeId || undefined);
-    if (cloudCoins && cloudCoins.length > 0) {
-      fs.writeFileSync(LAST_TRENDING_FILE, JSON.stringify(cloudCoins, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudCoins.length} trending coins from Firestore!`);
-    }
-
-    // 4. Generated Messages for active profile (Item 2)
-    const cloudMessages = await getGeneratedMessagesCloud(activeId || undefined);
-    if (cloudMessages && cloudMessages.length > 0) {
-      fs.writeFileSync(GENERATED_MESSAGES_FILE, JSON.stringify(cloudMessages, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudMessages.length} generated messages from Firestore!`);
-    }
-
-    // 5. Post Results for active profile (Item 2)
-    const cloudResults = await getPostResultsCloud(activeId || undefined);
-    if (cloudResults && cloudResults.length > 0) {
-      fs.writeFileSync(RESULTS_FILE, JSON.stringify(cloudResults, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated ${cloudResults.length} post results from Firestore!`);
-    }
-
-    // 6. Bot Progress for active profile (Item 2)
-    const cloudProgress = await getBotProgressCloud(activeId || undefined);
-    if (cloudProgress) {
-      const localProgress = readBotProgress();
-      const mergedProgress = {
-        ...localProgress,
-        next_index: cloudProgress.next_index,
-        daily_post_count: cloudProgress.daily_post_count !== undefined ? cloudProgress.daily_post_count : localProgress.daily_post_count,
-        last_post_date: cloudProgress.last_post_date || localProgress.last_post_date,
-        daily_post_limit: cloudProgress.daily_post_limit || localProgress.daily_post_limit || getAccountDailyPostLimit(activeId)
-      };
-      fs.writeFileSync(POST_PROGRESS_FILE, JSON.stringify(mergedProgress, null, 2), "utf-8");
-      currentPostingIndex = cloudProgress.next_index;
-      addLog("success", `[FIREBASE] Hydrated bot posting progress (index ${cloudProgress.next_index}, daily posts ${mergedProgress.daily_post_count}/${mergedProgress.daily_post_limit}) from Firestore!`);
-    }
-
-    // 7. System Logs
-    const cloudLogs = await getSystemLogsCloud();
-    if (cloudLogs && cloudLogs.length > 0) {
-      logs = cloudLogs.slice(-100);
-      addLog("success", `[FIREBASE] Hydrated ${logs.length} system logs from Firestore!`);
-    }
-
-    // 8. Bot Settings
-    const cloudSettings = await getSettingsCloud();
-    if (cloudSettings) {
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cloudSettings, null, 2), "utf-8");
-      addLog("success", `[FIREBASE] Hydrated bot settings from Firestore (schedulerEnabled=${cloudSettings.schedulerEnabled})`);
-    }
-
-    // Run unified sessions/profiles synchronization and re-verify paths
-    synchronizeSessionsAndProfilesOnStartup();
-    updateActiveProfilePaths();
-    if (activeId) hydratedProfiles.add(activeId);
-
-    addLog("success", "[FIREBASE] Local storage state successfully synchronized with Cloud database.");
-  } catch (err) {
-    addLog("error", `[FIREBASE] Failed to hydrate local storage from Firestore: ${(err as Error).message}`);
-  }
-}
-
 process.on("unhandledRejection", (reason) => {
   console.error("[SERVER] Unhandled Rejection (logged silently, no Telegram noise):", reason);
 });
@@ -9549,12 +8051,12 @@ async function startServer() {
   }
 
   // Defensive: Normalize local auth/state.json if present on startup
-  if (fs.existsSync(AUTH_STATE_FILE)) {
+  if (fs.existsSync(st.AUTH_STATE_FILE)) {
     try {
-      const content = fs.readFileSync(AUTH_STATE_FILE, "utf-8");
+      const content = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
       const normalized = normalizeStateJson(content);
       if (normalized !== content) {
-        fs.writeFileSync(AUTH_STATE_FILE, normalized, "utf-8");
+        fs.writeFileSync(st.AUTH_STATE_FILE, normalized, "utf-8");
         addLog("success", "[STARTUP] Auto-corrected and normalized existing local auth/state.json.");
       }
     } catch (e) {
@@ -9597,12 +8099,12 @@ async function startServer() {
   const gracefulShutdown = async (signal: string) => {
     console.log(`[SERVER] Received ${signal}. Starting graceful shutdown...`);
     try {
-      if (activeLoginSession && activeLoginSession.browser) {
-        await activeLoginSession.browser.close().catch(() => {});
+      if (st.activeLoginSession && st.activeLoginSession.browser) {
+        await st.activeLoginSession.browser.close().catch(() => {});
       }
-      if (activePostingBrowser) {
-        await activePostingBrowser.close().catch(() => {});
-        activePostingBrowser = null;
+      if (st.activePostingBrowser) {
+        await st.activePostingBrowser.close().catch(() => {});
+        st.activePostingBrowser = null;
       }
       releaseProcessLock("all" as any);
     } catch (_) {}
