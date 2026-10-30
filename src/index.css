@@ -83,6 +83,36 @@ select option {
   --duration-normal: 200ms;
 }
 
+/* Unified Dark Theme Scrollbar System Across Entire App */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #020617;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+  border: 2px solid #020617;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+::-webkit-scrollbar-corner {
+  background: #020617;
+}
+
 /* Custom Scrollbar Utility */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

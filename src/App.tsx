@@ -390,6 +390,182 @@ const CycleCountdown = React.memo(function CycleCountdown({ nextCycleStartTime }
   );
 });
 
+interface CustomSelectOption {
+  value: string | number;
+  label: string;
+  badge?: string;
+}
+
+const CustomSelect: React.FC<{
+  value: string | number;
+  options: CustomSelectOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  title?: string;
+  accent?: "emerald" | "indigo";
+  className?: string;
+  menuMinWidth?: number;
+}> = ({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  title,
+  accent = "indigo",
+  className = "",
+  menuMinWidth = 180,
+}) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number; openUp: boolean }>({
+    top: 0,
+    left: 0,
+    width: menuMinWidth,
+    openUp: false,
+  });
+
+  const selectedOption = options.find((o) => String(o.value) === String(value)) || options[0];
+
+  const updatePosition = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const menuWidth = Math.max(rect.width, menuMinWidth);
+    const maxLeft = Math.max(8, window.innerWidth - menuWidth - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const estimatedHeight = Math.min(240, options.length * 38 + 16);
+    const openUp = spaceBelow < estimatedHeight && rect.top > estimatedHeight;
+    setCoords({
+      top: openUp ? rect.top - 6 : rect.bottom + 6,
+      left,
+      width: menuWidth,
+      openUp,
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const handleOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(target) &&
+        menuRef.current &&
+        !menuRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const handleScrollOrResize = (e: Event) => {
+      if (menuRef.current && e.target && menuRef.current.contains(e.target as Node)) {
+        return;
+      }
+      updatePosition();
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleKey);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleKey);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [open, options.length, menuMinWidth]);
+
+  const activeRingClass =
+    accent === "emerald"
+      ? "border-emerald-500/60 ring-2 ring-emerald-500/20"
+      : "border-indigo-500/60 ring-2 ring-indigo-500/20";
+
+  const hoverBorderClass =
+    accent === "emerald" ? "hover:border-emerald-500/50" : "hover:border-indigo-500/50";
+
+  return (
+    <div className="relative inline-flex items-center">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        title={title}
+        onClick={() => {
+          if (!disabled) setOpen((prev) => !prev);
+        }}
+        className={`inline-flex items-center justify-between gap-2 bg-slate-900 border border-slate-700/90 ${hoverBorderClass} rounded-xl px-2.5 py-1 text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${
+          open ? activeRingClass : ""
+        } ${className}`}
+      >
+        <span className="truncate">{selectedOption ? selectedOption.label : String(value)}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 ${
+            open ? "rotate-180 text-white" : ""
+          }`}
+        />
+      </button>
+
+      {open && !disabled && (
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            top: coords.openUp ? undefined : coords.top,
+            bottom: coords.openUp ? window.innerHeight - coords.top : undefined,
+            left: coords.left,
+            minWidth: coords.width,
+            maxWidth: "calc(100vw - 16px)",
+          }}
+          className="z-[100] bg-slate-900/98 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl p-1.5 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
+        >
+          {options.map((opt) => {
+            const isSelected = String(opt.value) === String(value);
+            return (
+              <button
+                key={String(opt.value)}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  if (String(opt.value) !== String(value)) {
+                    onChange(String(opt.value));
+                  }
+                }}
+                className={`w-full text-left px-2.5 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-between gap-2 transition cursor-pointer ${
+                  isSelected
+                    ? accent === "emerald"
+                      ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                      : "bg-indigo-500/20 text-indigo-200 border border-indigo-500/30"
+                    : "text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent"
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  {opt.badge && (
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300">
+                      {opt.badge}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <CheckCircle
+                      className={`h-3.5 w-3.5 shrink-0 ${
+                        accent === "emerald" ? "text-emerald-400" : "text-indigo-400"
+                      }`}
+                    />
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   // Application State
   const [status, setStatus] = useState<string>("Idle");
@@ -2946,45 +3122,58 @@ export default function App() {
 
           {/* TOP CONTROLS & NAVIGATION ROW */}
           <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 text-sm">
-            {/* Account & Admin Settings Section (Grouped together in Navbar — Single Gear Icon) */}
+            {/* Attached Account + Settings Split Pill & Active Account Switcher */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* Account / Session Button */}
-              <button
-                onClick={() => {
-                  handleResetLoginState();
-                  setLoginTab("credentials");
-                  setShowSessionModal(true);
-                }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
-                  activeProfile 
-                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                    : (sessionExists 
-                      ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20" 
-                      : "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
-                    )
-                }`}
-                title="Add a new CoinMarketCap account or manage saved accounts"
-                id="navbar-login-btn"
-              >
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  {profilesList.length > 1
-                    ? `+ Add / Accounts (${profilesList.length})`
-                    : activeProfile
-                      ? `Account: ${activeProfile.name}`
-                      : sessionExists
-                        ? "Account: Active"
-                        : "Login / Add Account"}
-                </span>
-              </button>
+              {/* Unified Attached Account + Settings Pill */}
+              <div className="inline-flex items-stretch rounded-xl border border-slate-700/80 bg-slate-900 shadow-sm overflow-hidden shrink-0">
+                <button
+                  onClick={() => {
+                    handleResetLoginState();
+                    setLoginTab("credentials");
+                    setShowSessionModal(true);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap ${
+                    activeProfile || sessionExists
+                      ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                      : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                  }`}
+                  title="Manage CoinMarketCap accounts"
+                  id="navbar-login-btn"
+                >
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>Account</span>
+                  {profilesList.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
+                      {profilesList.length}
+                    </span>
+                  )}
+                </button>
 
-              {/* Quick Account Switcher Dropdown - responsive across all screens */}
+                {/* Attached Settings Gear Icon Button */}
+                <button
+                  onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
+                  className={`px-2.5 py-1.5 border-l border-slate-700/80 transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
+                    currentView === "admin"
+                      ? "bg-blue-600/30 text-blue-300"
+                      : "bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800"
+                  }`}
+                  title="Admin Settings"
+                  aria-label="Admin Settings"
+                  id="navbar-admin-settings-btn"
+                >
+                  <Settings className={`h-4 w-4 text-blue-400 transition-transform duration-300 ${currentView === "admin" ? "rotate-90" : "hover:rotate-45"}`} />
+                </button>
+              </div>
+
+              {/* Quick Account Switcher Dropdown (Custom Dark Menu) */}
               {profilesList.length > 1 && (
-                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2 py-1 text-xs sm:text-sm shadow-inner transition ${
+                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-xs sm:text-sm shadow-inner transition ${
                   (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
                 }`}>
                   <span className="text-[11px] text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
-                    {(isBusy || isPostingActive || isContinuousLoopActive) && <span title="Account switching is locked during active process">🔒</span>}
+                    {(isBusy || isPostingActive || isContinuousLoopActive) && (
+                      <Lock className="h-3 w-3 text-amber-400 shrink-0" />
+                    )}
                     Active:
                   </span>
                   {switchingProfileId ? (
@@ -2993,44 +3182,30 @@ export default function App() {
                       Switching...
                     </span>
                   ) : (
-                    <select
+                    <CustomSelect
                       value={activeProfile?.id || ""}
                       disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
-                      onChange={(e) => {
-                        const target = profilesList.find(p => p.id === e.target.value);
-                        if (target) promptSwitchProfile(target);
-                      }}
-                      className="bg-slate-900 border border-slate-700 hover:border-emerald-500/50 rounded-lg px-2 py-1 text-xs sm:text-sm font-bold text-emerald-400 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed max-w-[130px] sm:max-w-[190px] truncate shadow-sm"
+                      accent="emerald"
+                      menuMinWidth={240}
+                      className="text-emerald-400 max-w-[140px] sm:max-w-[200px] border-slate-800 bg-slate-900/90 py-0.5 px-2"
                       title={
                         (isBusy || isPostingActive || isContinuousLoopActive)
-                          ? "Account switching locked: Click 'Stop Posting' before switching accounts"
+                          ? "Stop active posting before switching accounts"
                           : "Switch active CoinMarketCap account"
                       }
-                    >
-                      {profilesList.map(p => (
-                        <option key={p.id} value={p.id} className="bg-slate-900 text-white font-medium">
-                          {p.name} {p.isActive ? "✓" : ""}
-                        </option>
-                      ))}
-                    </select>
+                      options={profilesList.map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                        badge: p.isActive ? "Active" : undefined,
+                      }))}
+                      onChange={(val) => {
+                        const target = profilesList.find((p) => String(p.id) === String(val));
+                        if (target) promptSwitchProfile(target);
+                      }}
+                    />
                   )}
                 </div>
               )}
-
-              {/* Single Settings Gear Icon Button in Navbar beside Account */}
-              <button
-                onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-                className={`p-2 rounded-xl border transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
-                  currentView === "admin"
-                    ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30 shadow-sm"
-                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700"
-                }`}
-                title="Admin Settings (Security, Telegram Hotline & Data Cleanup)"
-                aria-label="Admin Settings"
-                id="navbar-admin-settings-btn"
-              >
-                <Settings className={`h-4 w-4 text-blue-400 transition-transform duration-300 ${currentView === "admin" ? "rotate-90" : "hover:rotate-45"}`} />
-              </button>
             </div>
 
             {/* PRIMARY FEATURE: 24/7 Scheduler Screen Link Button */}
@@ -3043,10 +3218,10 @@ export default function App() {
                     ? "bg-indigo-950/80 border-indigo-400 text-indigo-200 animate-pulse"
                     : "bg-gradient-to-r from-indigo-600/25 to-emerald-600/20 hover:from-indigo-600/35 hover:to-emerald-600/30 border-indigo-500/50 text-indigo-200 hover:text-white"
               }`}
-              title="Main Feature: Open 24/7 Multi-Account Auto-Scheduler"
+              title="Open 24/7 Auto-Scheduler"
             >
               <Clock className={`h-4 w-4 shrink-0 ${schedulerData?.cycleRunning ? "text-emerald-400 animate-spin" : "text-indigo-300"}`} />
-              <span>24/7 Scheduler</span>
+              <span>Scheduler</span>
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                 schedulerData?.cycleRunning
                   ? "bg-emerald-400 text-slate-950 animate-pulse"
@@ -3062,19 +3237,19 @@ export default function App() {
                     ? "Active"
                     : (schedulerData?.status === "paused" || schedulerData?.savedPosition)
                       ? "Paused"
-                      : "Main"}
+                      : "24/7"}
               </span>
             </button>
 
             {/* Logs Link Button */}
             <button
               onClick={() => navigateTo(currentView === "logs" ? "dashboard" : "logs")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
                 currentView === "logs"
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open Activity History"
+              title="Open Activity Logs"
             >
               <TerminalIcon className="h-3.5 w-3.5 text-emerald-400" />
               <span>Logs</span>
@@ -3083,12 +3258,12 @@ export default function App() {
             {/* Health Link Button */}
             <button
               onClick={() => navigateTo(currentView === "health" ? "dashboard" : "health")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
                 currentView === "health"
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
-              title="Open System Status"
+              title="Open System Health"
             >
               <span className={`w-2 h-2 rounded-full inline-block ${healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
@@ -3098,7 +3273,7 @@ export default function App() {
             {/* QUICK START GUIDE BUTTON */}
             <button
               onClick={() => navigateTo(currentView === "guide" ? "dashboard" : "guide")}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
                 currentView === "guide"
                   ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
@@ -3706,7 +3881,7 @@ export default function App() {
                     <Play className="h-4 w-4" />
                   )}
                   <span>
-                    {schedulerData?.enabled ? "Sequential Mode ON (Disable)" : "Enable Sequential Mode"}
+                    {schedulerData?.enabled ? "Sequential Mode: ON" : "Sequential Mode: OFF"}
                   </span>
                 </button>
               </div>
@@ -3863,24 +4038,24 @@ export default function App() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     disabled={isSchedulerActionPending || schedulerData?.cycleRunning || isBusy}
                     onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
-                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Start sequential cycle immediately (auto-enables scheduler if needed)")}
-                    className="flex-1 px-3.5 py-2.5 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
+                    title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Start sequential cycle immediately")}
+                    className="flex-1 px-3 py-2.5 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     {isSchedulerActionPending && !schedulerData?.cycleRunning ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" />
                     ) : (
-                      <Play className="h-4 w-4 fill-white" />
+                      <Play className="h-3.5 w-3.5 fill-white shrink-0" />
                     )}
                     <span>
                       {schedulerData?.cycleRunning
-                        ? "Cycle Running..."
+                        ? "Running..."
                         : schedulerData?.savedPosition
-                          ? "Resume Cycle"
+                          ? "Resume"
                           : "Run cycle now"}
                     </span>
                   </button>
@@ -3888,18 +4063,18 @@ export default function App() {
                     type="button"
                     disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
                     onClick={handlePauseScheduler}
-                    className="px-3 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
                   >
-                    <Pause className="h-3.5 w-3.5" />
+                    <Pause className="h-3.5 w-3.5 shrink-0" />
                     <span>Pause</span>
                   </button>
                   <button
                     type="button"
                     disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
                     onClick={handleStopScheduler}
-                    className="px-3 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
                   >
-                    <Square className="h-3.5 w-3.5" />
+                    <Square className="h-3.5 w-3.5 shrink-0" />
                     <span>Stop</span>
                   </button>
                 </div>
@@ -3950,7 +4125,7 @@ export default function App() {
                   }`}
                 >
                   {imageUploadEnabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                  <span>{imageUploadEnabled ? "Pause Image Upload" : "Enable Image Upload"}</span>
+                  <span>{imageUploadEnabled ? "Pause Images" : "Enable Images"}</span>
                 </button>
 
                 <button
@@ -3960,7 +4135,7 @@ export default function App() {
                   className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  <span>{isUploadingImages ? "Uploading..." : "+ Upload Images"}</span>
+                  <span>{isUploadingImages ? "Uploading..." : "Upload Images"}</span>
                 </button>
 
                 <button
@@ -3975,7 +4150,7 @@ export default function App() {
                   className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white border border-slate-700 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <ImageIcon className="h-3.5 w-3.5" />
-                  <span>Open Image Library ({marketingImages.length})</span>
+                  <span>Image Library ({marketingImages.length})</span>
                 </button>
               </div>
             </div>
@@ -4015,9 +4190,10 @@ export default function App() {
                   setShowSessionModal(true);
                 }}
                 className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shrink-0"
+                title="Add or manage CoinMarketCap accounts"
               >
                 <Users className="h-4 w-4 text-indigo-400" />
-                <span>+ Add / Manage Accounts</span>
+                <span>Manage Accounts</span>
               </button>
             </div>
 
@@ -4046,9 +4222,9 @@ export default function App() {
                               setLoginTab("credentials");
                               setShowSessionModal(true);
                             }}
-                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
                           >
-                            <Users className="h-3.5 w-3.5" /> + Add New Account
+                            <Users className="h-3.5 w-3.5" /> Add Account
                           </button>
                         </div>
                       </td>
@@ -4091,19 +4267,19 @@ export default function App() {
                                 </div>
 
                                 {/* Direct position number dropdown */}
-                                <select
+                                <CustomSelect
                                   disabled={isSchedulerRunning}
                                   value={acc.schedule.order}
-                                  onChange={(e) => handleDirectOrderInput(acc.id, parseInt(e.target.value) || 1)}
-                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-2.5 py-1 text-sm font-mono font-bold text-indigo-300 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                                  title={isSchedulerRunning ? "Locked while scheduler is running" : "Click to pick position number directly"}
-                                >
-                                  {sortedArr.map((_, pIdx) => (
-                                    <option key={pIdx + 1} value={pIdx + 1}>
-                                      #{pIdx + 1}
-                                    </option>
-                                  ))}
-                                </select>
+                                  accent="indigo"
+                                  menuMinWidth={100}
+                                  className="font-mono text-indigo-300"
+                                  title={isSchedulerRunning ? "Locked while scheduler is running" : "Select execution order"}
+                                  options={sortedArr.map((_, pIdx) => ({
+                                    value: pIdx + 1,
+                                    label: `#${pIdx + 1}`,
+                                  }))}
+                                  onChange={(val) => handleDirectOrderInput(acc.id, parseInt(val) || 1)}
+                                />
 
                                 {/* Quick navigation arrows (up / down) */}
                                 <div className="flex flex-col gap-0.5">
@@ -4210,23 +4386,27 @@ export default function App() {
                             {/* Frequency dropdown & custom input */}
                             <td className="py-3.5 px-4">
                               <div className="flex items-center gap-2">
-                                <select
+                                <CustomSelect
                                   disabled={isSchedulerRunning}
                                   value={acc.schedule.frequency}
-                                  onChange={(e) =>
+                                  accent="indigo"
+                                  menuMinWidth={190}
+                                  className="text-slate-100 py-1.5 px-3"
+                                  title={isSchedulerRunning ? "Locked while scheduler is running" : "Select posting frequency"}
+                                  options={[
+                                    { value: "every_cycle", label: "Every cycle" },
+                                    { value: "daily", label: "Daily (24h)" },
+                                    { value: "weekly", label: "Weekly (Manual check)" },
+                                    { value: "custom", label: "Custom hours" },
+                                  ]}
+                                  onChange={(val) =>
                                     handleUpdateAccountSchedule({
                                       id: acc.id,
-                                      frequency: e.target.value as any,
-                                      ...(e.target.value === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {})
+                                      frequency: val as any,
+                                      ...(val === "custom" && !acc.schedule.customHours ? { customHours: 24 } : {}),
                                     })
                                   }
-                                  className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-100 focus:outline-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                  <option value="every_cycle">Every cycle</option>
-                                  <option value="daily">Daily (24h)</option>
-                                  <option value="weekly">Weekly (Manual check)</option>
-                                  <option value="custom">Custom hours</option>
-                                </select>
+                                />
 
                                 {acc.schedule.frequency === "custom" && (
                                   <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
@@ -4402,7 +4582,7 @@ export default function App() {
                     }}
                     className="w-full py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Users className="h-4 w-4" /> + Add CoinMarketCap Account
+                    <Users className="h-4 w-4" /> Add Account
                   </button>
                 </div>
 
@@ -5459,11 +5639,11 @@ export default function App() {
                   disabled={isPending.generate || isBusy || isContinuousLoopActive}
                   className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-generate"
-                  title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : "Generate AI comments for each coin"}
+                  title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : "Write AI comments for each coin"}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <span className="p-2 bg-purple-500/10 text-purple-400 rounded-lg group-hover:bg-purple-500/20 border border-purple-500/20 transition shrink-0">
-                      <BookOpen className="h-4 w-4" />
+                      <FileText className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition truncate">3. Write comments</h3>
@@ -5623,7 +5803,7 @@ export default function App() {
                 title={
                   (isBusy || isContinuousLoopActive || isSchedulerRunning)
                     ? "Locked while another bot or scheduler process is active"
-                    : "Fetch trending coins, write AI comments, and post automatically in 1 click"
+                    : "Fetch trending coins, write AI comments, and start posting in one click"
                 }
               >
                 {isPending.full ? (
@@ -5634,12 +5814,12 @@ export default function App() {
                 ) : (isBusy || isContinuousLoopActive || isSchedulerRunning) ? (
                   <>
                     <Lock className="h-4 w-4 text-slate-950 shrink-0" />
-                    <span className="truncate">1-Click: Fetch, Write &amp; Post All</span>
+                    <span className="truncate">Fetch, Write &amp; Post All</span>
                   </>
                 ) : (
                   <>
-                    <Play className="h-4 w-4 fill-slate-950" />
-                    <span>1-Click: Fetch, Write &amp; Post All</span>
+                    <Zap className="h-4 w-4 fill-slate-950" />
+                    <span>Fetch, Write &amp; Post All</span>
                   </>
                 )}
               </button>
@@ -5693,12 +5873,12 @@ export default function App() {
                     {isContinuousLoopActive ? (
                       <>
                         <Square className="h-3.5 w-3.5" />
-                        <span>Stop Auto-Loop</span>
+                        <span>Stop Auto-Repeat</span>
                       </>
                     ) : (
                       <>
                         <Play className="h-3.5 w-3.5 fill-slate-950" />
-                        <span>Enable Auto-Loop</span>
+                        <span>Enable Auto-Repeat</span>
                       </>
                     )}
                   </button>
@@ -5814,18 +5994,20 @@ export default function App() {
                     onClick={() => imageFileInputRef.current?.click()}
                     disabled={isUploadingImages}
                     className="py-2 px-3 bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Upload images from your computer"
                   >
                     <Upload className="h-3.5 w-3.5" />
-                    <span>{isUploadingImages ? "Uploading..." : "1. Upload Images"}</span>
+                    <span>{isUploadingImages ? "Uploading..." : "Upload Images"}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setIsExternalImportModalOpen(true)}
                     className="py-2 px-3 bg-teal-600/15 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Import images from Google Drive or web links"
                   >
-                    <Upload className="h-3.5 w-3.5" />
-                    <span>2. Import from Cloud / Link</span>
+                    <Globe className="h-3.5 w-3.5" />
+                    <span>Import from Link</span>
                   </button>
 
                   <button
@@ -5835,9 +6017,10 @@ export default function App() {
                       document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
                     }}
                     className="py-2 px-3 bg-indigo-500/15 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Open uploaded image library"
                   >
                     <ImageIcon className="h-3.5 w-3.5" />
-                    <span>3. Image Library ({marketingImages.length})</span>
+                    <span>Image Library ({marketingImages.length})</span>
                   </button>
                 </div>
               </div>
@@ -6985,9 +7168,10 @@ export default function App() {
                     onClick={() => imageFileInputRef.current?.click()}
                     disabled={isUploadingImages}
                     className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50 shrink-0"
+                    title="Upload images from your computer"
                   >
                     <Upload className="h-4 w-4" />
-                    <span>{isUploadingImages ? (uploadProgressText || "Uploading...") : "+ Upload Images"}</span>
+                    <span>{isUploadingImages ? (uploadProgressText || "Uploading...") : "Upload Images"}</span>
                   </button>
                 </div>
 
@@ -6995,17 +7179,18 @@ export default function App() {
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <span className="text-xs font-mono uppercase font-bold text-teal-400">Step 2 • Cloud Sync</span>
-                    <h4 className="text-sm font-bold text-white">Import from Google Drive / S3 / URL</h4>
+                    <h4 className="text-sm font-bold text-white">Import from Google Drive or Web Link</h4>
                     <p className="text-xs text-slate-400">
-                      Fetch daily chart packs directly from a shared Drive folder or S3 bucket.
+                      Fetch daily chart packs directly from a shared Drive folder or image link.
                     </p>
                   </div>
                   <button
                     onClick={() => setIsExternalImportModalOpen(true)}
                     className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-teal-950/40 shrink-0"
+                    title="Import images from Google Drive or web links"
                   >
-                    <Upload className="h-4 w-4" />
-                    <span>Import Drive / S3</span>
+                    <Globe className="h-4 w-4" />
+                    <span>Import from Link</span>
                   </button>
                 </div>
               </div>
@@ -7067,17 +7252,21 @@ export default function App() {
                     </label>
                   </div>
                   <div className="flex items-center gap-2 pt-0.5">
-                    <select
+                    <CustomSelect
                       value={autoPruneLimit}
-                      onChange={(e) => handleToggleAutoPrune(autoPruneEnabled, Number(e.target.value))}
-                      className="flex-1 bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-200 focus:outline-none cursor-pointer shadow-sm"
-                    >
-                      <option value={10}>Keep latest 10 images</option>
-                      <option value={20}>Keep latest 20 images</option>
-                      <option value={30}>Keep latest 30 images</option>
-                      <option value={50}>Keep latest 50 images</option>
-                      <option value={100}>Keep latest 100 images</option>
-                    </select>
+                      accent="indigo"
+                      menuMinWidth={200}
+                      className="text-slate-200 py-1.5 px-3"
+                      title="Maximum number of recent images to keep"
+                      options={[
+                        { value: 10, label: "Keep latest 10 images" },
+                        { value: 20, label: "Keep latest 20 images" },
+                        { value: 30, label: "Keep latest 30 images" },
+                        { value: 50, label: "Keep latest 50 images" },
+                        { value: 100, label: "Keep latest 100 images" },
+                      ]}
+                      onChange={(val) => handleToggleAutoPrune(autoPruneEnabled, Number(val))}
+                    />
                     {marketingImages.length > autoPruneLimit && (
                       <button
                         onClick={() => handleManualPruneNow(autoPruneLimit)}
@@ -7212,20 +7401,23 @@ export default function App() {
                     </div>
 
                     {/* Page Size Select */}
-                    <select
+                    <CustomSelect
                       value={imagePageSize}
-                      onChange={(e) => {
-                        setImagePageSize(Number(e.target.value));
+                      accent="indigo"
+                      menuMinWidth={130}
+                      className="text-slate-200 py-1.5 px-3"
+                      title="Items per page"
+                      options={[
+                        { value: 12, label: "12 / page" },
+                        { value: 24, label: "24 / page" },
+                        { value: 48, label: "48 / page" },
+                        { value: 96, label: "96 / page" },
+                      ]}
+                      onChange={(val) => {
+                        setImagePageSize(Number(val));
                         setImagePage(1);
                       }}
-                      className="bg-slate-900 border border-slate-700 hover:border-indigo-500/60 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-200 focus:outline-none cursor-pointer shadow-sm"
-                      title="Items per page"
-                    >
-                      <option value={12}>12 / page</option>
-                      <option value={24}>24 / page</option>
-                      <option value={48}>48 / page</option>
-                      <option value={96}>96 / page</option>
-                    </select>
+                    />
                   </div>
                 </div>
 
@@ -7798,14 +7990,14 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
               <div className="flex items-center gap-3">
                 <span className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-sm">
-                  <Key className="h-5 w-5" />
+                  <Users className="h-5 w-5" />
                 </span>
                 <div>
                   <h3 className="font-bold text-white text-base tracking-tight">
-                    Add or Switch CoinMarketCap Account
+                    CoinMarketCap Accounts
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Connect a new account or switch between your saved profiles
+                    Sign in, import cookies, or switch between saved accounts
                   </p>
                 </div>
               </div>
@@ -7814,8 +8006,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   setShowSessionModal(false);
                   handleResetLoginState();
                 }}
-                title="Close modal"
-                aria-label="Close modal"
+                title="Close window"
+                aria-label="Close window"
                 className="text-slate-400 hover:text-white transition p-1.5 rounded-xl hover:bg-slate-800 cursor-pointer"
               >
                 <X className="h-5 w-5" />
@@ -7838,7 +8030,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
                   }`}
                 >
-                  <span>1. Email Login</span>
+                  <Key className="h-3.5 w-3.5 shrink-0" />
+                  <span>Email Login</span>
                   <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-300 font-mono uppercase">
                     Best
                   </span>
@@ -7853,7 +8046,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
                   }`}
                 >
-                  <span>2. Import Cookies</span>
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <span>Import Cookies</span>
                 </button>
                 <button
                   type="button"
@@ -7870,7 +8064,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
                   }`}
                 >
-                  <span>3. Saved Accounts</span>
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>Saved Accounts</span>
                   <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 font-mono">
                     {profilesList.length}
                   </span>
@@ -8037,9 +8232,10 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                             setShowSessionModal(false);
                             handleResetLoginState();
                           }}
-                          className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-sm"
+                          className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
                         >
-                          Finish & Close
+                          <CheckCircle className="h-4 w-4 shrink-0" />
+                          <span>Done</span>
                         </button>
                         <button
                           onClick={() => {
@@ -8048,7 +8244,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           }}
                           className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
                         >
-                          ➕ Add Another Account
+                          <Key className="h-4 w-4 shrink-0" />
+                          <span>Add Account</span>
                         </button>
                         <button
                           onClick={() => {
@@ -8057,7 +8254,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           }}
                           className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
                         >
-                          👥 Switch Accounts ({profilesList.length})
+                          <Users className="h-4 w-4 shrink-0" />
+                          <span>Saved Accounts ({profilesList.length})</span>
                         </button>
                       </div>
                     </div>
@@ -8102,7 +8300,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           }}
                           className="w-full py-2.5 px-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
                         >
-                          <Search className="h-3.5 w-3.5" /> Check If Already Logged In / Verify Session
+                          <CheckCircle className="h-4 w-4 shrink-0" />
+                          <span>Verify Login Status</span>
                         </button>
                       </div>
 
@@ -8115,9 +8314,10 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         </button>
                         <button
                           onClick={handleResetLoginState}
-                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold cursor-pointer transition shadow-sm"
+                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold cursor-pointer transition shadow-sm flex items-center justify-center gap-1.5"
                         >
-                          Retry Login (Re-enter)
+                          <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+                          <span>Try Again</span>
                         </button>
                       </div>
                     </div>
@@ -8206,24 +8406,26 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           setLoginTab("credentials");
                         }}
                         disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                        className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Log In Another Account"}
+                        className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Add another account"}
                       >
-                        🔑 + Log In New Account
+                        <Key className="h-3.5 w-3.5 shrink-0" />
+                        <span>Add Account</span>
                       </button>
                       <button
                         onClick={() => setLoginTab("cookies")}
                         disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                        className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Import Cookies"}
+                        className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Locked while process is active" : "Import login cookies"}
                       >
-                        📋 Import Cookies
+                        <FileText className="h-3.5 w-3.5 shrink-0" />
+                        <span>Import Cookies</span>
                       </button>
                     </div>
                   </div>
 
                   <div className="space-y-2.5">
-                    <h4 className="font-bold text-slate-300 font-mono text-xs uppercase tracking-wider">Saved Accounts Profiles ({profilesList.length})</h4>
+                    <h4 className="font-bold text-slate-300 font-mono text-xs uppercase tracking-wider">Saved Accounts ({profilesList.length})</h4>
                     {profilesList.length === 0 ? (
                       <div className="p-6 bg-slate-950 border border-slate-800/80 rounded-xl text-center text-slate-400 text-xs">
                         No account profiles saved yet. Add one above to enable fast multi-account switching.
@@ -8248,11 +8450,12 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   </span>
                                 )}
                                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
-                                  ⚡ Limit: {p.dailyPostLimit || 300}/day
+                                  Limit: {p.dailyPostLimit || 300}/day
                                 </span>
                                 {p.proxy && (
-                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[11px] px-2 py-0.5 rounded font-mono font-bold truncate max-w-[160px]" title={`Proxy: ${p.proxy}`}>
-                                    🌐 {p.proxy.replace(/^https?:\/\//, "")}
+                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[11px] px-2 py-0.5 rounded font-mono font-bold truncate max-w-[160px] inline-flex items-center gap-1" title={`Proxy: ${p.proxy}`}>
+                                    <Globe className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{p.proxy.replace(/^https?:\/\//, "")}</span>
                                   </span>
                                 )}
                                 {p.loginStatus === "logged_in" ? (
@@ -8343,7 +8546,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                     disabled={isBusy || isPostingActive || isContinuousLoopActive}
                                     className="text-xs text-purple-400 hover:text-purple-300 underline font-mono cursor-pointer"
                                   >
-                                    {p.proxy ? "Edit Proxy" : "+ Set Proxy"}
+                                    {p.proxy ? "Edit Proxy" : "Set Proxy"}
                                   </button>
                                 )}
                               </div>
@@ -8356,7 +8559,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
                                   title={
                                     (isBusy || isPostingActive || isContinuousLoopActive)
-                                      ? "Cannot switch accounts while posting or automation is active. Click 'Stop Posting' first."
+                                      ? "Stop active posting before switching accounts"
                                       : `Switch to ${p.name}`
                                   }
                                 >
@@ -8367,7 +8570,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                     </>
                                   ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
                                     <>
-                                      <span>🔒</span>
+                                      <Lock className="h-3 w-3 shrink-0" />
                                       <span>Locked</span>
                                     </>
                                   ) : (
@@ -8380,9 +8583,10 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                   navigator.clipboard.writeText(p.stateJson);
                                   showToast(`Copied login backup for "${p.name}" to clipboard!`, "success");
                                 }}
-                                className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-lg border border-slate-800 cursor-pointer"
+                                className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-lg border border-slate-800 cursor-pointer flex items-center gap-1.5"
                               >
-                                📋 Copy Backup
+                                <Copy className="h-3 w-3 shrink-0" />
+                                <span>Copy Backup</span>
                               </button>
                               {deletingId === p.id ? (
                                 <div className="flex items-center gap-1.5">
@@ -8407,10 +8611,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                                 <button
                                   onClick={() => setDeletingId(p.id)}
                                   disabled={isBusy || isPostingActive || isContinuousLoopActive}
-                                  className="py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium rounded-lg border border-rose-500/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                  title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Deletion locked while process is active" : "Delete Profile"}
+                                  className="py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium rounded-lg border border-rose-500/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                  title={(isBusy || isPostingActive || isContinuousLoopActive) ? "Deletion locked while process is active" : "Delete account"}
                                 >
-                                  Delete
+                                  <Trash2 className="h-3 w-3 shrink-0" />
+                                  <span>Delete</span>
                                 </button>
                               )}
                             </div>
@@ -8446,9 +8651,10 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                       await handleSaveSession();
                     }
                   }}
-                  className="py-2 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer"
+                  className="py-2 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition cursor-pointer flex items-center gap-1.5"
                 >
-                  Save & Load Session
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <span>Save Account</span>
                 </button>
               </div>
             )}
@@ -8750,9 +8956,9 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
                 onClick={() => setConfirmSwitchProfile(null)}
-                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold hover:bg-slate-800 transition"
+                className="py-2 px-4 rounded-xl text-slate-400 hover:text-white text-sm font-semibold hover:bg-slate-800 transition cursor-pointer"
               >
-                Cancel / Keep Current
+                Cancel
               </button>
               <button
                 onClick={async () => {
@@ -8764,8 +8970,8 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                 className="py-2.5 px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 title={
                   (isBusy || isPostingActive || isContinuousLoopActive)
-                    ? "Cannot switch accounts while process is active. Click 'Stop Posting' first."
-                    : "Confirm account switch"
+                    ? "Stop active posting before switching accounts"
+                    : "Switch to selected account"
                 }
               >
                 {switchingProfileId === confirmSwitchProfile.id ? (
@@ -8775,13 +8981,13 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                   </>
                 ) : (isBusy || isPostingActive || isContinuousLoopActive) ? (
                   <>
-                    <span>🔒</span>
-                    <span>Process Active - Stop First</span>
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    <span>Stop Posting First</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle className="h-3.5 w-3.5" />
-                    <span>Confirm & Switch Account</span>
+                    <span>Switch Account</span>
                   </>
                 )}
               </button>
