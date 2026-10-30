@@ -8,13 +8,26 @@ export function touchProcessLock(): void {
 
 export function acquireProcessLock(type: SystemProcessType, description: string): { success: boolean; reason?: string } {
   const now = Date.now();
+  if (st.activeSystemProcess === type && type !== "none") {
+    return {
+      success: false,
+      reason: `Process (${description || type}) is already running.`
+    };
+  }
   if (st.activeSystemProcess !== "none" && st.activeSystemProcess !== type) {
     const isOrphaned =
       (st.activeSystemProcess === "single_posting" && !st.isSinglePostingRunning && !st.isPostingRunning) ||
       (st.activeSystemProcess === "continuous_loop" && !st.isPostingRunning && !st.isGeneratingRunning && !st.isContinuousLoopActive) ||
       (st.activeSystemProcess === "scheduler_cycle" && !st.isSchedulerCycleRunning) ||
       (st.activeSystemProcess === "generating_comments" && !st.isGeneratingRunning) ||
-      ((st.activeSystemProcess === "fetching_coins" || st.activeSystemProcess === "checking_login" || st.activeSystemProcess === "clearing_storage" || st.activeSystemProcess === "retry_single") && now - st.activeProcessStartTime > 3 * 60 * 1000);
+      ((st.activeSystemProcess === "fetching_coins" ||
+        st.activeSystemProcess === "checking_login" ||
+        st.activeSystemProcess === "clearing_storage" ||
+        st.activeSystemProcess === "retry_single" ||
+        st.activeSystemProcess === "refresh_fresh" ||
+        st.activeSystemProcess === "authenticating" ||
+        st.activeSystemProcess === "switching_profile") &&
+        now - st.activeProcessStartTime > 3 * 60 * 1000);
 
     if (isOrphaned) {
       console.warn(`[PROCESS LOCK] Auto-clearing orphaned or halted ${st.activeSystemProcess} lock.`);

@@ -56,8 +56,9 @@ export function cancelNextSchedulerCycle() {
 export function scheduleNextSchedulerCycle(delayMsOverride?: number) {
   cancelNextSchedulerCycle();
   if (isTestEnv) return;
+  if (st.isSchedulerCycleRunning || st.pauseSchedulerRequested) return;
   const settings = getLocalBotSettings();
-  if (!settings.schedulerEnabled) return;
+  if (!settings.schedulerEnabled || settings.schedulerStatus === "paused") return;
 
   const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const profiles = normalizeProfilesWithSchedule(rawProfiles);
@@ -124,7 +125,7 @@ export function scheduleNextSchedulerCycle(delayMsOverride?: number) {
     st.schedulerCycleTimeout = null;
     st.nextSchedulerCycleStartTime = null;
     const currentSettings = getLocalBotSettings();
-    if (!currentSettings.schedulerEnabled) return;
+    if (!currentSettings.schedulerEnabled || currentSettings.schedulerStatus === "paused" || st.pauseSchedulerRequested) return;
 
     if (st.isPostingRunning || st.isSinglePostingRunning || st.isContinuousLoopActive || isBusy() || st.activeSystemProcess !== "none") {
       addLog("warning", "[SCHEDULER] Another task is currently active. Postponing scheduled cycle by 2 minutes...");

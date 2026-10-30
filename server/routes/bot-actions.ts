@@ -255,10 +255,10 @@ app.post("/api/fetch-and-generate-fresh", async (req, res) => {
 // 8. Start posting sequence (Loop)
 app.post("/api/post-chat", (req, res) => {
   if (st.isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
+    return res.status(409).json({ error: "Cannot trigger manual actions while the Continuous Automation Loop is active." });
   }
   if (st.isPostingRunning || st.isSinglePostingRunning) {
-    return res.json({ status: "success", message: "Bot posting sequence is already active." });
+    return res.status(409).json({ error: "Bot posting sequence is already active." });
   }
 
   const lock = acquireProcessLock("single_posting", "Posting comments to CoinMarketCap");
@@ -447,7 +447,7 @@ app.post("/api/full-flow", async (req, res) => {
         st.isPostingRunning = true;
         st.botStatus = "Posting";
         st.currentPostingIndex = prevProgress.next_index;
-        runPostingLoop();
+        runPostingLoop().catch((err) => { addLog("error", `Posting runner encountered error: ${(err as Error).message}`); });
       }
 
       return res.json({
@@ -470,6 +470,7 @@ app.post("/api/full-flow", async (req, res) => {
     if (st.isFullFlowAborted) {
       addLog("warning", "Full automated sequence aborted by user during Fetching phase.");
       st.botStatus = "Idle";
+      releaseProcessLock("continuous_loop");
       return res.json({ success: false, message: "Sequence aborted by user." });
     }
 
@@ -497,7 +498,7 @@ app.post("/api/full-flow", async (req, res) => {
     st.isPostingRunning = true;
     st.botStatus = "Posting";
     st.currentPostingIndex = 0;
-    runPostingLoop();
+    runPostingLoop().catch((err) => { addLog("error", `Posting runner encountered error: ${(err as Error).message}`); });
 
     res.json({
       success: true,

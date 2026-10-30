@@ -206,7 +206,8 @@ export type SystemProcessType =
   | "retry_single"
   | "authenticating"
   | "checking_login"
-  | "clearing_storage";
+  | "clearing_storage"
+  | "switching_profile";
 
 export interface LoginSession {
   browser: any;

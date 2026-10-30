@@ -338,13 +338,16 @@ app.post("/api/profile-schedule", (req, res) => {
   }
 });
 
+let lastSchedulerPauseAt = 0;
+let lastSchedulerStopAt = 0;
+
 app.post("/api/scheduler/run-now", (req, res) => {
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled && !settings.schedulerSavedPosition) {
     return res.status(400).json({ error: "Scheduler is disabled. Please enable 'Run accounts in sequence' first." });
   }
   if (isBusy() || st.isSchedulerCycleRunning) {
-    return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
+    return res.status(409).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
   }
 
   if (!settings.schedulerEnabled) {
@@ -364,10 +367,15 @@ app.post("/api/scheduler/run-now", (req, res) => {
 });
 
 app.post("/api/scheduler/pause", async (req, res) => {
+  const now = Date.now();
   const settings = getLocalBotSettings();
   if (!st.isSchedulerCycleRunning && !settings.schedulerEnabled && !settings.schedulerSavedPosition) {
     return res.status(400).json({ error: "Scheduler is not currently running." });
   }
+  if (st.pauseSchedulerRequested || settings.schedulerStatus === "paused" || now - lastSchedulerPauseAt < 250) {
+    return res.status(409).json({ error: "Scheduler is already paused or pausing." });
+  }
+  lastSchedulerPauseAt = now;
 
   st.pauseSchedulerRequested = true;
   cancelNextSchedulerCycle();
@@ -396,7 +404,10 @@ app.post("/api/scheduler/pause", async (req, res) => {
 app.post("/api/scheduler/resume", async (req, res) => {
   const currentSettings = getLocalBotSettings();
   if (isBusy() || st.isSchedulerCycleRunning) {
-    return res.status(400).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
+    return res.status(409).json({ error: "Another process or scheduler cycle is already running. Please wait or stop it first." });
+  }
+  if (currentSettings.schedulerStatus === "running" && !currentSettings.schedulerSavedPosition) {
+    return res.status(409).json({ error: "Scheduler is already running." });
   }
 
   st.pauseSchedulerRequested = false;
@@ -422,6 +433,11 @@ app.post("/api/scheduler/resume", async (req, res) => {
 });
 
 app.post("/api/scheduler/stop", async (req, res) => {
+  const now = Date.now();
+  if (st.stopSchedulerRequested && now - lastSchedulerStopAt < 250) {
+    return res.status(409).json({ error: "Scheduler stop is already in progress." });
+  }
+  lastSchedulerStopAt = now;
   st.stopSchedulerRequested = true;
   cancelNextSchedulerCycle();
   cancelNextAutomationCycle();

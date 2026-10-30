@@ -4,7 +4,7 @@ import { addLog } from "../logger.ts";
 import { readJsonFile, writeJsonFileSyncAtomic } from "../files.ts";
 import { getActiveProfileId, getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths, normalizeStateJson, activateProfileInternal } from "../profiles.ts";
 import { saveBotProgress } from "../settings.ts";
-import { isBusy } from "../locks.ts";
+import { isBusy, acquireProcessLock, releaseProcessLock } from "../locks.ts";
 import { syncLocalFromCloudIfStale } from "../sync.ts";
 import { saveSessionStateCloud, saveProfilesCloud } from "../../src/storage.ts";
 
@@ -327,16 +327,23 @@ app.post("/api/update-profile-proxy", async (req, res) => {
 
 app.post("/api/activate-profile", async (req, res) => {
   if (st.isContinuousLoopActive) {
-    return res.status(400).json({ error: "Cannot switch accounts while Continuous Loop is active. Please click 'Stop Posting' first." });
+    return res.status(409).json({ error: "Cannot switch accounts while Continuous Loop is active. Please click 'Stop Posting' first." });
   }
   if (isBusy() || st.isPostingRunning || st.botStatus === "Posting" || st.botStatus === "Stopping") {
-    return res.status(400).json({ error: "Cannot switch accounts while posting or automation is running. Please click 'Stop Posting' first." });
+    return res.status(409).json({ error: "Cannot switch accounts while posting or automation is running. Please click 'Stop Posting' first." });
+  }
+  const { id } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Missing profile id." });
+  }
+  if (st.activeSystemProcess === "switching_profile") {
+    return res.status(409).json({ error: "Account switch is already in progress." });
+  }
+  const lock = acquireProcessLock("switching_profile", "Switching active profile");
+  if (!lock.success) {
+    return res.status(409).json({ error: lock.reason });
   }
   try {
-    const { id } = req.body;
-    if (!id) {
-      return res.status(400).json({ error: "Missing profile id." });
-    }
     const result = await activateProfileInternal(id);
     res.json(result);
   } catch (error) {
@@ -345,6 +352,8 @@ app.post("/api/activate-profile", async (req, res) => {
       return res.status(404).json({ error: msg });
     }
     res.status(500).json({ error: msg });
+  } finally {
+    releaseProcessLock("switching_profile");
   }
 });
 
