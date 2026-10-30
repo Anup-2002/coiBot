@@ -93,7 +93,7 @@ app.post("/api/scheduler/settings", (req, res) => {
     ...current,
     schedulerEnabled: nextEnabled,
     schedulerStatus: nextEnabled
-      ? (current.schedulerStatus === "paused" ? "paused" : "running")
+      ? (enabled === true ? "running" : (current.schedulerStatus === "paused" ? "paused" : "running"))
       : "stopped",
     schedulerMode: nextMode,
     maxCyclesPerDay: nextMaxCycles,
@@ -102,6 +102,10 @@ app.post("/api/scheduler/settings", (req, res) => {
   saveLocalBotSettings(updated);
 
   if (enabled !== undefined) {
+    if (nextEnabled) {
+      st.pauseSchedulerRequested = false;
+      st.stopSchedulerRequested = false;
+    }
     addLog("info", `[SCHEDULER] Sequential multi-account scheduler set to: ${nextEnabled ? "ENABLED" : "DISABLED"} (Mode: ${nextMode}, Max: ${nextMaxCycles} cycles/day)`);
 
     if (nextEnabled && !st.isSchedulerCycleRunning) {
@@ -449,6 +453,7 @@ app.post("/api/scheduler/stop", async (req, res) => {
   }
   lastSchedulerStopAt = now;
   st.stopSchedulerRequested = true;
+  st.pauseSchedulerRequested = false;
   cancelNextSchedulerCycle();
   cancelNextAutomationCycle();
   if (process.env.VITEST) {
