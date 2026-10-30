@@ -11,8 +11,8 @@
 ## 1. Repository & Branch Status
 
 - **Repository URL:** `https://github.com/Anup-2002/coiBot.git`
-- **Active Working Branch:** `staging` (tracks `origin/staging`)
-- **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` first)
+- **Active Working Branch:** `refactor/modular-split` (created from backup tag `backup-before-split` / branch `backup/before-split`)
+- **Production Branch:** `main` (protected — do **NOT** test or commit directly on `main`; all changes happen on `staging` / feature branches first)
 - **Recent Commits on `staging`:**
   - `5b0d388` — `feat: isolate scheduler cycle fetch/partitions across accounts and persist scheduler logs`
   - `87d289b` — `docs: update AI_CONTEXT.md with process-lock safeguards and 1-click scheduler controls`
@@ -37,10 +37,19 @@
 
 ## 2. Project Architecture & Core Files
 
-- **`server.ts`**: Full-stack Node.js + Express backend, Playwright Chromium browser automation engine, multi-account sequential scheduler, REST endpoints (`/api/*`), static `/output/*` interception with profile isolation, and cloud synchronization.
-- **`src/App.tsx`**: Single-file React 19 UI containing all views (`dashboard`, `scheduler`, `admin`, `logs`, `health`, `guide`), inline modals, `ErrorBoundary`, and state management.
-  - **Strict Constraint:** Do NOT split `src/App.tsx` into `src/pages/` or `src/components/`. Keep components inline in `src/App.tsx`.
-- **`src/api.ts`**: Typed frontend API client (`api` object + `apiFetch` wrapper with 30-second `AbortController` timeout). All network calls in `src/App.tsx` go through `src/api.ts` (zero raw `fetch()` calls in `src/App.tsx`).
+- **`server.ts` & `server/`**: Modular Node.js + Express backend:
+  - `server.ts` (131 lines): Entrypoint, ordered route registration, Vite/static serving, and graceful shutdown.
+  - `server/config.ts`, `server/state.ts`, `server/sync.ts`: Environment setup, centralized mutable state (`st`), atomic file I/O, and SHA-1 deduplicated cloud sync.
+  - `server/browser.ts`, `server/login.ts`, `server/posting.ts`, `server/posting-loop.ts`: Playwright Chromium launcher with per-profile proxy routing, login/OTP automation, 4-point post verification, and batch queue loop.
+  - `server/fetch.ts`, `server/generate.ts`, `server/scheduler.ts`, `server/health.ts`: Trending coin scraping/API fetch, OpenAI/Gemini comment generation, 24/7 sequential multi-account scheduler, and system diagnostics.
+  - `server/routes/`: Express route modules (`output.ts`, `profiles.ts`, `status-health.ts`, `images.ts`, `login.ts`, `bot-actions.ts`, `admin-data.ts`, `scheduler.ts`).
+- **`src/App.tsx` & `src/`**: Modular React 19 UI:
+  - `src/App.tsx` (42 lines): Root shell wiring `useAppController()` to pages, navbar, and modals.
+  - `src/pages/`: Page components (`DashboardPage.tsx`, `DashboardControlPanel.tsx`, `DashboardDataExplorer.tsx`, `DashboardImageLibrary.tsx`, `SchedulerPage.tsx`, `AdminPage.tsx`, `LogsPage.tsx`, `HealthPage.tsx`, `GuidePage.tsx`).
+  - `src/components/`: Shared UI (`HeaderNavbar.tsx`, `AdminLoginGate.tsx`, `SessionAccountModal.tsx`, `ModalsLayer.tsx`, `CustomSelect.tsx`, `CycleCountdown.tsx`, `SafeImageDisplay.tsx`, `ErrorBoundary.tsx`).
+  - `src/hooks/`: `useAppController.ts` and `useDashboardPolling.ts`.
+  - `src/types.ts` & `src/utils/ui-helpers.ts`: Shared frontend types and fast array equality / time helpers.
+- **`src/api.ts`**: Typed frontend API client (`api` object + `apiFetch` wrapper with 30-second `AbortController` timeout). All network calls go through `src/api.ts`.
 - **`src/main.tsx`**: React entry point wrapping `<App />` inside `<ErrorBoundary>`.
 - **`src/storage.ts` / `src/firebase-db.ts` / `src/mongo-db.ts`**: Dual-cloud persistence layer (Firebase Realtime Database primary + MongoDB Atlas fallback) synced with local `/output` and `/auth` directories.
 - **`src/utils/scheduler.ts` & `src/utils/formatters.ts`**: Scheduler due-time calculations, peak trading windows, and anti-spam comment formatting.
