@@ -2,7 +2,7 @@ import React from "react";
 import { Terminal as TerminalIcon, Clock, RefreshCw, Users, Activity, Lock, Settings, BookOpen } from "lucide-react";
 import { CustomSelect } from "./CustomSelect";
 
-export function renderHeaderNavbar(status: any, isContinuousLoopActive: any, healthData: any, switchingProfileId: any, sessionExists: any, setShowSessionModal: any, profilesList: any, activeProfile: any, currentView: any, navigateTo: any, setLoginTab: any, schedulerData: any, isPostingActive: any, isBusy: any, promptSwitchProfile: any, handleResetLoginState: any) {
+export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any, switchingProfileId: any, sessionExists: any, setShowSessionModal: any, profilesList: any, activeProfile: any, currentView: any, navigateTo: any, setLoginTab: any, schedulerData: any, isPostingActive: any, isBusy: any, promptSwitchProfile: any, handleResetLoginState: any) {
   return (
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 px-4 sm:px-6 py-3">
         <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">

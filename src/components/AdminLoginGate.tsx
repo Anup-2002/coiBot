@@ -1,7 +1,7 @@
 import React from "react";
 import { RefreshCw, AlertCircle, Lock, Eye, EyeOff, Shield } from "lucide-react";
 
-export function renderAdminLoginGate(isContinuousLoopActive: any, adminPasswordInput: any, setAdminPasswordInput: any, showAdminPassword: any, setShowAdminPassword: any, adminAuthLoading: any, adminLoginError: any, setAdminLoginError: any, rememberAdminLogin: any, setRememberAdminLogin: any, adminSchedulerStatus: any, handleAdminLogin: any, password: any) {
+export function renderAdminLoginGate(adminPasswordInput: any, setAdminPasswordInput: any, showAdminPassword: any, setShowAdminPassword: any, adminAuthLoading: any, adminLoginError: any, setAdminLoginError: any, rememberAdminLogin: any, setRememberAdminLogin: any, adminSchedulerStatus: any, handleAdminLogin: any) {
   return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden selection:bg-emerald-500 selection:text-slate-950">
         {/* Subtle decorative background glows */}
