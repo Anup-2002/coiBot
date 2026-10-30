@@ -80,31 +80,11 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
   const lastLogsLength = useRef(0);
   const lastRequestTimestamp = useRef<number>(0);
 
-  // Global background polling for header status dot, scheduler badge, and initial profile hydration
+  // Initial mount hydration (no cross-page background polling while dashboard is open)
   useEffect(() => {
-    let isMounted = true;
     fetchProfiles();
     fetchSessionDetails();
     fetchStats();
-    const pollHeaderStatus = async () => {
-      try {
-        const [health, sched] = await Promise.all([
-          api.getHealth().catch(() => null),
-          api.getScheduler().catch(() => null),
-        ]);
-        if (isMounted) {
-          if (health) setHealthData(health);
-          if (sched) setSchedulerData(sched);
-        }
-      } catch (_) {}
-    };
-
-    pollHeaderStatus();
-    const interval = setInterval(pollHeaderStatus, 30000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
   }, []);
 
   // Dashboard-specific polling (polls status, and output data only when a run is active)
@@ -365,6 +345,9 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
         });
         if (data.storageInfo) {
           setStorageInfo(data.storageInfo);
+        }
+        if (data.schedulerSummary) {
+          setSchedulerData((prev: any) => prev ? { ...prev, ...data.schedulerSummary } : data.schedulerSummary);
         }
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
         setNextCycleStartTime(data.nextCycleStartTime);
