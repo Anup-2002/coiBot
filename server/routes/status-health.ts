@@ -6,6 +6,7 @@ import { getAvailableMarketingImages, getLocalBotSettings, getRealTimestamps, re
 import { isSchedulerRunning } from "../locks.ts";
 import { syncLocalFromCloudIfStale } from "../sync.ts";
 import { getActiveStoreName, isMongoEnabled, isFirebaseDisabled, isMongoPrimary } from "../../src/storage.ts";
+import { sanitizeMongoUri } from "../../src/mongo-db.ts";
 import { runSystemDiagnosticsCheck } from "../health.ts";
 
 
@@ -323,7 +324,6 @@ app.get("/api/check-mongo", async (req, res) => {
 
   try {
     const { MongoClient } = await import("mongodb");
-    const { sanitizeMongoUri } = await import("../../src/mongo-db.ts");
     const sanitizedUri = sanitizeMongoUri(rawUri);
 
     const client = new MongoClient(sanitizedUri, {

@@ -209,6 +209,7 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
       - Fixed the `<Upload /> + Upload` button in `src/pages/GuidePage.tsx` (Section 4 • Images) to `<Upload /> Upload Images` (with live `Uploading...` feedback) and added consistent section header action buttons across all 5 Guide sections (`Check Health`, `Manage Accounts`, `Open Scheduler`, `Upload Images` / `Image Library`, `View Logs`) plus smooth scroll to `#controls-panel` on `Go to Control Center`.
       - Moved `isExternalImportModalOpen` and `previewModalImage` outside `{activeTab === "images"}` in `src/pages/DashboardImageLibrary.tsx` so clicking `Import from Link` in `src/pages/DashboardControlPanel.tsx` opens the Cloud Import modal immediately from any Dashboard tab.
       - Replaced remaining raw `✕` and `→` button symbols across `src/pages/DashboardImageLibrary.tsx`, `src/pages/HealthPage.tsx`, `src/pages/AdminPage.tsx`, and `src/components/SessionAccountModal.tsx` with clean Lucide icons (`<X />`, `<ChevronRight />`, `<RefreshCw />`).
+      - Replaced dynamic `await import("../../src/mongo-db.ts")` in `server/routes/status-health.ts` with a static top-level `import { sanitizeMongoUri } from "../../src/mongo-db.ts"` so `esbuild --bundle` bundles `sanitizeMongoUri` directly into `dist/server.cjs` for production (`node dist/server.cjs`).
 
 ### Verification Status
 - `npm run lint`: **PASS** (0 errors)
