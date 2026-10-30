@@ -1,7 +1,7 @@
-import type express from "express";
-import { fs, path, crypto, execSync,  chromium } from "./config.ts";
-import { st, getAvailableMarketingImages, getLocalBotSettings, addLog } from "./state.ts";
-import { launchBrowserResilient } from "./browser.ts";
+import type express from "express";import { fs, path, execSync, chromium } from "./config.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { getAvailableMarketingImages, getLocalBotSettings } from "./settings.ts";import { launchBrowserResilient } from "./browser.ts";
 
 export function pruneMarketingImages(keepCount: number): { pruned: string[]; remaining: number } {
   try {
@@ -341,12 +341,7 @@ export async function runSystemDiagnosticsCheck(force = false): Promise<any> {
   return result;
 }
 
-// Automatically warm up system diagnostics on server startup (outside Vitest) so /admin loads instantaneously
-if (!process.env.VITEST) {
-  setTimeout(() => {
-    runSystemDiagnosticsCheck(true).catch(() => {});
-  }, 500);
-}
+
 
 export function generateAdminToken(): string {
   const token = "admin_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + "_" + Date.now();

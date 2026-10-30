@@ -1,16 +1,10 @@
 import { fs } from "./config.ts";
-import { st, addLog, getLocalBotSettings, getNextSingleMarketingImage, getActiveProfileId } from "./state.ts";
-import { saveSessionStateCloudIfChanged, autoSyncSessionToProfiles } from "./sync.ts";
-import {
-  PlaywrightLock,
-  launchBrowserResilient,
-  saveDebugScreenshot,
-  clickResiliently,
-  typeWithHumanRhythm,
-  locateAndPrepareCommentEditor,
-  setupPageResourceBlocking,
-  extractFingerprintDetails,
-} from "./browser.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { saveSessionStateCloudIfChanged } from "./files.ts";
+import { getActiveProfileId, autoSyncSessionToProfiles } from "./profiles.ts";
+import { getLocalBotSettings, getNextSingleMarketingImage } from "./settings.ts";
+import { PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, typeWithHumanRhythm, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails } from "./browser.ts";
 import { sanitizeCommentForAntiSpam } from "../src/utils/formatters.ts";
 
 export async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry"; message: string; postUrl?: string }> {

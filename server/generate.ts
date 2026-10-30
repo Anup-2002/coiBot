@@ -1,8 +1,10 @@
 import OpenAI from "openai";
 import { GoogleGenAI, Type } from "@google/genai";
 import { type Coin, type GeneratedMessage } from "./config.ts";
-import { st, getLocalBotSettings, addLog } from "./state.ts";
-import { updateRealGenerateTime, saveBotProgress, readJsonFile, writeJsonFile } from "./sync.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { readJsonFile, writeJsonFile } from "./files.ts";
+import { getLocalBotSettings, updateRealGenerateTime, saveBotProgress } from "./settings.ts";
 import { sanitizeCommentForAntiSpam, generateDynamicUniqueComment } from "../src/utils/formatters.ts";
 
 export function formatCommentWithCashtag(comment: string, symbol: string): string {

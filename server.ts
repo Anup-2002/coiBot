@@ -1,13 +1,13 @@
+import "./src/env";
 import { fs, path, express, app, PORT } from "./server/config.ts";
-import {
-  st,
-  getLocalBotSettings,
-  addLog,
-  normalizeStateJson,
-  releaseProcessLock,
-  sendTelegramAlert,
-} from "./server/state.ts";
-import { hydrateLocalFromCloud } from "./server/sync.ts";
+import { st } from "./server/state.ts";
+import { addLog } from "./server/logger.ts";
+import { getLocalBotSettings } from "./server/settings.ts";
+import { normalizeStateJson } from "./server/profiles.ts";
+import { releaseProcessLock } from "./server/locks.ts";
+import { sendTelegramAlert } from "./server/alerts.ts";
+import { hydrateLocalFromCloud, pruneOldAndCompletedData } from "./server/sync.ts";
+import { runSystemDiagnosticsCheck } from "./server/health.ts";
 import { formatCommentWithCashtag } from "./server/generate.ts";
 import { scheduleNextSchedulerCycle } from "./server/scheduler.ts";
 import "./server/routes/output.ts";
@@ -21,9 +21,16 @@ import "./server/routes/scheduler.ts";
 
 export { formatCommentWithCashtag };
 
-// ============================================================================
-// VITE OR STATIC FILES SERVING MIDDLEWARE
-// ============================================================================
+const distPath = [path.join(process.cwd(), "dist"), path.resolve(__dirname, "../dist"), path.resolve(__dirname, "dist")].find(p => fs.existsSync(p)) || path.join(process.cwd(), "dist");
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(distPath));
+}
+app.get("*", (req, res, next) => {
+  if (process.env.NODE_ENV !== "production" || req.path.startsWith("/api/") || req.path.startsWith("/output/") || req.path.startsWith("/uploads/")) {
+    return next();
+  }
+  res.sendFile(path.join(distPath, "index.html"));
+});
 
 process.on("unhandledRejection", (reason) => {
   console.error("[SERVER] Unhandled Rejection (logged silently, no Telegram noise):", reason);
@@ -42,6 +49,16 @@ process.on("uncaughtException", (err) => {
 async function startServer() {
   // First, hydrate all files from Firestore cloud database
   await hydrateLocalFromCloud();
+
+  // Warm up system diagnostics and initial data retention check on live server startup
+  setTimeout(() => {
+    runSystemDiagnosticsCheck(true).catch(() => {});
+  }, 500);
+  setTimeout(() => {
+    try {
+      pruneOldAndCompletedData();
+    } catch (_) {}
+  }, 3000);
 
   // Restart safety: if scheduler is enabled, schedule next multi-account cycle after configured interval (isolated from single posting)
   const initialSettings = getLocalBotSettings();
@@ -73,23 +90,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    addLog("info", "[SERVER] Running in PRODUCTION mode, serving static files...");
-    let distPath = path.join(process.cwd(), "dist");
-    if (!fs.existsSync(distPath)) {
-      distPath = path.resolve(__dirname, "../dist");
-    }
-    if (!fs.existsSync(distPath)) {
-      distPath = path.resolve(__dirname, "dist");
-    }
-    
-    addLog("info", `[SERVER] Static production assets directory resolved to: ${distPath}`);
-    app.use(express.static(distPath));
-    app.get("*", (req, res, next) => {
-      if (req.path.startsWith("/api/") || req.path.startsWith("/output/") || req.path.startsWith("/uploads/")) {
-        return next();
-      }
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    addLog("info", `[SERVER] Running in PRODUCTION mode, serving static files from: ${distPath}`);
   }
 
   const server = app.listen(PORT, "0.0.0.0", () => {
@@ -127,4 +128,3 @@ if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
 }
 
 export { app, startServer };
-

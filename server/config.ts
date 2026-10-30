@@ -4,12 +4,15 @@ import os from "os";
 import crypto from "crypto";
 import { execSync } from "child_process";
 import express from "express";
+import dotenv from "dotenv";
+import { createRequire } from "module";
+
 export const app = express();
 app.set("trust proxy", true);
 app.use(express.json({ limit: "50mb" }));
 export { fs, path, os, crypto, execSync, express };
-import dotenv from "dotenv";
-import { createRequire } from "module";
+
+export const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
 
 // Auto-detect production mode if running from bundled dist/server.cjs or process.env.NODE_ENV is not explicitly set
 if (!process.env.NODE_ENV) {
@@ -22,7 +25,9 @@ if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = "development";
   }
 }
-console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
+if (!isTestEnv) {
+  console.log(`[SERVER] Detected environment: NODE_ENV=${process.env.NODE_ENV}`);
+}
 
 // Auto-detect where Playwright browser is actually installed on disk (user home cache, project local cache, root cache, or custom env)
 function resolvePlaywrightBrowsersPath(): string {
@@ -34,7 +39,6 @@ function resolvePlaywrightBrowsersPath(): string {
   candidates.push(path.join(process.cwd(), ".cache", "ms-playwright"));
   candidates.push("/root/.cache/ms-playwright");
 
-  // Check each candidate for existing chromium / chrome folders
   for (const c of candidates) {
     if (fs.existsSync(c)) {
       try {
@@ -46,27 +50,29 @@ function resolvePlaywrightBrowsersPath(): string {
     }
   }
 
-  // If candidate with browser files not found yet, prefer home cache or project cache
   const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
   if (fs.existsSync(homeCache)) return homeCache;
   return path.join(process.cwd(), ".cache", "ms-playwright");
 }
 
 process.env.PLAYWRIGHT_BROWSERS_PATH = resolvePlaywrightBrowsersPath();
-console.log(`[PLAYWRIGHT] Auto-detected PLAYWRIGHT_BROWSERS_PATH to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+if (!isTestEnv) {
+  console.log(`[PLAYWRIGHT] Auto-detected PLAYWRIGHT_BROWSERS_PATH to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+}
 
 // Bridge symlink: If browser exists in home cache but project .cache doesn't have it, create symlink
-try {
-  const projectCache = path.join(process.cwd(), ".cache", "ms-playwright");
-  const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
-  if (fs.existsSync(homeCache) && !fs.existsSync(projectCache)) {
-    const parentDir = path.dirname(projectCache);
-    if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
-    fs.symlinkSync(homeCache, projectCache, "dir");
-    console.log(`[PLAYWRIGHT] Linked ${projectCache} -> ${homeCache}`);
-  }
-} catch (_) {}
-
+if (!isTestEnv) {
+  try {
+    const projectCache = path.join(process.cwd(), ".cache", "ms-playwright");
+    const homeCache = path.join(os.homedir(), ".cache", "ms-playwright");
+    if (fs.existsSync(homeCache) && !fs.existsSync(projectCache)) {
+      const parentDir = path.dirname(projectCache);
+      if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+      fs.symlinkSync(homeCache, projectCache, "dir");
+      console.log(`[PLAYWRIGHT] Linked ${projectCache} -> ${homeCache}`);
+    }
+  } catch (_) {}
+}
 
 export const customRequire = typeof require !== "undefined" ? require : createRequire(typeof process !== "undefined" && process.cwd ? "file://" + process.cwd() + "/server.js" : "file:///app/server.js");
 export const { chromium } = customRequire("playwright") as typeof import("playwright");
@@ -75,40 +81,28 @@ dotenv.config({ override: true });
 
 export const PORT = Number(process.env.PORT) || 3000;
 
-let initialOutputDir = path.join(process.cwd(), "output");
-let initialAuthDir = path.join(process.cwd(), "auth");
-
-try {
-  if (!fs.existsSync(initialOutputDir)) {
-    fs.mkdirSync(initialOutputDir, { recursive: true });
+function resolveInitialDir(folderName: string, fallbackTmpName: string): string {
+  if (isTestEnv) {
+    const testDir = path.join(os.tmpdir(), `coibot-test-${folderName}-${process.pid}`);
+    fs.mkdirSync(testDir, { recursive: true });
+    return testDir;
   }
-  const testFile = path.join(initialOutputDir, ".write-test");
-  fs.writeFileSync(testFile, "test");
-  fs.unlinkSync(testFile);
-} catch (err) {
-  console.warn("[SERVER] Root output directory is not writable. Falling back to /tmp/bot-output for AWS/Serverless compatibility.");
-  initialOutputDir = "/tmp/bot-output";
-  if (!fs.existsSync(initialOutputDir)) {
-    fs.mkdirSync(initialOutputDir, { recursive: true });
-  }
-}
-
-try {
-  if (!fs.existsSync(initialAuthDir)) {
-    fs.mkdirSync(initialAuthDir, { recursive: true });
-  }
-  const testFile = path.join(initialAuthDir, ".write-test");
-  fs.writeFileSync(testFile, "test");
-  fs.unlinkSync(testFile);
-} catch (err) {
-  console.warn("[SERVER] Root auth directory is not writable. Falling back to /tmp/bot-auth for AWS/Serverless compatibility.");
-  initialAuthDir = "/tmp/bot-auth";
-  if (!fs.existsSync(initialAuthDir)) {
-    fs.mkdirSync(initialAuthDir, { recursive: true });
+  const preferred = path.join(process.cwd(), folderName);
+  try {
+    fs.mkdirSync(preferred, { recursive: true });
+    const testFile = path.join(preferred, ".write-test");
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    return preferred;
+  } catch (_) {
+    fs.mkdirSync(fallbackTmpName, { recursive: true });
+    return fallbackTmpName;
   }
 }
 
-export { initialOutputDir, initialAuthDir };
+export const initialOutputDir = resolveInitialDir("output", "/tmp/bot-output");
+export const initialAuthDir = resolveInitialDir("auth", "/tmp/bot-auth");
+export const OUTPUT_DIR = initialOutputDir;
 
 export const isOpenAiConfigured = !!process.env.OPENAI_API_KEY;
 export const isCmcConfigured = !!process.env.CMC_API_KEY;

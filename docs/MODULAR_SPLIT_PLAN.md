@@ -38,8 +38,8 @@
 ### 2.1 `server.ts` (9,628 lines)
 | Line Range | Lines | Section Description |
 |---|---:|---|
-| `1–168` | 168 | Environment bootstrap, Playwright browser path detection (`resolvePlaywrightBrowsersPath`), `chromium` loading, `OUTPUT_DIR`/`AUTH_DIR` initialization |
-| `169–303` | 135 | `isProfileSessionActive`, static `/output/*` security interceptors (`/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, `/api/results`), and `express.static` mounts |
+| `1–168` | 168 | Environment bootstrap (`import "./src/env"`), Playwright browser path detection (`resolvePlaywrightBrowsersPath`), `chromium` loading after `PLAYWRIGHT_BROWSERS_PATH` is set, `OUTPUT_DIR`/`AUTH_DIR` initialization |
+| `169–303` | 135 | `isProfileSessionActive`, static `/output/*` security interceptors (`/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, `/api/results`), and `app.use("/output", express.static(OUTPUT_DIR))` |
 | `304–366` | 63 | Marketing image selection helpers (`getAvailableMarketingImages`, `getNextSingleMarketingImage`) and `getLocalBotSettings` / `saveLocalBotSettings` |
 | `367–452` | 86 | Telegram HTML escaping and throttled emergency alert sender (`sendTelegramAlert`) |
 | `453–849` | 397 | Profile schedule normalization, active profile path switching (`updateActiveProfilePaths`), timestamps, `readBotProgress` / `saveBotProgress`, and log buffers (`addLog`, `triggerLogSync`) |
@@ -59,7 +59,7 @@
 | `6609–7531` | 923 | Batch posting loop (`runPostingLoop`) and core bot workflow routes (`/api/fetch-trending`, `/api/generate-messages`, `/api/fetch-and-generate-fresh`, `/api/post-chat`, `/api/stop-posting`, `/api/full-flow`) |
 | `7532–8096` | 565 | Storage reset, queue reset, retention routes, admin password auth routes (`/api/auth/*`), `/api/profiles/verify-all`, `/api/logs`, and CSV export download routes (`/api/download/*.csv`) |
 | `8097–9269` | 1,173 | Multi-account sequential scheduler engine (`updateProfileLastRun`, `updateProfileSchedule`, `scheduleNextSchedulerCycle`, `runScheduledCycle`) and `/api/scheduler/*` + `/api/profile-schedule` routes |
-| `9270–9628` | 359 | Telegram settings/test routes (`/api/telegram/*`), startup cloud hydration (`synchronizeSessionsAndProfilesOnStartup`, `hydrateLocalFromCloud`), `startServer()`, SPA static fallback, and exports |
+| `9270–9628` | 359 | Telegram settings/test routes (`/api/telegram/*`), startup cloud hydration (`synchronizeSessionsAndProfilesOnStartup`, `hydrateLocalFromCloud`), `startServer()`, SPA `"*"` static fallback, and exports |
 
 ### 2.2 `src/App.tsx` (9,178 lines)
 | Line Range | Lines | Section Description |
@@ -89,58 +89,65 @@
 ## 3. Target Folder Structure & File Responsibilities
 
 ### 3.1 Backend (`server/` + `server.ts`)
-Every backend module will stay under 900 lines (most between 150 and 550 lines):
-- **`server/config.ts`** (~160 lines): Environment setup, `resolvePlaywrightBrowsersPath`, Playwright `chromium` export, `PORT`, `isOpenAiConfigured`, `isCmcConfigured`, and initial writable `OUTPUT_DIR` / `AUTH_DIR` resolution.
-- **`server/state.ts`** (~280 lines): Shared backend TypeScript interfaces (`Coin`, `GeneratedMessage`, `PostResult`, `LogEntry`, `ProfileTimestamps`, `BotProgressData`, `LoginSession`, `SystemProcessType`, `PostingLoopOptions`, `PostingLoopSummary`) and the single mutable `state` object containing all file paths, bot flags, locks, login state, scheduler state, log buffers, and caches.
-- **`server/sync.ts`** (~480 lines): Local/cloud file I/O (`readJsonFile`, `writeJsonFileSyncAtomic`, `writeJsonFile`, `syncLocalFromCloudIfStale`, `autoSyncSessionToProfiles`), profile path switching (`updateActiveProfilePaths`, `getActiveProfileId`, `getActiveProfile`, `isProfileSessionActive`, `getIsolatedResults`, `activateProfileInternal`), settings & timestamps (`getLocalBotSettings`, `saveLocalBotSettings`, `getRealTimestamps`, `readBotProgress`, `saveBotProgress`), logging (`addLog`, `triggerLogSync`), Telegram notifications (`sendTelegramAlert`), process mutex locks (`acquireProcessLock`, `releaseProcessLock`, `isBusy`, `isSchedulerRunning`), data retention (`pruneOldAndCompletedData`), and startup cloud hydration (`synchronizeSessionsAndProfilesOnStartup`, `hydrateLocalFromCloud`).
-- **`server/browser.ts`** (~470 lines): Playwright browser launcher (`installPlaywrightChromium`, `launchBrowserResilient`, `withTimeout`) and resilient DOM helpers (`saveDebugScreenshot`, `removeBlockingOverlays`, `clickResiliently`, `fillInputResiliently`, `typeWithHumanRhythm`, `locateAndPrepareCommentEditor`, `setupPageResourceBlocking`, `extractFingerprintDetails`, `isEditorPostButtonRequiringLogin`).
-- **`server/login.ts`** (~860 lines): CoinMarketCap browser authentication and OTP flow (`checkLoginRealInternal`, `checkLoginReal`, `executeStartLogin`, `executeSubmitOtp`, `executeCancelLogin`). *Note: Kept together in one module (~860 lines, well under the 1,000-line ceiling) because `executeStartLogin` and `executeSubmitOtp` share the live Playwright page and OTP modal recovery steps.*
-- **`server/posting.ts`** (~860 lines): Single-coin Playwright comment submission and 4-point commit verification (`runRealPostingInternal`, `resolveToFirstPartyUrl`, `runRealPosting`). *Note: Kept together (~860 lines, under 1,000 lines) because `runRealPostingInternal` is a single linear Playwright page workflow.*
-- **`server/posting-loop.ts`** (~580 lines): Batch posting loop (`runPostingLoop`), continuous automation cycle timers (`cancelNextAutomationCycle`, `scheduleNextAutomationCycle`, `triggerFullFlowExecution`), and marketing image rotation/import helpers (`getAvailableMarketingImages`, `getNextSingleMarketingImage`, `pruneMarketingImages`, `isValidImageBuffer`, `importImagesFromExternalSources`).
-- **`server/fetch.ts`** (~310 lines): Trending coins scraping and CoinMarketCap/CoinGecko fallback (`fetchTrendingByScrape`, `executeFetchTrending`).
+`server/sync.ts` and `server/state.ts` are split into focused single-purpose modules (`config`, `state`, `logger`, `files`, `profiles`, `settings`, `locks`, `alerts`, and `sync`):
+
+- **`server/config.ts`** (~190 lines): Environment setup, `resolvePlaywrightBrowsersPath` setting `process.env.PLAYWRIGHT_BROWSERS_PATH` strictly before loading Playwright `chromium`, `PORT`, `isOpenAiConfigured`, `isCmcConfigured`, test-isolated `OUTPUT_DIR` / `AUTH_DIR` resolution, and shared backend TypeScript interfaces (`Coin`, `GeneratedMessage`, `PostResult`, `LogEntry`, `ProfileTimestamps`, `BotProgressData`, `LoginSession`, `SystemProcessType`).
+- **`server/state.ts`** (~95 lines): Single mutable `st` (`state`) object holding all file paths, bot flags, process locks, login state, scheduler state, timers (`logSyncTimeout`, `activePostingTimeout`, `nextCycleTimeout`, `schedulerCycleTimeout`, `stopSchedulerForceTimer`), buffers (`logs`, `schedulerLogsBuffer`, `lastTelegramAlertTimes`, `globalTelegramTimestamps`), and caches. **Zero `export let` bindings remain anywhere.**
+- **`server/logger.ts`** (~80 lines): Bottom-layer log ring-buffer and debounced cloud log sync (`isSchedulerLogMessage`, `triggerLogSync`, `addLog`).
+- **`server/files.ts`** (~150 lines): Bottom-layer atomic JSON file I/O and SHA-1 deduplicated cloud write helpers (`getTodayDateString`, `readJsonFile`, `writeJsonFileSyncAtomic`, `getPayloadHash`, `saveSessionStateCloudIfChanged`, `saveProfilesCloudIfChanged`, `writeJsonFile`).
+- **`server/profiles.ts`** (~330 lines): Profile & session cookie validation, active profile path switching, result isolation, and profile activation (`sessionHasValidCookies`, `isProfileSessionActive`, `normalizeProfilesWithSchedule`, `getActiveProfileId`, `getNextImportedAccountName`, `ensureProfileDirectory`, `updateActiveProfilePaths`, `getActiveProfile`, `getAccountDailyPostLimit`, `normalizeStateJson`, `getIsolatedResults`, `autoSyncSessionToProfiles`, `activateProfileInternal`).
+- **`server/settings.ts`** (~195 lines): Local/cloud bot settings, timestamps, posting progress, and marketing image selection (`getLocalBotSettings`, `saveLocalBotSettings`, `getAvailableMarketingImages`, `getNextSingleMarketingImage`, `getRealTimestamps`, `updateRealFetchTime`, `updateRealGenerateTime`, `clearRealTimestamps`, `readBotProgress`, `saveBotProgress`).
+- **`server/locks.ts`** (~90 lines): Process mutex locks, self-healing orphan lock recovery, busy/scheduler state checks, and interruptible sleep (`touchProcessLock`, `acquireProcessLock`, `releaseProcessLock`, `interruptibleSleep`, `isSchedulerRunning`, `isBusy`).
+- **`server/alerts.ts`** (~85 lines): Telegram HTML escaping and throttled emergency alert sender (`escapeTelegramHtml`, `sendTelegramAlert`) reading/updating `st.lastTelegramAlertTimes` and `st.globalTelegramTimestamps` on the state object.
+- **`server/sync.ts`** (~345 lines): Data retention auto-compaction (`pruneOldAndCompletedData`), throttled cloud-to-local staleness sync (`syncLocalFromCloudIfStale`), and startup cloud hydration (`synchronizeSessionsAndProfilesOnStartup`, `hydrateLocalFromCloud`).
+- **`server/browser.ts`** (~565 lines): Playwright browser launcher (`installPlaywrightChromium`, `launchBrowserResilient`, `withTimeout`) and resilient DOM helpers (`saveDebugScreenshot`, `removeBlockingOverlays`, `clickResiliently`, `fillInputResiliently`, `typeWithHumanRhythm`, `locateAndPrepareCommentEditor`, `setupPageResourceBlocking`, `extractFingerprintDetails`, `isEditorPostButtonRequiringLogin`).
+- **`server/login.ts`** (~1,055 lines): CoinMarketCap browser authentication and OTP flow (`checkLoginRealInternal`, `checkLoginReal`, `executeStartLogin`, `executeSubmitOtp`, `executeCancelLogin`). *Note: Kept together in one module because `executeStartLogin` and `executeSubmitOtp` share the live Playwright page and OTP modal recovery steps.*
+- **`server/posting.ts`** (~775 lines): Single-coin Playwright comment submission and 4-point commit verification (`runRealPostingInternal`, `runRealPosting`).
+- **`server/posting-loop.ts`** (~695 lines): Batch posting loop (`runPostingLoop`) and continuous automation cycle functions (`cancelNextAutomationCycle`, `scheduleNextAutomationCycle`, `triggerFullFlowExecution`) kept together in the same file.
+- **`server/fetch.ts`** (~405 lines): Trending coins scraping, DEX URL resolver (`resolveToFirstPartyUrl`), and CoinMarketCap/CoinGecko fallback (`fetchTrendingByScrape`, `executeFetchTrending`).
 - **`server/generate.ts`** (~310 lines): OpenAI `gpt-4o-mini` and Gemini fallback comment generation (`generateMessagesForCoins`, `executeGenerateMessages`, `formatCommentWithCashtag`).
-- **`server/scheduler.ts`** (~720 lines): Multi-account sequential scheduler engine (`updateProfileLastRun`, `updateProfileSchedule`, `cancelNextSchedulerCycle`, `scheduleNextSchedulerCycle`, `runScheduledCycle`).
-- **`server/health.ts`** (~240 lines): System diagnostics runner (`runSystemDiagnosticsCheck`), admin session token helpers (`generateAdminToken`, `verifyAdminRequest`), and health status builder (`buildHealthResponse`).
-- **`server/routes/output.ts`** (~110 lines): Security-intercepted `/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, `/api/results` routes + `express.static` mounts for `/output` and `/uploads/marketing_images`.
-- **`server/routes/profiles.ts`** (~450 lines): Session and profile management routes (`/api/get-session`, `/api/save-session`, `/api/clear-session`, `/api/profiles`, `/api/save-profile`, `/api/update-profile-limit`, `/api/update-profile-proxy`, `/api/activate-profile`, `/api/delete-profile`, `/api/profiles/verify-all`).
-- **`server/routes/status-health.ts`** (~360 lines): `/api/health`, `/api/status`, `/api/set-run-mode`, `/api/check-system`, `/api/check-mongo`, `/api/verify-env`, `/api/logs`.
-- **`server/routes/images.ts`** (~310 lines): `/api/marketing-images/*` and `/api/settings/image-upload` routes.
-- **`server/routes/login.ts`** (~200 lines): `/api/check-login`, `/api/start-login`, `/api/submit-otp`, `/api/cancel-login`, `/api/reset-login-state`.
-- **`server/routes/bot-actions.ts`** (~490 lines): `/api/set-continuous-loop`, `/api/retry-single`, `/api/fetch-trending`, `/api/generate-messages`, `/api/fetch-and-generate-fresh`, `/api/post-chat`, `/api/stop-posting`, `/api/full-flow`.
-- **`server/routes/admin-data.ts`** (~390 lines): `/api/clear-all`, `/api/queue/reset-daily`, `/api/data/prune`, `/api/data/retention-stats`, `/api/settings/data-retention`, `/api/download/*.csv`, `/api/auth/*`, `/api/settings/target-coins`, `/api/telegram/*`.
-- **`server/routes/scheduler.ts`** (~460 lines): `/api/scheduler/*` and `/api/profile-schedule` routes.
-- **`server.ts`** (~130 lines): Express app creation, route registration in exact original order, `startServer()`, graceful shutdown, and `{ app, startServer, formatCommentWithCashtag }` exports.
+- **`server/scheduler.ts`** (~750 lines): Multi-account sequential scheduler engine (`updateProfileLastRun`, `updateProfileSchedule`, `cancelNextSchedulerCycle`, `scheduleNextSchedulerCycle`, `runScheduledCycle`).
+- **`server/health.ts`** (~380 lines): System diagnostics runner (`runSystemDiagnosticsCheck`), marketing image pruning/validation/import (`pruneMarketingImages`, `isValidImageBuffer`, `importImagesFromExternalSources`), admin session token helpers (`generateAdminToken`, `verifyAdminRequest`), and CSV formula-injection escaping (`escapeCsvField`).
+- **`server/routes/output.ts`** (~160 lines): Security-intercepted `/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, `/api/results` routes registered strictly before `app.use("/output", express.static(OUTPUT_DIR))` and `/uploads/marketing_images`.
+- **`server/routes/profiles.ts`** (~460 lines): Session and profile management routes (`/api/get-session`, `/api/save-session`, `/api/clear-session`, `/api/profiles`, `/api/save-profile`, `/api/update-profile-limit`, `/api/update-profile-proxy`, `/api/activate-profile`, `/api/delete-profile`, `/api/profiles/verify-all`).
+- **`server/routes/status-health.ts`** (~440 lines): `/api/health`, `/api/status`, `/api/set-run-mode`, `/api/check-system`, `/api/check-mongo`, `/api/verify-env`, `/api/logs`.
+- **`server/routes/images.ts`** (~400 lines): `/api/marketing-images/*` and `/api/settings/image-upload` routes.
+- **`server/routes/login.ts`** (~245 lines): `/api/check-login`, `/api/start-login`, `/api/submit-otp`, `/api/cancel-login`, `/api/reset-login-state`.
+- **`server/routes/bot-actions.ts`** (~690 lines): `/api/set-continuous-loop`, `/api/retry-single`, `/api/fetch-trending`, `/api/generate-messages`, `/api/fetch-and-generate-fresh`, `/api/post-chat`, `/api/stop-posting`, `/api/full-flow`.
+- **`server/routes/admin-data.ts`** (~440 lines): `/api/clear-all`, `/api/queue/reset-daily`, `/api/data/prune`, `/api/data/retention-stats`, `/api/settings/data-retention`, `/api/download/*.csv`, `/api/auth/*`, `/api/settings/target-coins`, `/api/telegram/*`.
+- **`server/routes/scheduler.ts`** (~590 lines): `/api/scheduler/*` and `/api/profile-schedule` routes.
+- **`server.ts`** (~145 lines): Starts with `import "./src/env";` as the first line, imports route modules in exact original order, registers the `"*"` SPA fallback route last, defines `startServer()` (skipped when imported in tests), and exports `{ app, startServer, formatCommentWithCashtag }`.
 
 ### 3.2 Frontend (`src/`)
-Every frontend module will stay under 950 lines (most between 60 and 750 lines):
-- **`src/types.ts`** (~170 lines): Shared interfaces (`Coin`, `GeneratedMessage`, `PostResult`, `LogEntry`, `Profile`, `CustomSelectOption`, `AppView`).
-- **`src/utils/ui-helpers.ts`** (~110 lines): `areLogsEqual`, `areCoinsEqual`, `areMessagesEqual`, `areResultsEqual`, `areProfilesEqual`, `formatTimeAgo`.
-- **`src/components/ErrorBoundary.tsx`** (~60 lines): `ErrorBoundary` class component.
-- **`src/components/CycleCountdown.tsx`** (~55 lines): `CycleCountdown` memoized countdown timer.
-- **`src/components/CustomSelect.tsx`** (~190 lines): `CustomSelect` portal-style dark dropdown menu.
-- **`src/components/HeaderNavbar.tsx`** (~210 lines): Top sticky `<header>` navigation bar.
-- **`src/components/AdminLoginGate.tsx`** (~165 lines): Company Admin Access login gate screen.
-- **`src/components/SessionAccountModal.tsx`** (~690 lines): `CoinMarketCap Accounts` 3-tab modal (`showSessionModal`).
-- **`src/components/ModalsLayer.tsx`** (~620 lines): All confirmation modals, external image import modal, full lightbox preview modal, floating toast notification, and inline confirm modal.
-- **`src/pages/AdminPage.tsx`** (~470 lines): `/admin` (`Admin Settings` page).
-- **`src/pages/SchedulerPage.tsx`** (~770 lines): `/scheduler` (`Multi-Account Auto-Scheduler` page).
-- **`src/pages/GuidePage.tsx`** (~390 lines): `/guide` (`Quick Start & Operations Guide` page).
-- **`src/pages/LogsPage.tsx`** (~220 lines): `/logs` (`Live Activity and Posting History` page).
-- **`src/pages/HealthPage.tsx`** (~250 lines): `/health` (`System Health` page).
-- **`src/pages/DashboardControlPanel.tsx`** (~900 lines): Dashboard Scheduler Spotlight banner + `Control Center` + `Progress` card.
-- **`src/pages/DashboardDataExplorer.tsx`** (~860 lines): Dashboard `Campaign Data, Reports & Image Library` card (Tabs 1–4: Trending Coins, Generated Comments, Post Submissions, CSV & Analytics).
-- **`src/pages/DashboardImageLibrary.tsx`** (~660 lines): Dashboard Tab 5 (`5. Images Library`).
-- **`src/pages/DashboardPage.tsx`** (~80 lines): Dashboard `<main key="view-dashboard">` container composing `DashboardControlPanel`, `DashboardDataExplorer`, and `DashboardImageLibrary`.
-- **`src/hooks/useDashboardPolling.ts`** (~360 lines): Polling `useEffect` hooks (header 30s poll, dashboard 3s poll, scheduler 3s poll, logs 3s poll, health 10s poll, system check auto-run, lazy tab loading, lightbox keyboard shortcuts, terminal auto-scroll, simulator typing effect).
-- **`src/hooks/useAppController.ts`** (~900 lines): Central state & action handlers hook calling `useDashboardPolling` and returning the complete controller object consumed by `<App />` and page/modal components.
-- **`src/App.tsx`** (~120 lines): Thin root shell wiring `useAppController()` to `AdminLoginGate`, `HeaderNavbar`, the active page view, footer, `SessionAccountModal`, and `ModalsLayer`, plus re-exporting `ErrorBoundary`.
+- **`src/types.ts`** (~62 lines): Shared interfaces (`Coin`, `GeneratedMessage`, `PostResult`, `LogEntry`, `Profile`, `CustomSelectOption`).
+- **`src/utils/ui-helpers.ts`** (~128 lines): `areLogsEqual`, `areCoinsEqual`, `areMessagesEqual`, `areResultsEqual`, `areProfilesEqual`, `formatTimeAgo`.
+- **`src/components/ErrorBoundary.tsx`** (~42 lines): `ErrorBoundary` class component.
+- **`src/components/CycleCountdown.tsx`** (~42 lines): `CycleCountdown` memoized countdown timer.
+- **`src/components/SafeImageDisplay.tsx`** (~77 lines): `SafeImageDisplay` resilient image renderer.
+- **`src/components/CustomSelect.tsx`** (~175 lines): `CustomSelect` portal-style dark dropdown menu.
+- **`src/components/HeaderNavbar.tsx`** (~196 lines): Top sticky `<header>` navigation bar.
+- **`src/components/AdminLoginGate.tsx`** (~151 lines): Company Admin Access login gate screen.
+- **`src/components/SessionAccountModal.tsx`** (~692 lines): `CoinMarketCap Accounts` 3-tab modal (`showSessionModal`).
+- **`src/components/ModalsLayer.tsx`** (~519 lines): All confirmation modals, external image import modal, full lightbox preview modal, floating toast notification, and inline confirm modal.
+- **`src/pages/AdminPage.tsx`** (~491 lines): `/admin` (`Admin Settings` page).
+- **`src/pages/SchedulerPage.tsx`** (~794 lines): `/scheduler` (`Multi-Account Auto-Scheduler` page).
+- **`src/pages/GuidePage.tsx`** (~406 lines): `/guide` (`Quick Start & Operations Guide` page).
+- **`src/pages/LogsPage.tsx`** (~227 lines): `/logs` (`Live Activity and Posting History` page).
+- **`src/pages/HealthPage.tsx`** (~263 lines): `/health` (`System Health` page).
+- **`src/pages/DashboardControlPanel.tsx`** (~914 lines): Dashboard Scheduler Spotlight banner + `Control Center` + `Progress` card.
+- **`src/pages/DashboardDataExplorer.tsx`** (~864 lines): Dashboard `Campaign Data, Reports & Image Library` card (Tabs 1–4: Trending Coins, Generated Comments, Post Submissions, CSV & Analytics).
+- **`src/pages/DashboardImageLibrary.tsx`** (~874 lines): Dashboard Tab 5 (`5. Images Library`).
+- **`src/pages/DashboardPage.tsx`** (~11 lines): Dashboard container composing `DashboardControlPanel`, `DashboardDataExplorer`, and `DashboardImageLibrary`.
+- **`src/hooks/useDashboardPolling.ts`** (~539 lines): Per-page polling and UI effect hooks.
+- **`src/hooks/useAppController.ts`** (~1,909 lines): Central state & action handlers hook calling `useDashboardPolling` and returning the complete controller object consumed by `<App />`.
+- **`src/App.tsx`** (~42 lines): Thin root shell wiring `useAppController()` to `AdminLoginGate`, `HeaderNavbar`, the active page view, `SessionAccountModal`, and `ModalsLayer`, plus re-exporting `ErrorBoundary`.
 
 ---
 
-## 4. Order of Moves (Smallest & Safest First, 1 Commit Per Move)
+## 4. Order of Moves (Smallest & Safest First)
 
 1. **Move 1 (Frontend Shared Types, UI Helpers & Standalone Components):**
-   - Extract `src/types.ts`, `src/utils/ui-helpers.ts`, `src/components/ErrorBoundary.tsx`, `src/components/CycleCountdown.tsx`, and `src/components/CustomSelect.tsx` from `src/App.tsx`.
+   - Extract `src/types.ts`, `src/utils/ui-helpers.ts`, `src/components/ErrorBoundary.tsx`, `src/components/SafeImageDisplay.tsx`, `src/components/CycleCountdown.tsx`, and `src/components/CustomSelect.tsx` from `src/App.tsx`.
    - Verify `npm run lint`, `npm test`, `npm run build` and commit.
 2. **Move 2 (Frontend Standalone Pages — Admin, Scheduler, Guide, Logs, Health):**
    - Extract `src/pages/AdminPage.tsx`, `src/pages/SchedulerPage.tsx`, `src/pages/GuidePage.tsx`, `src/pages/LogsPage.tsx`, and `src/pages/HealthPage.tsx` from `src/App.tsx`.
@@ -152,51 +159,136 @@ Every frontend module will stay under 950 lines (most between 60 and 750 lines):
    - Extract `src/components/AdminLoginGate.tsx`, `src/components/HeaderNavbar.tsx`, `src/components/SessionAccountModal.tsx`, and `src/components/ModalsLayer.tsx` from `src/App.tsx`.
    - Verify `npm run lint`, `npm test`, `npm run build` and commit.
 5. **Move 5 (Frontend State & Polling Hooks — `useDashboardPolling` & `useAppController`):**
-   - Extract `src/hooks/useDashboardPolling.ts` and `src/hooks/useAppController.ts`, reducing `src/App.tsx` to a clean ~120-line root component.
+   - Extract `src/hooks/useDashboardPolling.ts` and `src/hooks/useAppController.ts`, reducing `src/App.tsx` to a 42-line root component.
    - Verify `npm run lint`, `npm test`, `npm run build` and commit.
-6. **Move 6 (Backend Config, Shared State & Sync Layer):**
-   - Extract `server/config.ts`, `server/state.ts`, and `server/sync.ts` from `server.ts`.
-   - Verify `npm run lint`, `npm test`, `npm run build` and commit.
+6. **Move 6 (Backend Config, State, Logger, Files, Profiles, Settings, Locks, Alerts & Sync):**
+   - Extract `server/config.ts`, `server/state.ts`, `server/logger.ts`, `server/files.ts`, `server/profiles.ts`, `server/settings.ts`, `server/locks.ts`, `server/alerts.ts`, and `server/sync.ts`.
+   - Run `npx madge --circular --extensions ts server.ts`, `npm run lint`, `npm test`, `npm run build` and commit.
 7. **Move 7 (Backend Browser Helpers, Fetch, Generate & Health):**
    - Extract `server/browser.ts`, `server/fetch.ts`, `server/generate.ts`, and `server/health.ts` from `server.ts`.
-   - Verify `npm run lint`, `npm test`, `npm run build` and commit.
+   - Run `npx madge --circular --extensions ts server.ts`, `npm run lint`, `npm test`, `npm run build` and commit.
 8. **Move 8 (Backend Login, Posting, Posting Loop & Scheduler Engines):**
-   - Extract `server/login.ts`, `server/posting.ts`, `server/posting-loop.ts`, and `server/scheduler.ts` from `server.ts`.
-   - Verify `npm run lint`, `npm test`, `npm run build` and commit.
+   - Extract `server/login.ts`, `server/posting.ts`, `server/posting-loop.ts` (keeping `runPostingLoop`, `scheduleNextAutomationCycle`, and `triggerFullFlowExecution` in the same file), and `server/scheduler.ts` from `server.ts`.
+   - Run `npx madge --circular --extensions ts server.ts`, `npm run lint`, `npm test`, `npm run build` and commit.
 9. **Move 9 (Backend Express Routes & Final `server.ts` Shell):**
-   - Extract `server/routes/output.ts`, `server/routes/profiles.ts`, `server/routes/status-health.ts`, `server/routes/images.ts`, `server/routes/login.ts`, `server/routes/bot-actions.ts`, `server/routes/admin-data.ts`, and `server/routes/scheduler.ts`, reducing `server.ts` to a ~130-line entrypoint.
-   - Verify `npm run lint`, `npm test`, `npm run build` and commit.
+   - Extract `server/routes/output.ts`, `server/routes/profiles.ts`, `server/routes/status-health.ts`, `server/routes/images.ts`, `server/routes/login.ts`, `server/routes/bot-actions.ts`, `server/routes/admin-data.ts`, and `server/routes/scheduler.ts`, reducing `server.ts` to a ~145-line entrypoint with `import "./src/env";` on line 1.
+   - Run `npx madge --circular --extensions ts server.ts`, `npm run lint`, `npm test`, `npm run build` and commit.
 
 ---
 
-## 5. Risks & Mitigations
+## 5. Corrected Server Dependency Layers & Risk Mitigations
 
-1. **Shared Mutable Server State:**
-   - *Risk:* ES module `export let botStatus` creates read-only live bindings that cannot be reassigned by importing modules.
-   - *Mitigation:* All mutable server state properties (`state.botStatus`, `state.isPostingRunning`, `state.OUTPUT_DIR`, `state.LAST_TRENDING_FILE`, etc.) live on a single exported `state` object in `server/state.ts`. Every module reads and mutates properties on `state` directly so all modules always see the exact same live values.
-2. **Circular Imports:**
-   - *Risk:* `posting-loop.ts`, `scheduler.ts`, `fetch.ts`, and `generate.ts` call one another (`triggerFullFlowExecution` calls `executeFetchTrending`, `executeGenerateMessages`, and `runPostingLoop`; `runScheduledCycle` calls `executeFetchTrending`, `generateMessagesForCoins`, and `runPostingLoop`).
-   - *Mitigation:* Strict bottom-up dependency DAG:
-     - Layer 0: `server/config.ts`, `server/state.ts` (depend on nothing in `server/`)
-     - Layer 1: `server/sync.ts`, `server/browser.ts`, `server/health.ts` (depend only on Layer 0 + `src/storage.ts` / `src/utils/*`)
-     - Layer 2: `server/login.ts`, `server/posting.ts`, `server/fetch.ts`, `server/generate.ts` (depend on Layers 0–1)
-     - Layer 3: `server/posting-loop.ts` (depends on Layers 0–2)
-     - Layer 4: `server/scheduler.ts` (depends on Layers 0–3)
-     - Layer 5: `server/routes/*` (depend on Layers 0–4)
-     - Layer 6: `server.ts` (mounts `server/routes/*`)
-3. **Express Route Order & Static `/output/*` Interception:**
-   - *Risk:* If `express.static(OUTPUT_DIR)` is mounted before `app.get("/output/last_trending.json", ...)`, inactive profiles could leak data from disk.
-   - *Mitigation:* `registerOutputRoutes(app)` in `server/routes/output.ts` is mounted **first** right after `app.use(express.json({ limit: "50mb" }))`, registering `/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, and `/api/results` strictly before `app.use("/output", (req, res, next) => express.static(state.OUTPUT_DIR)(req, res, next))`.
-4. **Potentially Unused / Legacy Code Noted (Kept Intact Per Rules):**
-   - `handleUpdateSchedulerInterval` (`src/hooks/useAppController.ts`) and `handleMoveAccountOrder` (`src/hooks/useAppController.ts`) are alias references to `handleSaveInterval` and `handleMoveAccount`. Kept intact.
-   - `formatCommentWithCashtag` (`server/generate.ts`) is defined in addition to `src/utils/formatters.ts`. Kept and re-exported from `server.ts` for compatibility.
+### 5.1 Corrected Server Dependency Layers (`logger` and `files` at the Bottom)
+To guarantee zero circular imports (`npx madge --circular --extensions ts server.ts` reports `No circular dependency found!`), all backend modules follow a strict bottom-up Directed Acyclic Graph (DAG):
+
+```mermaid
+flowchart BT
+  subgraph L0["Layer 0: Foundation (Config & State Object)"]
+    config["server/config.ts"]
+    state["server/state.ts"]
+    config --> state
+  end
+
+  subgraph L1["Layer 1: Bottom Utilities (Logger & Files)"]
+    logger["server/logger.ts"]
+    files["server/files.ts"]
+    state --> logger
+    logger --> files
+  end
+
+  subgraph L2["Layer 2: Core State Helpers (Profiles, Settings, Locks, Alerts)"]
+    profiles["server/profiles.ts"]
+    settings["server/settings.ts"]
+    locks["server/locks.ts"]
+    alerts["server/alerts.ts"]
+    files --> profiles
+    profiles --> settings
+    settings --> locks
+    settings --> alerts
+  end
+
+  subgraph L3["Layer 3: Cloud Sync, Browser & Diagnostics"]
+    sync["server/sync.ts"]
+    browser["server/browser.ts"]
+    health["server/health.ts"]
+    settings --> sync
+    profiles --> browser
+    browser --> health
+    settings --> health
+  end
+
+  subgraph L4["Layer 4: Domain Engines"]
+    login["server/login.ts"]
+    posting["server/posting.ts"]
+    fetch["server/fetch.ts"]
+    generate["server/generate.ts"]
+    browser --> login
+    browser --> posting
+    browser --> fetch
+    settings --> generate
+  end
+
+  subgraph L5["Layer 5: Orchestration Loops"]
+    postingLoop["server/posting-loop.ts\n(runPostingLoop, scheduleNextAutomationCycle, triggerFullFlowExecution)"]
+    scheduler["server/scheduler.ts"]
+    login --> postingLoop
+    posting --> postingLoop
+    fetch --> postingLoop
+    generate --> postingLoop
+    sync --> postingLoop
+    postingLoop --> scheduler
+  end
+
+  subgraph L6["Layer 6: Express Routes & Entrypoint"]
+    routes["server/routes/*.ts"]
+    entry["server.ts\n(Line 1: import './src/env')"]
+    scheduler --> routes
+    health --> routes
+    routes --> entry
+  end
+```
+
+- **Layer 0 (`config`, `state`):** `server/config.ts` has zero `server/` imports; `server/state.ts` imports only `server/config.ts`.
+- **Layer 1 (`logger`, `files` at the bottom):** `server/logger.ts` depends only on `config.ts`, `state.ts`, and `src/storage.ts`. `server/files.ts` depends only on `config.ts`, `state.ts`, `logger.ts`, and `src/storage.ts`.
+- **Layer 2 (`profiles`, `settings`, `locks`, `alerts`):** `server/profiles.ts` depends on Layer 0–1; `server/settings.ts` depends on `profiles.ts` and Layer 0–1; `server/locks.ts` and `server/alerts.ts` depend on `settings.ts` and `state.ts`.
+- **Layer 3 (`sync`, `browser`, `health`):** `server/sync.ts` depends on Layers 0–2; `server/browser.ts` depends on `config.ts`, `state.ts`, `logger.ts`, and `profiles.ts`; `server/health.ts` depends on `config.ts`, `state.ts`, `logger.ts`, `settings.ts`, and `browser.ts`.
+- **Layer 4 (`login`, `posting`, `fetch`, `generate`):** Depend only on Layers 0–3.
+- **Layer 5 (`posting-loop`, `scheduler`):** `server/posting-loop.ts` keeps `runPostingLoop`, `scheduleNextAutomationCycle`, and `triggerFullFlowExecution` together in one file and depends on Layers 0–4. `server/scheduler.ts` depends on Layers 0–4 + `posting-loop.ts`.
+- **Layer 6 (`server/routes/*` & `server.ts`):** Route modules depend on Layers 0–5, and `server.ts` imports them in strict registration order.
+
+### 5.2 Key Architectural Safeguards
+
+1. **All Timers, Buffers & Flags on `state` (No `export let`):**
+   - Every mutable flag (`botStatus`, `isPostingRunning`, `isSinglePostingRunning`, `isGeneratingRunning`, `isSchedulerCycleRunning`, etc.), timer (`logSyncTimeout`, `activePostingTimeout`, `nextCycleTimeout`, `schedulerCycleTimeout`, `stopSchedulerForceTimer`), and buffer/cache (`logs`, `schedulerLogsBuffer`, `lastTelegramAlertTimes`, `globalTelegramTimestamps`, `lastCloudSavedHash`, `hydratedProfiles`, `activeProfileRunLocks`, `activeAdminSessions`) lives on `st` (`state`) in `server/state.ts`. Zero `export let` declarations exist anywhere in the codebase.
+2. **Keep `runPostingLoop`, `scheduleNextAutomationCycle`, and `triggerFullFlowExecution` Together:**
+   - These three functions (plus `cancelNextAutomationCycle`) mutually schedule and invoke one another during continuous automation cycles and are kept in `server/posting-loop.ts` to prevent circular imports.
+3. **Express Route Order & Static `/output` Interception (Tested in `tests/routes.test.ts`):**
+   - `server/routes/output.ts` is imported first and registers `/output/last_trending.json`, `/output/generated_messages.json`, `/output/results.json`, and `/api/results` strictly before `app.use("/output", express.static(OUTPUT_DIR))`.
+   - `server.ts` registers the `"*"` SPA fallback route last after all `/output` and `/api` route modules.
+   - `tests/routes.test.ts` verifies both the router stack order (`_router.stack` indices) and runtime interception when an unauthenticated request fetches `/output/last_trending.json`.
+4. **Environment & Playwright Load Order (`import "./src/env"` First Line):**
+   - `import "./src/env";` is the very first line of `server.ts`.
+   - `server/config.ts` resolves and assigns `process.env.PLAYWRIGHT_BROWSERS_PATH` before `customRequire("playwright")` loads `chromium`.
+   - `tests/routes.test.ts` verifies that `GET /api/check-system` finds the installed Chromium executable (`playwrightInstalled: true`, `executableExists: true`).
+5. **Test Import Isolation (No Listener, No Scheduler, No Real Data Touched):**
+   - Importing `{ app }` from `server.ts` when `NODE_ENV === "test"` or `VITEST` is set does not call `startServer()`, does not start background `setTimeout` timers or the scheduler, isolates `OUTPUT_DIR` and `AUTH_DIR` to `os.tmpdir()`, and skips cloud writes so real `auth/`, `output/`, and cloud data are never touched.
+6. **Cycle Verification After Every Server Move:**
+   - Run `npx madge --circular --extensions ts server.ts` after every server move and confirm `No circular dependency found!`.
 
 ---
 
-## 6. Files Over 1,000 Lines (Noted Per Plan Constraint)
+## 6. Follow-Up Items & Files Over 1,000 Lines
 
-Out of 51 total source files, 49 files are under 1,000 lines (`server.ts` is 131 lines; `src/App.tsx` is 42 lines). Only 2 files exceed 1,000 lines for the following technical reasons:
+### 6.1 Follow-Up Items (Kept Intact Without Merging)
+1. **Two Distinct `formatCommentWithCashtag` Implementations:**
+   - `server/generate.ts` (re-exported by `server.ts`) prepends missing cashtags with a space (`"$SYM ${cleaned}"`) and collapses doubled leading cashtags to `"$SYM "`.
+   - `src/utils/formatters.ts` prepends missing cashtags with a hyphen (`"$SYM - ${cleaned}"`) and collapses doubled leading cashtags to `"$SYM - "` (tested by `tests/formatters.test.ts`).
+   - **Rule:** Do **NOT** merge these two functions during the split because they behave differently. Keep both intact and track reconciling their separator format as a future follow-up.
+2. **Duplicate Helper Variants Between `server/profiles.ts`, `server/health.ts`, and `src/utils/formatters.ts`:**
+   - `sessionHasValidCookies` and `normalizeStateJson` in `server/profiles.ts` have stricter CMC-specific cookie checks and 1-year expiry normalization compared to the generic helpers in `src/utils/formatters.ts`.
+   - `escapeCsvField` in `server/health.ts` neutralizes formula injection (`=`, `+`, `-`, `@`) in addition to RFC 4180 quote escaping in `src/utils/formatters.ts`. Kept separate as a follow-up.
+
+### 6.2 Files Over 1,000 Lines
+Out of 57 total source files, 55 files are under 1,000 lines (`server.ts` is 145 lines; `src/App.tsx` is 42 lines). Only 2 files exceed 1,000 lines:
 1. **`server/login.ts` (1,055 lines):** Contains `checkLoginRealInternal`, `checkLoginReal`, `executeStartLogin`, `executeSubmitOtp`, and `executeCancelLogin`. Kept unified because `executeStartLogin` and `executeSubmitOtp` operate on the same live Playwright `st.activeLoginSession` page/context and share modal/OTP DOM recovery state.
-2. **`src/hooks/useAppController.ts` (1,909 lines):** Contains the React `useState`/`useRef` declarations and action handlers for `<App />`. Kept unified in a single controller hook so that 80+ local state variables and setters are minified in one closure scope without an extra intermediate object wrapper—keeping `dist/assets/index-*.js` within `+0.93%` (`< 1%`) of the baseline bundle size.
-
-
+2. **`src/hooks/useAppController.ts` (1,909 lines):** Contains the React `useState`/`useRef` declarations and action handlers for `<App />`. Kept unified in a single controller hook so that 80+ local state variables and setters are minified in one closure scope without an extra intermediate object wrapper—keeping `dist/assets/index-*.js` within `< 1%` of the baseline bundle size.

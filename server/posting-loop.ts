@@ -1,36 +1,4 @@
-import { fs, path } from "./config.ts";
-import { type GeneratedMessage, type PostResult } from "./config.ts";
-import {
-  st,
-  addLog,
-  getActiveProfileId,
-  sessionHasValidCookies,
-  isBusy,
-  updateActiveProfilePaths,
-  getTodayDateString,
-  getLocalBotSettings,
-  getAccountDailyPostLimit,
-  touchProcessLock,
-  releaseProcessLock,
-  interruptibleSleep,
-  sendTelegramAlert,
-} from "./state.ts";
-import {
-  readJsonFile,
-  writeJsonFile,
-  saveBotProgress,
-  readBotProgress,
-  syncLocalFromCloudIfStale,
-  getIsolatedResults,
-  getRealTimestamps,
-  pruneOldAndCompletedData,
-} from "./sync.ts";
-import { saveSessionStateCloud, saveProfilesCloud } from "../src/storage.ts";
-import { launchBrowserResilient } from "./browser.ts";
-import { executeFetchTrending, resolveToFirstPartyUrl } from "./fetch.ts";
-import { executeGenerateMessages } from "./generate.ts";
-import { checkLoginReal } from "./login.ts";
-import { runRealPosting } from "./posting.ts";
+import { fs } from "./config.ts";import { type GeneratedMessage, type PostResult } from "./config.ts";import { st } from "./state.ts";import { addLog } from "./logger.ts";import { getTodayDateString, readJsonFile, writeJsonFile } from "./files.ts";import { getActiveProfileId, sessionHasValidCookies, updateActiveProfilePaths, getAccountDailyPostLimit, getIsolatedResults } from "./profiles.ts";import { getLocalBotSettings, saveBotProgress, readBotProgress, getRealTimestamps } from "./settings.ts";import { isBusy, touchProcessLock, releaseProcessLock, interruptibleSleep } from "./locks.ts";import { sendTelegramAlert } from "./alerts.ts";import { pruneOldAndCompletedData } from "./sync.ts";import { launchBrowserResilient } from "./browser.ts";import { executeFetchTrending, resolveToFirstPartyUrl } from "./fetch.ts";import { executeGenerateMessages } from "./generate.ts";import { checkLoginReal } from "./login.ts";import { runRealPosting } from "./posting.ts";
 
 export function cancelNextAutomationCycle() {
   st.isContinuousLoopActive = false;
@@ -159,82 +127,6 @@ export function scheduleNextAutomationCycle() {
       await triggerFullFlowExecution();
     }
   }, gapMs);
-}
-
-export async function activateProfileInternal(id: string): Promise<{
-  success: boolean;
-  message: string;
-  activeProfile: { id: string; name: string; isActive: boolean; dailyPostLimit: number };
-}> {
-  let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
-  const targetIdx = profiles.findIndex(p => p.id === id);
-  if (targetIdx === -1) {
-    throw new Error("Profile not found.");
-  }
-
-  // Set all other active to false, target to true
-  profiles = profiles.map((p, idx) => ({
-    ...p,
-    isActive: idx === targetIdx
-  }));
-
-  // Copy to st.AUTH_STATE_FILE
-  const activeProfile = profiles[targetIdx];
-  fs.writeFileSync(st.AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-  fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-  
-  // Crucial: Update active profile paths dynamically!
-  updateActiveProfilePaths();
-
-  // Ensure target profile subdirectory and isolated storage files are safely initialized
-  const targetDir = path.join(st.OUTPUT_DIR, activeProfile.id);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-  const targetResults = path.join(targetDir, "results.json");
-  if (!fs.existsSync(targetResults)) {
-    fs.writeFileSync(targetResults, "[]", "utf-8");
-  }
-  const targetProgress = path.join(targetDir, "post_progress.json");
-  if (!fs.existsSync(targetProgress)) {
-    fs.writeFileSync(targetProgress, JSON.stringify({
-      next_index: 0,
-      daily_post_count: 0,
-      daily_post_limit: activeProfile.dailyPostLimit || 300,
-      last_post_date: getTodayDateString()
-    }, null, 2), "utf-8");
-  }
-
-  // Synchronize in-memory progress index for newly activated profile
-  const progress = readBotProgress();
-  st.currentPostingIndex = progress.next_index || 0;
-
-  addLog("success", `Activated account profile: "${activeProfile.name}". Isolated storage and cookies swept.`, activeProfile.id);
-
-  // Sync active session and profiles lists to Cloud so Firestore is immediately consistent
-  try {
-    await Promise.allSettled([
-      saveSessionStateCloud(activeProfile.stateJson, activeProfile.id),
-      saveProfilesCloud(profiles)
-    ]);
-    await syncLocalFromCloudIfStale(true);
-  } catch (syncErr) {
-    console.error("[STORAGE] Error syncing active profile to cloud:", syncErr);
-  }
-
-  // Reset login flow state to idle on activation
-  st.loginState = { status: "idle", message: "" };
-
-  return {
-    success: true,
-    message: `Successfully activated profile "${activeProfile.name}"`,
-    activeProfile: {
-      id: activeProfile.id,
-      name: activeProfile.name,
-      isActive: true,
-      dailyPostLimit: activeProfile.dailyPostLimit || 300
-    }
-  };
 }
 
 export interface PostingLoopOptions {

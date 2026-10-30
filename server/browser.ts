@@ -1,5 +1,7 @@
-import { fs, path, crypto, execSync,  chromium } from "./config.ts";
-import { st, getActiveProfile, addLog } from "./state.ts";
+import { fs, path, execSync, chromium } from "./config.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { getActiveProfile } from "./profiles.ts";
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   let timeoutId: NodeJS.Timeout;

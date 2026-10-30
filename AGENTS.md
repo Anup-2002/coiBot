@@ -39,16 +39,22 @@ The application uses **Firestore / Realtime Database** (`ai-studio-coinmarketcap
 
 ### Modular Codebase Structure
 - **Backend Entrypoint & Modules (`server.ts` & `server/`)**:
-  - `server.ts`: Application entrypoint, route module imports, Vite/static middleware, and graceful shutdown.
-  - `server/config.ts`: Environment setup, Express `app` instance, Playwright `chromium` resolution, and shared backend interfaces.
-  - `server/state.ts`: Centralized mutable server state (`st` / `state`), active profile path management, process locks, logging, and Telegram alerts.
-  - `server/sync.ts`: Atomic JSON file I/O, SHA-1 deduplicated cloud sync (`syncLocalFromCloudIfStale`), data pruning, and startup cloud hydration.
+  - `server.ts`: Application entrypoint (`import "./src/env"` first line), route module imports in exact order, `"*"` SPA fallback last, Vite/static middleware, and graceful shutdown.
+  - `server/config.ts`: Environment setup, Express `app` instance, `PLAYWRIGHT_BROWSERS_PATH` detection before Playwright `chromium` resolution, test-isolated directory setup, and shared backend interfaces.
+  - `server/state.ts`: Centralized mutable server state (`st` / `state`) holding all file paths, flags, process locks, timers, buffers, and caches (no `export let`).
+  - `server/logger.ts`: Bottom-layer log ring-buffer (`addLog`, `isSchedulerLogMessage`) and debounced cloud log sync (`triggerLogSync`).
+  - `server/files.ts`: Bottom-layer atomic JSON file I/O (`readJsonFile`, `writeJsonFileSyncAtomic`, `writeJsonFile`) and SHA-1 deduplicated cloud write helpers.
+  - `server/profiles.ts`: Profile & session cookie validation, active profile path management (`updateActiveProfilePaths`), result isolation (`getIsolatedResults`), and profile activation (`activateProfileInternal`).
+  - `server/settings.ts`: Local/cloud bot settings (`getLocalBotSettings`, `saveLocalBotSettings`), timestamps, posting progress (`readBotProgress`, `saveBotProgress`), and marketing image rotation helpers.
+  - `server/locks.ts`: Process mutex locks (`acquireProcessLock`, `releaseProcessLock`, `touchProcessLock`), `isBusy`, `isSchedulerRunning`, and `interruptibleSleep`.
+  - `server/alerts.ts`: Telegram HTML escaping and throttled alert sender (`sendTelegramAlert`).
+  - `server/sync.ts`: Throttled cloud-to-local sync (`syncLocalFromCloudIfStale`), data retention pruning (`pruneOldAndCompletedData`), and startup cloud hydration (`hydrateLocalFromCloud`).
   - `server/browser.ts`: Playwright Chromium launcher (`launchBrowserResilient`) with per-profile proxy routing and resilient DOM interaction helpers.
   - `server/login.ts`: Automated CoinMarketCap email/password login, session verification (`checkLoginReal`), and OTP submission (`executeStartLogin`, `executeSubmitOtp`).
   - `server/posting.ts`: Single-coin Playwright comment submission and 4-point commit verification (`runRealPostingInternal`, `runRealPosting`).
-  - `server/posting-loop.ts`: Batch posting queue loop (`runPostingLoop`), profile activation (`activateProfileInternal`), and continuous automation loop timers.
+  - `server/posting-loop.ts`: Batch posting queue loop (`runPostingLoop`) and continuous automation cycle timers (`scheduleNextAutomationCycle`, `triggerFullFlowExecution`, `cancelNextAutomationCycle`).
   - `server/fetch.ts`: Trending coins Playwright scraper (`fetchTrendingByScrape`), DEX URL resolver (`resolveToFirstPartyUrl`), and CMC Pro / CoinGecko fallback (`executeFetchTrending`).
-  - `server/generate.ts`: OpenAI (`gpt-4o-mini`) and Gemini (`gemini-2.5-flash`) comment generation (`generateMessagesForCoins`, `executeGenerateMessages`).
+  - `server/generate.ts`: OpenAI (`gpt-4o-mini`) and Gemini (`gemini-2.5-flash`) comment generation (`generateMessagesForCoins`, `executeGenerateMessages`, `formatCommentWithCashtag`).
   - `server/scheduler.ts`: 24/7 sequential multi-account scheduler engine (`runScheduledCycle`, `scheduleNextSchedulerCycle`).
   - `server/health.ts`: System diagnostics check (`runSystemDiagnosticsCheck`), marketing image validation/import helpers, admin auth tokens, and CSV field escaping.
   - `server/routes/`: Express route modules mounted in strict order (`output.ts`, `profiles.ts`, `status-health.ts`, `images.ts`, `login.ts`, `bot-actions.ts`, `admin-data.ts`, `scheduler.ts`).

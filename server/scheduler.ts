@@ -1,43 +1,4 @@
-import { fs, path } from "./config.ts";
-import { type Coin, type GeneratedMessage, type ProfileTimestamps } from "./config.ts";
-import {
-  st,
-  addLog,
-  getLocalBotSettings,
-  saveLocalBotSettings,
-  normalizeProfilesWithSchedule,
-  sessionHasValidCookies,
-  getTodayDateString,
-  isBusy,
-  acquireProcessLock,
-  releaseProcessLock,
-  getActiveProfileId,
-  getAccountDailyPostLimit,
-  updateActiveProfilePaths,
-  sendTelegramAlert,
-} from "./state.ts";
-import {
-  readJsonFile,
-  writeJsonFile,
-  pruneOldAndCompletedData,
-  readBotProgress,
-  getIsolatedResults,
-} from "./sync.ts";
-import { saveProfilesCloud } from "../src/storage.ts";
-import {
-  normalizeProfileSchedule,
-  isDue,
-  orderDueAccounts,
-  getNextPeakTradingSession,
-  type ScheduleFrequency,
-  type LastRunStatus,
-  type ProfileSchedule,
-  type SchedulableProfile,
-} from "../src/utils/scheduler.ts";
-import { executeFetchTrending } from "./fetch.ts";
-import { generateMessagesForCoins } from "./generate.ts";
-import { checkLoginReal } from "./login.ts";
-import { activateProfileInternal, runPostingLoop } from "./posting-loop.ts";
+import { fs, path, isTestEnv } from "./config.ts";import { type Coin, type GeneratedMessage, type ProfileTimestamps } from "./config.ts";import { st } from "./state.ts";import { addLog } from "./logger.ts";import { getTodayDateString, readJsonFile, writeJsonFile } from "./files.ts";import { normalizeProfilesWithSchedule, sessionHasValidCookies, getActiveProfileId, getAccountDailyPostLimit, updateActiveProfilePaths, getIsolatedResults, activateProfileInternal } from "./profiles.ts";import { getLocalBotSettings, saveLocalBotSettings, readBotProgress } from "./settings.ts";import { isBusy, acquireProcessLock, releaseProcessLock } from "./locks.ts";import { sendTelegramAlert } from "./alerts.ts";import { pruneOldAndCompletedData } from "./sync.ts";import { saveProfilesCloud } from "../src/storage.ts";import { normalizeProfileSchedule, isDue, orderDueAccounts, getNextPeakTradingSession, type ScheduleFrequency, type LastRunStatus, type ProfileSchedule, type SchedulableProfile } from "../src/utils/scheduler.ts";import { executeFetchTrending } from "./fetch.ts";import { generateMessagesForCoins } from "./generate.ts";import { checkLoginReal } from "./login.ts";import { runPostingLoop } from "./posting-loop.ts";
 
 export function updateProfileLastRun(
   profileId: string,
@@ -94,6 +55,7 @@ export function cancelNextSchedulerCycle() {
 
 export function scheduleNextSchedulerCycle(delayMsOverride?: number) {
   cancelNextSchedulerCycle();
+  if (isTestEnv) return;
   const settings = getLocalBotSettings();
   if (!settings.schedulerEnabled) return;
 

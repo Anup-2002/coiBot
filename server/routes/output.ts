@@ -1,50 +1,8 @@
-import {
-  fs, path, express, app, PORT, isOpenAiConfigured, isCmcConfigured,
-  type Coin, type GeneratedMessage, type PostResult, type BotProgressData, type LogEntry,
-} from "../config.ts";
-import {
-  st, sessionHasValidCookies, isProfileSessionActive,
-  getAvailableMarketingImages, getLocalBotSettings, saveLocalBotSettings,
-  sendTelegramAlert, normalizeProfilesWithSchedule, getActiveProfileId,
-  getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths,
-  getTodayDateString, getActiveProfile, getAccountDailyPostLimit,
-  isSchedulerLogMessage, addLog, acquireProcessLock, releaseProcessLock,
-  isSchedulerRunning, isBusy, normalizeStateJson,
-} from "../state.ts";
-import {
-  getRealTimestamps, clearRealTimestamps, getIsolatedResults,
-  readBotProgress, saveBotProgress, pruneOldAndCompletedData,
-  readJsonFile, autoSyncSessionToProfiles, writeJsonFileSyncAtomic,
-  saveSessionStateCloudIfChanged, saveProfilesCloudIfChanged,
-  writeJsonFile, syncLocalFromCloudIfStale,
-} from "../sync.ts";
-import {
-  saveSessionStateCloud, saveTrendingCoinsCloud, saveGeneratedMessagesCloud,
-  savePostResultsCloud, saveBotProgressCloud, saveProfilesCloud,
-  saveTimestampsCloud, getActiveStoreName, isMongoEnabled,
-  isFirebaseDisabled, isMongoPrimary,
-} from "../../src/storage.ts";
-import {
-  normalizeProfileSchedule, isDue, orderDueAccounts, nextDueAt,
-  parseBotSettings, DEFAULT_SETTINGS, getNextPeakTradingSession,
-  PEAK_TRADING_SESSIONS, type BotSettings, type ScheduleFrequency,
-} from "../../src/utils/scheduler.ts";
-import {
-  pruneMarketingImages, isValidImageBuffer, importImagesFromExternalSources,
-  runSystemDiagnosticsCheck, generateAdminToken, verifyAdminRequest, escapeCsvField,
-} from "../health.ts";
-import { executeFetchTrending, resolveToFirstPartyUrl } from "../fetch.ts";
-import { executeGenerateMessages } from "../generate.ts";
-import { checkLoginReal, executeStartLogin, executeSubmitOtp, executeCancelLogin } from "../login.ts";
-import { runRealPosting } from "../posting.ts";
-import {
-  cancelNextAutomationCycle, triggerFullFlowExecution, scheduleNextAutomationCycle,
-  activateProfileInternal, runPostingLoop,
-} from "../posting-loop.ts";
-import {
-  updateProfileLastRun, updateProfileSchedule, cancelNextSchedulerCycle,
-  scheduleNextSchedulerCycle, runScheduledCycle,
-} from "../scheduler.ts";
+import { fs, path, express, app, OUTPUT_DIR, isTestEnv } from "../config.ts";
+import { st } from "../state.ts";
+import { addLog } from "../logger.ts";
+import { isProfileSessionActive, getActiveProfileId, updateActiveProfilePaths, getIsolatedResults } from "../profiles.ts";
+
 
 app.get("/output/last_trending.json", (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -123,14 +81,16 @@ app.get("/api/results", (req, res) => {
   res.json({ success: true, results });
 });
 
-app.use("/output", express.static(st.OUTPUT_DIR));
+app.use("/output", express.static(OUTPUT_DIR));
 
-try {
-  if (!fs.existsSync(st.MARKETING_IMAGES_DIR)) {
-    fs.mkdirSync(st.MARKETING_IMAGES_DIR, { recursive: true });
+if (!isTestEnv) {
+  try {
+    if (!fs.existsSync(st.MARKETING_IMAGES_DIR)) {
+      fs.mkdirSync(st.MARKETING_IMAGES_DIR, { recursive: true });
+    }
+  } catch (err) {
+    console.error("[SERVER] Error creating MARKETING_IMAGES_DIR:", err);
   }
-} catch (err) {
-  console.error("[SERVER] Error creating MARKETING_IMAGES_DIR:", err);
 }
 
 app.use("/uploads/marketing_images", express.static(st.MARKETING_IMAGES_DIR));
@@ -141,7 +101,7 @@ addLog("info", "CoinMarketCap Bot Server initialized.");
 addLog("info", "Ready to process trending coins and execute automation.");
 
 // Auto-initialize auth/state.json if missing, or update from env var
-if (process.env.AUTH_STATE_JSON) {
+if (!isTestEnv && process.env.AUTH_STATE_JSON) {
   addLog("info", "Detected AUTH_STATE_JSON environment variable. Syncing session storage state...");
   try {
     const parsed = JSON.parse(process.env.AUTH_STATE_JSON);

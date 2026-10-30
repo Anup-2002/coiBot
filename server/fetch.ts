@@ -1,6 +1,8 @@
 import { type Coin } from "./config.ts";
-import { st, getLocalBotSettings, addLog } from "./state.ts";
-import { updateRealFetchTime, saveBotProgress, writeJsonFile } from "./sync.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { writeJsonFile } from "./files.ts";
+import { getLocalBotSettings, updateRealFetchTime, saveBotProgress } from "./settings.ts";
 import { withTimeout, PlaywrightLock, launchBrowserResilient, setupPageResourceBlocking } from "./browser.ts";
 
 export async function resolveToFirstPartyUrl(originalUrl: string, symbol: string, name: string): Promise<string> {

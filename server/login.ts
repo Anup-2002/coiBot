@@ -1,21 +1,10 @@
 import { fs, path } from "./config.ts";
-import { st, addLog, getActiveProfileId, normalizeStateJson, sessionHasValidCookies } from "./state.ts";
-import { saveSessionStateCloudIfChanged, autoSyncSessionToProfiles } from "./sync.ts";
+import { st } from "./state.ts";
+import { addLog } from "./logger.ts";
+import { saveSessionStateCloudIfChanged } from "./files.ts";
+import { getActiveProfileId, sessionHasValidCookies, autoSyncSessionToProfiles } from "./profiles.ts";
 import { saveSessionStateCloud } from "../src/storage.ts";
-import {
-  withTimeout,
-  PlaywrightLock,
-  launchBrowserResilient,
-  saveDebugScreenshot,
-  removeBlockingOverlays,
-  clickResiliently,
-  fillInputResiliently,
-  locateAndPrepareCommentEditor,
-  setupPageResourceBlocking,
-  extractFingerprintDetails,
-  hasRealAuthCookies,
-  isEditorPostButtonRequiringLogin,
-} from "./browser.ts";
+import { withTimeout, PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, fillInputResiliently, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails, hasRealAuthCookies, isEditorPostButtonRequiringLogin } from "./browser.ts";
 
 export async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
   // Pre-flight check: If auth/state.json doesn't exist or has no valid session cookies, return immediately without launching browser
