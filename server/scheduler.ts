@@ -707,6 +707,12 @@ export async function runScheduledCycle(): Promise<void> {
 
     // Schedule next cycle independently without touching continuous loop
     const postSettings = getLocalBotSettings();
+    if (postSettings.schedulerStatus === "running" && !postSettings.schedulerSavedPosition) {
+      saveLocalBotSettings({
+        ...postSettings,
+        schedulerStatus: "stopped",
+      });
+    }
     if (postSettings.schedulerEnabled && !postSettings.schedulerSavedPosition) {
       scheduleNextSchedulerCycle();
     }

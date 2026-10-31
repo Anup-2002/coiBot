@@ -166,19 +166,19 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                 Settings are locked while the scheduler is running. Pause or stop to change them.
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4 pt-1">
               {/* Status & Current Account */}
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
                 <div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
-                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 whitespace-nowrap shrink-0">
                       {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className={`h-2.5 w-2.5 rounded-full ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : schedulerData?.savedPosition ? "bg-amber-400" : "bg-slate-500"}`} />
-                    <span className="text-base font-bold text-white">
+                    <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${schedulerData?.cycleRunning ? "bg-indigo-400 animate-ping" : schedulerData?.savedPosition ? "bg-amber-400" : "bg-slate-500"}`} />
+                    <span className="text-base font-bold text-white truncate">
                       {schedulerData?.cycleRunning ? "Cycle Running" : schedulerData?.savedPosition ? "Cycle Paused" : schedulerData?.enabled ? "Scheduled & Ready" : "Standby"}
                     </span>
                   </div>
@@ -201,14 +201,14 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               </div>
 
               {/* Interval Settings */}
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle Window (24h)</span>
-                  <span className="text-xs text-indigo-400 font-mono font-bold">
+                  <span className="text-xs text-indigo-400 font-mono font-bold whitespace-nowrap shrink-0">
                     {schedulerData?.intervalMinutes || 360}m ({Math.max(1, Math.round(1440 / (schedulerData?.intervalMinutes || 360)))}x / 24h)
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 mt-1">
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   <button
                     type="button"
                     disabled={isSchedulerActionPending || isSchedulerRunning}
@@ -216,7 +216,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                       setSchedulerIntervalInput(360);
                       handleUpdateSchedulerInterval(360);
                     }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 ${
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 ${
                       (schedulerData?.intervalMinutes || 360) === 360
                         ? "bg-indigo-600 text-white border-indigo-500"
                         : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
@@ -232,7 +232,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                       setSchedulerIntervalInput(480);
                       handleUpdateSchedulerInterval(480);
                     }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 ${
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold border transition cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0 ${
                       schedulerData?.intervalMinutes === 480
                         ? "bg-indigo-600 text-white border-indigo-500"
                         : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
@@ -248,12 +248,12 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     disabled={isSchedulerActionPending || isSchedulerRunning}
                     value={schedulerIntervalInput}
                     onChange={(e) => setSchedulerIntervalInput(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                   />
                   <button
                     onClick={() => handleUpdateSchedulerInterval(schedulerIntervalInput)}
                     disabled={isSchedulerActionPending || isSchedulerRunning}
-                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                   >
                     Save
                   </button>
@@ -264,10 +264,10 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               </div>
 
               {/* Target Batch Limit (Coins / Run) */}
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Target Coins / Cycle</span>
-                  <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap shrink-0">
                     {targetCoinsCount === 0 ? "All Live Coins" : `Top ${targetCoinsCount}`}
                   </span>
                 </div>
@@ -278,7 +278,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                       type="button"
                       disabled={isSchedulerActionPending || isSchedulerRunning}
                       onClick={() => handleUpdateTargetCoins(count)}
-                      className={`py-1.5 text-xs font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`py-1.5 text-xs font-mono font-bold rounded-lg border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${
                         targetCoinsCount === count
                           ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                           : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
@@ -300,24 +300,24 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               </div>
 
               {/* Cycle Action Buttons */}
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-2">
-                <div className="flex items-center justify-between">
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-2 min-w-0">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     Cycle Execution Controls
                   </span>
                   {schedulerData?.cycleRunning && (
-                    <span className="text-[11px] font-mono font-bold text-indigo-400 flex items-center gap-1">
+                    <span className="text-[11px] font-mono font-bold text-indigo-400 flex items-center gap-1 whitespace-nowrap shrink-0">
                       <RefreshCw className="h-3 w-3 animate-spin" /> Active
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     disabled={isSchedulerActionPending || schedulerData?.cycleRunning || isBusy}
                     onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
                     title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Start sequential cycle immediately")}
-                    className="flex-1 px-3 py-2.5 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    className="flex-1 min-w-[125px] px-3 py-2.5 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     {isSchedulerActionPending && !schedulerData?.cycleRunning ? (
                       <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -336,7 +336,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     type="button"
                     disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
                     onClick={handlePauseScheduler}
-                    className="px-2.5 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
+                    className="px-2.5 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Pause className="h-3.5 w-3.5 shrink-0" />
                     <span>Pause</span>
@@ -345,7 +345,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     type="button"
                     disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
                     onClick={handleStopScheduler}
-                    className="px-2.5 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
+                    className="px-2.5 py-2.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Square className="h-3.5 w-3.5 shrink-0" />
                     <span>Stop</span>

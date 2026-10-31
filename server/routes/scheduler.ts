@@ -93,7 +93,7 @@ app.post("/api/scheduler/settings", (req, res) => {
     ...current,
     schedulerEnabled: nextEnabled,
     schedulerStatus: nextEnabled
-      ? (enabled === true ? "running" : (current.schedulerStatus === "paused" ? "paused" : "running"))
+      ? (current.schedulerStatus === "paused" && enabled === undefined ? "paused" : "stopped")
       : "stopped",
     schedulerMode: nextMode,
     maxCyclesPerDay: nextMaxCycles,
@@ -109,7 +109,7 @@ app.post("/api/scheduler/settings", (req, res) => {
     addLog("info", `[SCHEDULER] Sequential multi-account scheduler set to: ${nextEnabled ? "ENABLED" : "DISABLED"} (Mode: ${nextMode}, Max: ${nextMaxCycles} cycles/day)`);
 
     if (nextEnabled && !st.isSchedulerCycleRunning) {
-      scheduleNextSchedulerCycle(1000);
+      scheduleNextSchedulerCycle();
     } else if (!nextEnabled) {
       cancelNextSchedulerCycle();
       if (st.isSchedulerCycleRunning) {

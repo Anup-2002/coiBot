@@ -363,18 +363,18 @@ export function renderAdminPage(navigateTo: any, adminSection: any, setAdminSect
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => handleToggleAdminAuth(!adminAuthRequired)}
-                  className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                     adminAuthRequired
                       ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
                       : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
                   }`}
                   title="Toggle password requirement on dashboard"
                 >
-                  <Lock className="h-3.5 w-3.5" />
+                  <Lock className="h-3.5 w-3.5 shrink-0" />
                   <span>{adminAuthRequired ? "Password Gate: Enabled" : "Password Gate: Disabled"}</span>
                 </button>
               </div>
