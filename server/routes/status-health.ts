@@ -10,10 +10,20 @@ import { sanitizeMongoUri } from "../../src/mongo-db.ts";
 import { runSystemDiagnosticsCheck } from "../health.ts";
 
 
-app.get("/api/health", (req, res) => {
+function buildHealthPayload() {
   const now = Date.now();
-  if (st.cachedHealthResponse && (now - st.cachedHealthAt < 60000)) {
-    return res.json(st.cachedHealthResponse);
+  const activeId = getActiveProfileId();
+  const sessionOk = isProfileSessionActive(activeId);
+  const currentAccountStatus = (activeId && sessionOk) ? "ok" : "degraded";
+  const currentOpenAiErr = st.lastOpenAiError || null;
+
+  if (
+    st.cachedHealthResponse &&
+    (now - st.cachedHealthAt < 60000) &&
+    st.cachedHealthResponse.checks?.account?.status === currentAccountStatus &&
+    (st.cachedHealthResponse as any)._openAiErr === currentOpenAiErr
+  ) {
+    return st.cachedHealthResponse;
   }
 
   const cachedAtIso = new Date(now).toISOString();
@@ -69,10 +79,8 @@ app.get("/api/health", (req, res) => {
   };
 
   // 5. Account check
-  const activeId = getActiveProfileId();
-  const sessionOk = isProfileSessionActive(activeId);
   const accountCheck = {
-    status: (activeId && sessionOk) ? "ok" : "degraded",
+    status: currentAccountStatus,
     details: activeId ? "Profile loaded" : "No active profile",
     message: (activeId && sessionOk) ? "CoinMarketCap account session is authenticated." : "CoinMarketCap account session expired or not logged in. Log in to resume operations.",
   };
@@ -98,9 +106,18 @@ app.get("/api/health", (req, res) => {
       account: accountCheck,
     },
   };
+  Object.defineProperty(st.cachedHealthResponse, "_openAiErr", {
+    value: currentOpenAiErr,
+    enumerable: false,
+    configurable: true,
+  });
   st.cachedHealthAt = now;
 
-  res.json(st.cachedHealthResponse);
+  return st.cachedHealthResponse;
+}
+
+app.get("/api/health", (req, res) => {
+  res.json(buildHealthPayload());
 });
 
 // 4. Status endpoint
@@ -177,6 +194,7 @@ app.get("/api/status", async (req, res) => {
         savedPosition: s.schedulerSavedPosition || null,
       };
     })(),
+    healthSummary: buildHealthPayload(),
       dataRetention: {
         autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
         dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,
@@ -298,6 +316,7 @@ app.get("/api/status", async (req, res) => {
         savedPosition: s.schedulerSavedPosition || null,
       };
     })(),
+    healthSummary: buildHealthPayload(),
     dataRetention: {
       autoPruneOldDataEnabled: getLocalBotSettings().autoPruneOldDataEnabled !== false,
       dataRetentionDays: getLocalBotSettings().dataRetentionDays || 7,

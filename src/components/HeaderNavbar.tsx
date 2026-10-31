@@ -170,7 +170,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
               }`}
               title="Open System Health"
             >
-              <span className={`w-2 h-2 rounded-full inline-block ${healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
+              <span className={`w-2 h-2 rounded-full inline-block ${!healthData || healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
               <span>Health</span>
             </button>

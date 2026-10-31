@@ -349,6 +349,9 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
         if (data.schedulerSummary) {
           setSchedulerData((prev: any) => prev ? { ...prev, ...data.schedulerSummary } : data.schedulerSummary);
         }
+        if (data.healthSummary) {
+          setHealthData(data.healthSummary);
+        }
         setIsContinuousLoopActive(!!data.isContinuousLoopActive);
         setNextCycleStartTime(data.nextCycleStartTime);
         if (data.continuousLoopIntervalMinutes !== undefined && !isInitialIntervalLoaded.current) {
@@ -403,7 +406,13 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
     setIsCheckingSystem(true);
     try {
       const url = force ? "/api/check-system?force=true" : "/api/check-system";
-      const res = await apiFetch(resolveUrl(url));
+      const [res, healthRes] = await Promise.all([
+        apiFetch(resolveUrl(url)),
+        force ? api.getHealth().catch(() => null) : Promise.resolve(null),
+      ]);
+      if (healthRes) {
+        setHealthData(healthRes);
+      }
       if (res.ok) {
         const data = await res.json();
         setSystemCheckResult(data);

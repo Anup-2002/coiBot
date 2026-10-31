@@ -238,4 +238,5 @@ All follow-up tasks (Tasks 1–11 / Steps 0–7) are **COMPLETED** and **VERIFIE
 3. **After any future code change**:
    - Run `npm run lint`, `npm test`, and `npm run build`.
    - Update this `AI_CONTEXT.md` file with the latest state and commit hashes.
+   - Whenever starting or reporting the local server (`http://localhost:3000`), always remind the user of the **`Ctrl + Shift + B`** Simple Browser shortcut (configured in `.vscode/tasks.json`) and include `[Open localhost:3000 in Simple Browser](command:simpleBrowser.show?%5B%22http%3A%2F%2Flocalhost%3A3000%2F%22%5D)` / `[Open Side-by-Side](command:simpleBrowser.api.open?%5B%22http%3A%2F%2Flocalhost%3A3000%2F%22%2C%7B%22viewColumn%22%3A-2%7D%5D)`.
 

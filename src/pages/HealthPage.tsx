@@ -46,7 +46,7 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
           </div>
 
           {/* Top Overall Status Banner */}
-          {healthData?.overall === "ok" && healthData?.healthy !== false && (!systemCheckResult || systemCheckResult.success) ? (
+          {(!healthData || (healthData?.overall === "ok" && healthData?.healthy !== false)) && (!systemCheckResult || systemCheckResult.success) ? (
             <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
               <div className="flex items-center gap-3.5">
                 <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
