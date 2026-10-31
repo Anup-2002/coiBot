@@ -1,71 +1,121 @@
 import React from "react";
-import { Play, Database, Clock, RefreshCw, ChevronRight, ExternalLink, Image as ImageIcon, CheckCircle, FileText, AlertTriangle, RotateCcw, Download, Archive } from "lucide-react";
+import { Play, Database, Clock, RefreshCw, ChevronRight, ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon, CheckCircle, FileText, AlertTriangle, RotateCcw, Download, Archive } from "lucide-react";
 import { PostResult } from "../types";
 import { resolveUrl, formatTimeAgo } from "../utils/ui-helpers";
 
 export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isPostingActive: any, isSchedulerRunning: any, imageUploadEnabled: any, marketingImages: any, setActiveTab: any, activeProfile: any, coinsList: any, messagesList: any, isRefreshingData: any, handleManualRefresh: any, activeTab: any, isContinuousLoopActive: any, showToast: any, coinsFetchedAt: any, commentsGeneratedAt: any, activeProfileIdRef: any, results: any, setSubmissionsViewMode: any, submissionsViewMode: any, setShowRetentionSettingsModal: any, setShowResetQueueConfirm: any, isResettingDailyQueue: any, handleRetrySingle: any, individualLoading: any, handleCopyAndOpenCMC: any, imageLibraryNode: any) {
+  const isExpanded = Boolean(activeTab);
+  const toggleTab = (tab: string) => {
+    setActiveTab(activeTab === tab ? "" : tab);
+  };
+
   return (
-        <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-          <div className="flex flex-col gap-3 border-b border-slate-800 pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 shrink-0">
+        <section id="storage-explorer" className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl transition-all duration-200">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div
+                onClick={() => setActiveTab(isExpanded ? "" : "coins")}
+                className="flex items-center gap-2.5 cursor-pointer group select-none"
+                title={isExpanded ? "Click to minimize section" : "Click to expand Campaign Data, Reports & Image Library"}
+              >
+                <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 shrink-0 group-hover:bg-blue-500/20 transition">
                   <Database className="h-5 w-5" />
                 </span>
-                <span>Campaign Data, Reports &amp; Image Library</span>
-              </h2>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2 group-hover:text-blue-300 transition">
+                    <span>Campaign Data, Reports &amp; Image Library</span>
+                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
+                      {isExpanded ? "Expanded" : "Minimized"}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Click any tab below to open its dropdown view, or click again to hide in one click.
+                  </p>
+                </div>
+              </div>
 
-              <button
-                onClick={handleManualRefresh}
-                disabled={isRefreshingData}
-                className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
-                title="Refresh trending coins, generated comments, and submission results"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isRefreshingData ? "animate-spin" : ""}`} />
-                <span>Refresh Data</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshingData}
+                  className="py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold border border-emerald-500/20 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+                  title="Refresh trending coins, generated comments, and submission results"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isRefreshingData ? "animate-spin" : ""}`} />
+                  <span>Refresh Data</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(isExpanded ? "" : "coins")}
+                  className={`py-1.5 px-3 rounded-xl text-sm font-bold border flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    isExpanded
+                      ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+                      : "bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border-blue-500/30"
+                  }`}
+                  title={isExpanded ? "Minimize / Hide section in 1 click" : "Expand section in 1 click"}
+                >
+                  {isExpanded ? (
+                    <>
+                      <ChevronUp className="h-4 w-4 shrink-0" />
+                      <span>Hide</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4 shrink-0" />
+                      <span>Expand</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Exporter selector tabs */}
+            {/* Exporter selector tabs (1-click expand / collapse dropdown triggers) */}
             <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
               <button
-                onClick={() => setActiveTab("coins")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "coins" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                onClick={() => toggleTab("coins")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "coins" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                1. Trending Coins ({coinsList.length})
+                <span>1. Trending Coins ({coinsList.length})</span>
+                {activeTab === "coins" ? <ChevronUp className="h-3.5 w-3.5 text-blue-400 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 opacity-60 shrink-0" />}
               </button>
               <button
-                onClick={() => setActiveTab("comments")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "comments" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                onClick={() => toggleTab("comments")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "comments" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                2. Generated Comments ({messagesList.length})
+                <span>2. Generated Comments ({messagesList.length})</span>
+                {activeTab === "comments" ? <ChevronUp className="h-3.5 w-3.5 text-purple-400 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 opacity-60 shrink-0" />}
               </button>
               <button
-                onClick={() => setActiveTab("results")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "results" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                onClick={() => toggleTab("results")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "results" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                {(() => {
-                  const activePid = activeProfileIdRef.current || activeProfile?.id;
-                  const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
-                  return `3. Post Submissions (${count})`;
-                })()}
+                <span>
+                  {(() => {
+                    const activePid = activeProfileIdRef.current || activeProfile?.id;
+                    const count = results.filter(r => !activePid || !r.profileId || r.profileId === activePid).length;
+                    return `3. Post Submissions (${count})`;
+                  })()}
+                </span>
+                {activeTab === "results" ? <ChevronUp className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 opacity-60 shrink-0" />}
               </button>
               <button
-                onClick={() => setActiveTab("reports")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "reports" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-slate-200"
+                onClick={() => toggleTab("reports")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "reports" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                4. CSV Exports &amp; Reports
+                <span>4. CSV Exports &amp; Reports</span>
+                {activeTab === "reports" ? <ChevronUp className="h-3.5 w-3.5 text-amber-400 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 opacity-60 shrink-0" />}
               </button>
               <button
-                onClick={() => setActiveTab("images")}
+                onClick={() => toggleTab("images")}
                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
                   activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
                 }`}
@@ -75,12 +125,14 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                 <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
                   {imageUploadEnabled ? 'ON' : 'OFF'}
                 </span>
+                {activeTab === "images" ? <ChevronUp className="h-3.5 w-3.5 text-indigo-300 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 opacity-60 shrink-0" />}
               </button>
             </div>
           </div>
 
-          {/* TAB WINDOW CONTENT */}
-          <div className="min-h-[200px]">
+          {/* TAB WINDOW CONTENT (Smoothly expands on selection, hidden when minimized) */}
+          {isExpanded && (
+          <div className="min-h-[200px] pt-4 mt-4 border-t border-slate-800 animate-in fade-in slide-in-from-top-2 duration-200">
             
             {/* TAB 1: COINS LIST */}
             {activeTab === "coins" && (
@@ -897,6 +949,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
 
           {imageLibraryNode}
           </div>
+          )}
         </section>
   );
 }

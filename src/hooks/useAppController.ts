@@ -649,8 +649,8 @@ export function useAppController() {
   const [logFilter, setLogFilter] = useState<string>("all");
   const [logSearchQuery, setLogSearchQuery] = useState<string>("");
 
-  // Data Explorer Tabs & Search Filters
-  const [activeTab, setActiveTab] = useState<string>("coins");
+  // Data Explorer Tabs & Search Filters (minimized by default until user clicks a tab or Expand)
+  const [activeTab, setActiveTab] = useState<string>("");
   const [submissionsViewMode, setSubmissionsViewMode] = useState<"current_batch" | "all_history">("current_batch");
   const [coinsList, setCoinsList] = useState<Coin[]>([]);
   const [messagesList, setMessagesList] = useState<GeneratedMessage[]>([]);
