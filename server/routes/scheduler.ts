@@ -26,6 +26,9 @@ app.get("/api/scheduler", (req, res) => {
       lastRun,
       nextDueAt: nextDueAt(schedule, lastRun.at),
       hasValidSession: sessionHasValidCookies(p.stateJson),
+      cmcUsername: p.cmcUsername,
+      cmcNickname: p.cmcNickname,
+      communityProfileUrl: p.communityProfileUrl,
     };
   });
 

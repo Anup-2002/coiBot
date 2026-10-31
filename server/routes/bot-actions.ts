@@ -59,16 +59,27 @@ app.post("/api/retry-single", async (req, res) => {
     let outcome: PostResult["status"] = "success";
     let messageText = "Posted successfully via manual retry";
     let targetCheckUrl = item.url;
+    let directPostUrl: string | undefined;
+    let coinCommunityUrl = `${(item.url || "").replace(/#.*$/, "")}#Community`;
+    let postedProfileUrl: string | undefined;
+    let postedCmcUsername: string | undefined;
+    let postedCmcNickname: string | undefined;
 
     addLog("info", `Launching automated Playwright context for manual retry of ${item.name}...`);
     try {
       const resolvedUrl = await resolveToFirstPartyUrl(item.url, item.symbol, item.name);
+      coinCommunityUrl = `${(resolvedUrl || item.url || "").replace(/#.*$/, "")}#Community`;
       const realResult = await runRealPosting(resolvedUrl, item.message, item.sentiment || "bullish");
       outcome = realResult.status;
       messageText = realResult.message;
       if (realResult.postUrl) {
         targetCheckUrl = realResult.postUrl;
+        directPostUrl = realResult.postUrl;
       }
+      if (realResult.coinUrl) coinCommunityUrl = realResult.coinUrl;
+      postedProfileUrl = realResult.profileUrl;
+      postedCmcUsername = realResult.cmcUsername;
+      postedCmcNickname = realResult.cmcNickname;
     } catch (err) {
       outcome = "failed";
       messageText = `Playwright manual retry error: ${(err as Error).message}`;
@@ -83,6 +94,11 @@ app.post("/api/retry-single", async (req, res) => {
       name: item.name,
       symbol: item.symbol,
       url: targetCheckUrl,
+      postUrl: directPostUrl,
+      coinUrl: coinCommunityUrl,
+      profileUrl: postedProfileUrl,
+      cmcUsername: postedCmcUsername,
+      cmcNickname: postedCmcNickname,
       status: outcome,
       message: messageText,
       timestamp: new Date().toLocaleTimeString(),

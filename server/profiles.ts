@@ -50,17 +50,51 @@ export function isProfileSessionActive(profileId?: string | null): boolean {
   return false;
 }
 
+export function extractCmcProfileInfo(stateJsonStr?: string): {
+  cmcUsername?: string;
+  cmcNickname?: string;
+  communityProfileUrl?: string;
+} {
+  if (!stateJsonStr || !stateJsonStr.trim()) return {};
+  try {
+    const parsed = JSON.parse(stateJsonStr);
+    const cookies = Array.isArray(parsed) ? parsed : (parsed.cookies || []);
+    if (!Array.isArray(cookies)) return {};
+    const uProd = cookies.find((c: any) => c && c.name === "u-prod" && typeof c.value === "string");
+    if (!uProd || !uProd.value) return {};
+    const raw = Buffer.from(decodeURIComponent(uProd.value), "base64").toString("utf-8");
+    const startIdx = raw.indexOf("{");
+    const endIdx = raw.lastIndexOf("}");
+    if (startIdx === -1 || endIdx <= startIdx) return {};
+    const userObj = JSON.parse(raw.slice(startIdx, endIdx + 1));
+    const username = typeof userObj.username === "string" && userObj.username.trim() ? userObj.username.trim() : "";
+    const nickname = typeof userObj.nickname === "string" && userObj.nickname.trim() ? userObj.nickname.trim() : username;
+    if (!username) return {};
+    return {
+      cmcUsername: username,
+      cmcNickname: nickname,
+      communityProfileUrl: `https://coinmarketcap.com/community/profile/${encodeURIComponent(username)}/`,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
 export function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
     const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
     let dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
     if (dailyPostLimit === 500) dailyPostLimit = 300;
+    const cmcInfo = extractCmcProfileInfo(p.stateJson);
     return {
       ...p,
       dailyPostLimit,
       schedule,
       lastRun,
+      ...(cmcInfo.cmcUsername ? { cmcUsername: cmcInfo.cmcUsername } : {}),
+      ...(cmcInfo.cmcNickname ? { cmcNickname: cmcInfo.cmcNickname } : {}),
+      ...(cmcInfo.communityProfileUrl ? { communityProfileUrl: cmcInfo.communityProfileUrl } : {}),
     };
   });
 }
@@ -213,18 +247,40 @@ export function getIsolatedResults(profileId: string | null): PostResult[] {
   const profileResultsFile = path.join(st.OUTPUT_DIR, profileId, "results.json");
   const raw = readJsonFile<PostResult[]>(profileResultsFile, []);
 
+  let cmcInfo: { cmcUsername?: string; cmcNickname?: string; communityProfileUrl?: string } = {};
+  try {
+    if (fs.existsSync(st.PROFILES_FILE)) {
+      const profiles = JSON.parse(fs.readFileSync(st.PROFILES_FILE, "utf-8"));
+      const target = Array.isArray(profiles) ? profiles.find((p: any) => p.id === profileId) : null;
+      if (target && target.stateJson) {
+        cmcInfo = extractCmcProfileInfo(target.stateJson);
+      }
+    }
+  } catch (_) {}
+
   let sanitizedCount = 0;
   const isolated: PostResult[] = [];
 
   for (const r of raw) {
-    if (!r.profileId) {
-      isolated.push({ ...r, profileId });
+    if (r.profileId && r.profileId !== profileId) {
       sanitizedCount++;
-    } else if (r.profileId === profileId) {
-      isolated.push(r);
-    } else {
+      continue;
+    }
+    if (!r.profileId) {
       sanitizedCount++;
     }
+    const isDirectPostUrl = typeof r.url === "string" && r.url.includes("/community/post/");
+    const baseCoinUrl = r.coinUrl || (!isDirectPostUrl && r.url ? `${r.url.replace(/#.*$/, "")}#Community` : undefined);
+    const directPostUrl = r.postUrl || (isDirectPostUrl ? r.url : undefined);
+    isolated.push({
+      ...r,
+      profileId,
+      ...(directPostUrl ? { postUrl: directPostUrl } : {}),
+      ...(baseCoinUrl ? { coinUrl: baseCoinUrl } : {}),
+      ...(r.profileUrl || cmcInfo.communityProfileUrl ? { profileUrl: r.profileUrl || cmcInfo.communityProfileUrl } : {}),
+      ...(r.cmcUsername || cmcInfo.cmcUsername ? { cmcUsername: r.cmcUsername || cmcInfo.cmcUsername } : {}),
+      ...(r.cmcNickname || cmcInfo.cmcNickname ? { cmcNickname: r.cmcNickname || cmcInfo.cmcNickname } : {}),
+    });
   }
 
   if (sanitizedCount > 0) {

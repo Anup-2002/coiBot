@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Shield,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { CustomSelect } from "../components/CustomSelect";
 
@@ -582,8 +583,8 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
 
                             {/* Account name & info */}
                             <td className="py-3.5 px-4">
-                              <div className="flex flex-col">
-                                <span className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5">
+                              <div className="flex flex-col gap-1">
+                                <span className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
                                   {acc.name}
                                   {isCurrent && (
                                     <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
@@ -591,6 +592,17 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                                     </span>
                                   )}
                                 </span>
+                                {acc.communityProfileUrl && (
+                                  <a
+                                    href={acc.communityProfileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs font-mono text-emerald-400 hover:text-emerald-300 hover:underline inline-flex items-center gap-1 w-fit"
+                                    title={`Open ${acc.cmcUsername || acc.name} on CoinMarketCap Community to verify posted comments`}
+                                  >
+                                    @{acc.cmcUsername || "Profile"} {acc.cmcNickname && acc.cmcNickname !== acc.cmcUsername ? `(${acc.cmcNickname})` : ""} <ExternalLink className="h-3 w-3 shrink-0" />
+                                  </a>
+                                )}
                               </div>
                             </td>
 

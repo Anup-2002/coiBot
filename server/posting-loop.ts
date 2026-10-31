@@ -384,16 +384,27 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
       let outcome: PostResult["status"] = "success";
       let messageText = "Posted successfully";
       let targetCheckUrl = item.url;
+      let directPostUrl: string | undefined;
+      let coinCommunityUrl = `${(item.url || "").replace(/#.*$/, "")}#Community`;
+      let postedProfileUrl: string | undefined;
+      let postedCmcUsername: string | undefined;
+      let postedCmcNickname: string | undefined;
 
       logWithPrefix("info", `Launching automated Playwright context for ${item.name}...`);
       try {
         const resolvedUrl = await resolveToFirstPartyUrl(item.url, item.symbol, item.name);
+        coinCommunityUrl = `${(resolvedUrl || item.url || "").replace(/#.*$/, "")}#Community`;
         const realResult = await runRealPosting(resolvedUrl, item.message, item.sentiment || "bullish", sharedBrowser);
         outcome = realResult.status;
         messageText = realResult.message;
         if (realResult.postUrl) {
           targetCheckUrl = realResult.postUrl;
+          directPostUrl = realResult.postUrl;
         }
+        if (realResult.coinUrl) coinCommunityUrl = realResult.coinUrl;
+        postedProfileUrl = realResult.profileUrl;
+        postedCmcUsername = realResult.cmcUsername;
+        postedCmcNickname = realResult.cmcNickname;
       } catch (err) {
         outcome = "failed";
         messageText = `Playwright runtime error: ${(err as Error).message}`;
@@ -418,6 +429,11 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           name: item.name,
           symbol: item.symbol,
           url: targetCheckUrl,
+          postUrl: directPostUrl,
+          coinUrl: coinCommunityUrl,
+          profileUrl: postedProfileUrl,
+          cmcUsername: postedCmcUsername,
+          cmcNickname: postedCmcNickname,
           status: outcome,
           message: messageText,
           timestamp: new Date().toLocaleTimeString(),

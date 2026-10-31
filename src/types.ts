@@ -25,6 +25,11 @@ export interface PostResult {
   name: string;
   symbol: string;
   url: string;
+  postUrl?: string;
+  coinUrl?: string;
+  profileUrl?: string;
+  cmcUsername?: string;
+  cmcNickname?: string;
   status: "success" | "captcha" | "expired" | "failed" | "retry" | "skipped";
   message: string;
   timestamp: string;
@@ -47,6 +52,9 @@ export interface Profile {
   loginStatus?: string;
   dailyPostLimit?: number;
   proxy?: string;
+  cmcUsername?: string;
+  cmcNickname?: string;
+  communityProfileUrl?: string;
   updatedAt: string;
 }
 

@@ -350,6 +350,18 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {(activeProfile?.communityProfileUrl || profileResults[profileResults.length - 1]?.profileUrl) && (
+                        <a
+                          href={activeProfile?.communityProfileUrl || profileResults[profileResults.length - 1]?.profileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="py-1.5 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-sm font-bold border border-emerald-500/30 flex items-center gap-1.5 transition duration-200 cursor-pointer whitespace-nowrap shrink-0"
+                          title={`Open posted account's CoinMarketCap Community Profile (${activeProfile?.cmcUsername || profileResults[profileResults.length - 1]?.cmcUsername || "Active Account"}) to verify all posted comments`}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          Verify Account Posts ({activeProfile?.cmcNickname || activeProfile?.cmcUsername || profileResults[profileResults.length - 1]?.cmcUsername || "Profile"})
+                        </a>
+                      )}
                       <button
                         onClick={() => setShowRetentionSettingsModal(true)}
                         className="py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-sm font-bold border border-indigo-500/20 flex items-center gap-1.5 transition duration-200 cursor-pointer"
@@ -452,15 +464,29 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                 <td className="py-3 px-4 text-center border-r border-slate-800/80">
                                   <span className="text-slate-600 font-mono text-[11px]">—</span>
                                 </td>
-                                <td className="py-3 px-4 text-right">
-                                  <a
-                                    href={histItem.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 font-semibold"
-                                  >
-                                    Verify <ChevronRight className="h-3 w-3" />
-                                  </a>
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  <div className="inline-flex items-center justify-end gap-1.5">
+                                    {(histItem.profileUrl || activeProfile?.communityProfileUrl) && (
+                                      <a
+                                        href={histItem.profileUrl || activeProfile?.communityProfileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 inline-flex items-center gap-1 font-bold text-xs transition whitespace-nowrap"
+                                        title={`Verify on Posted Account Profile (${histItem.cmcUsername || activeProfile?.cmcUsername || "CMC Profile"}): ${histItem.profileUrl || activeProfile?.communityProfileUrl}`}
+                                      >
+                                        Verify Account <ExternalLink className="h-3 w-3 shrink-0" />
+                                      </a>
+                                    )}
+                                    <a
+                                      href={histItem.postUrl || (histItem.url ? `${histItem.url.replace(/#.*$/, "")}${histItem.url.includes("/community/post/") ? "" : "#Community"}` : "#")}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/25 inline-flex items-center gap-1 font-bold text-xs transition whitespace-nowrap"
+                                      title="Open posted comment / coin community location on CoinMarketCap"
+                                    >
+                                      Post Location <ExternalLink className="h-3 w-3 shrink-0" />
+                                    </a>
+                                  </div>
                                 </td>
                               </tr>
                             ))
@@ -594,15 +620,28 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                   </td>
 
                                   <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                                    <a
-                                      href={(item && item.url) ? item.url : `${(msgItem.url || "").replace(/#.*$/, "")}#Community`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/25 inline-flex items-center gap-1 font-bold text-xs transition"
-                                      title="Open on CoinMarketCap to manually check this post"
-                                    >
-                                      Check Post <ExternalLink className="h-3 w-3" />
-                                    </a>
+                                    <div className="inline-flex items-center justify-end gap-1.5">
+                                      {(item?.profileUrl || activeProfile?.communityProfileUrl) && (
+                                        <a
+                                          href={item?.profileUrl || activeProfile?.communityProfileUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 inline-flex items-center gap-1 font-bold text-xs transition whitespace-nowrap"
+                                          title={`Verify on Posted Account Profile (${item?.cmcUsername || activeProfile?.cmcUsername || "CMC Profile"}): ${item?.profileUrl || activeProfile?.communityProfileUrl}`}
+                                        >
+                                          Verify Account <ExternalLink className="h-3 w-3 shrink-0" />
+                                        </a>
+                                      )}
+                                      <a
+                                        href={item?.postUrl || ((item && item.url) ? `${item.url.replace(/#.*$/, "")}${item.url.includes("/community/post/") ? "" : "#Community"}` : `${(msgItem.url || "").replace(/#.*$/, "")}#Community`)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/25 inline-flex items-center gap-1 font-bold text-xs transition whitespace-nowrap"
+                                        title="Open posted comment / coin community location on CoinMarketCap"
+                                      >
+                                        Post Location <ExternalLink className="h-3 w-3 shrink-0" />
+                                      </a>
+                                    </div>
                                   </td>
                                 </tr>
                               );

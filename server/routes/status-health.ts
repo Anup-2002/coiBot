@@ -1,7 +1,7 @@
 import { fs, path, app, PORT, OUTPUT_DIR, isOpenAiConfigured, isCmcConfigured, type Coin, type GeneratedMessage } from "../config.ts";
 import { st } from "../state.ts";
 import { getTodayDateString, readJsonFile } from "../files.ts";
-import { isProfileSessionActive, getActiveProfileId, getAccountDailyPostLimit, getIsolatedResults } from "../profiles.ts";
+import { isProfileSessionActive, getActiveProfileId, getAccountDailyPostLimit, getIsolatedResults, extractCmcProfileInfo } from "../profiles.ts";
 import { getAvailableMarketingImages, getLocalBotSettings, getRealTimestamps, readBotProgress } from "../settings.ts";
 import { isSchedulerRunning } from "../locks.ts";
 import { syncLocalFromCloudIfStale } from "../sync.ts";
@@ -255,13 +255,14 @@ app.get("/api/status", async (req, res) => {
 
   const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const activeProfile = rawProfiles.find(p => p.id === activeId);
+  const activeCmcInfo = activeProfile?.stateJson ? extractCmcProfileInfo(activeProfile.stateJson) : {};
 
   res.json({
     status: st.isStopping ? "Stopping" : st.botStatus,
     isStopping: st.isStopping,
     loginState: st.loginState,
     runMode: st.runMode,
-    activeProfile: activeProfile ? { id: activeProfile.id, name: activeProfile.name } : (activeId ? { id: activeId, name: activeId } : null),
+    activeProfile: activeProfile ? { id: activeProfile.id, name: activeProfile.name, ...activeCmcInfo } : (activeId ? { id: activeId, name: activeId } : null),
     activeProfileId: activeId,
     activeProfileName: activeProfile?.name || activeId,
     totalCoins: coins.length,

@@ -2,12 +2,22 @@ import { fs } from "./config.ts";
 import { st } from "./state.ts";
 import { addLog } from "./logger.ts";
 import { saveSessionStateCloudIfChanged } from "./files.ts";
-import { getActiveProfileId, autoSyncSessionToProfiles } from "./profiles.ts";
+import { getActiveProfileId, autoSyncSessionToProfiles, extractCmcProfileInfo } from "./profiles.ts";
 import { getLocalBotSettings, getNextSingleMarketingImage } from "./settings.ts";
 import { PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, typeWithHumanRhythm, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails } from "./browser.ts";
 import { sanitizeCommentForAntiSpam } from "../src/utils/formatters.ts";
 
-export async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry"; message: string; postUrl?: string }> {
+export interface PostingResult {
+  status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped";
+  message: string;
+  postUrl?: string;
+  coinUrl?: string;
+  profileUrl?: string;
+  cmcUsername?: string;
+  cmcNickname?: string;
+}
+
+export async function runRealPostingInternal(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<PostingResult> {
   let browser: any = sharedBrowser || null;
   let ownsBrowser = !sharedBrowser;
   
@@ -479,6 +489,11 @@ export async function runRealPostingInternal(url: string, message: string, senti
             } else {
               const rawPostId =
                 body?.data?.gravityId ??
+                body?.data?.strGravityId ??
+                body?.data?.post?.gravityId ??
+                body?.data?.post?.strGravityId ??
+                body?.data?.comment?.gravityId ??
+                body?.data?.comment?.id ??
                 body?.data?.postId ??
                 body?.data?.commentId ??
                 body?.data?.id ??
@@ -693,8 +708,19 @@ export async function runRealPostingInternal(url: string, message: string, senti
       };
     }
 
-    const finalTargetPostUrl = createdPostUrl || `${url.replace(/#.*$/, "")}#Community`;
-    addLog("success", `Successfully submitted post on CoinMarketCap! Check link: ${finalTargetPostUrl}`);
+    const baseCoinUrl = `${url.replace(/#.*$/, "")}#Community`;
+    const finalTargetPostUrl = createdPostUrl || baseCoinUrl;
+    let cmcInfo: { cmcUsername?: string; cmcNickname?: string; communityProfileUrl?: string } = {};
+    try {
+      if (fs.existsSync(st.AUTH_STATE_FILE)) {
+        cmcInfo = extractCmcProfileInfo(fs.readFileSync(st.AUTH_STATE_FILE, "utf-8"));
+      }
+    } catch (_) {}
+
+    addLog(
+      "success",
+      `Successfully submitted post on CoinMarketCap! Comment link: ${finalTargetPostUrl}${cmcInfo.communityProfileUrl ? ` | Account Profile: ${cmcInfo.communityProfileUrl}` : ""}`
+    );
     await saveDebugScreenshot(page, "success_post_screenshot");
 
     // Save refreshed storageState back to maintain session longevity
@@ -702,6 +728,7 @@ export async function runRealPostingInternal(url: string, message: string, senti
       await context.storageState({ path: st.AUTH_STATE_FILE });
       if (fs.existsSync(st.AUTH_STATE_FILE)) {
         const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+        cmcInfo = extractCmcProfileInfo(cookiesStr);
         const activeId = getActiveProfileId();
         await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
         await autoSyncSessionToProfiles(cookiesStr);
@@ -710,7 +737,15 @@ export async function runRealPostingInternal(url: string, message: string, senti
       console.error("Failed to update and sync storage state after successful post:", (e as Error).message);
     }
 
-    return { status: "success", message: "Posted successfully", postUrl: finalTargetPostUrl };
+    return {
+      status: "success",
+      message: "Posted successfully",
+      postUrl: finalTargetPostUrl,
+      coinUrl: baseCoinUrl,
+      profileUrl: cmcInfo.communityProfileUrl,
+      cmcUsername: cmcInfo.cmcUsername,
+      cmcNickname: cmcInfo.cmcNickname,
+    };
   } catch (error) {
     addLog("error", `Playwright posting execution failed: ${(error as Error).message}`);
     return { status: "failed", message: (error as Error).message };
@@ -732,7 +767,7 @@ export async function runRealPostingInternal(url: string, message: string, senti
 }
 
 
-export async function runRealPosting(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<{ status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string; postUrl?: string }> {
+export async function runRealPosting(url: string, message: string, sentiment: string, sharedBrowser?: any): Promise<PostingResult> {
   if (!url || url.includes("dex.coinmarketcap.com")) {
     addLog("warning", `Skipping DEX Scan URL: ${url} (DEX Scan pages do not support community postings)`);
     return { status: "skipped", message: "Cannot post on DEX Scan pages" };
@@ -740,7 +775,7 @@ export async function runRealPosting(url: string, message: string, sentiment: st
 
   return PlaywrightLock.acquire(async () => {
     const attempts = 2; // Reduced from 3 to 2 for faster execution cycle
-    let lastResult: { status: "success" | "expired" | "captcha" | "failed" | "retry" | "skipped"; message: string; postUrl?: string } = { status: "failed", message: "Not started" };
+    let lastResult: PostingResult = { status: "failed", message: "Not started" };
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         if (attempt > 1) {

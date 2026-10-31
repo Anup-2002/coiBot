@@ -1,5 +1,5 @@
 import React from "react";
-import { Key, RefreshCw, Users, Trash2, Lock, Copy, Globe, X, CheckCircle, FileText, AlertTriangle, Shield, Save } from "lucide-react";
+import { Key, RefreshCw, Users, Trash2, Lock, Copy, Globe, X, CheckCircle, FileText, AlertTriangle, Shield, Save, ExternalLink } from "lucide-react";
 import { apiFetch } from "../api";
 import { resolveUrl, parseResponseJson } from "../utils/ui-helpers";
 
@@ -468,6 +468,17 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                             <div className="space-y-1.5 pr-2 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-white text-sm truncate">{p.name}</span>
+                                {p.communityProfileUrl && (
+                                  <a
+                                    href={p.communityProfileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] px-2 py-0.5 rounded font-mono font-bold inline-flex items-center gap-1 transition whitespace-nowrap"
+                                    title={`Open CoinMarketCap Community Profile (${p.cmcUsername}) to verify posted comments`}
+                                  >
+                                    @{p.cmcUsername} <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                  </a>
+                                )}
                                 {p.isActive && (
                                   <span className="bg-emerald-500/15 text-emerald-400 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
                                     Active

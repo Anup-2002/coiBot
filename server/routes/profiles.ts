@@ -2,7 +2,7 @@ import { fs, path, app, OUTPUT_DIR, isOpenAiConfigured, isCmcConfigured } from "
 import { st } from "../state.ts";
 import { addLog } from "../logger.ts";
 import { readJsonFile, writeJsonFileSyncAtomic } from "../files.ts";
-import { getActiveProfileId, getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths, normalizeStateJson, activateProfileInternal } from "../profiles.ts";
+import { getActiveProfileId, getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths, normalizeStateJson, activateProfileInternal, normalizeProfilesWithSchedule } from "../profiles.ts";
 import { saveBotProgress } from "../settings.ts";
 import { isBusy, acquireProcessLock, releaseProcessLock } from "../locks.ts";
 import { syncLocalFromCloudIfStale } from "../sync.ts";
@@ -178,7 +178,8 @@ app.post("/api/clear-session", async (req, res) => {
 // 3a. Get Profiles
 app.get("/api/profiles", (req, res) => {
   try {
-    const profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
+    const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
+    const profiles = normalizeProfilesWithSchedule(rawProfiles);
     res.json({ success: true, profiles });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
