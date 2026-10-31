@@ -1,5 +1,5 @@
 import React from "react";
-import { Play, Clock, RefreshCw, ChevronRight, Layers, Trash2, Square, Activity, Lock, Settings, Zap, Globe, Search, Pause, Upload, Image as ImageIcon, Shuffle, Bell, BellOff, CheckCircle, FileText, AlertTriangle } from "lucide-react";
+import { Play, Clock, RefreshCw, ChevronRight, Layers, Trash2, Square, Activity, Lock, Settings, Zap, Globe, Search, Pause, Upload, Image as ImageIcon, Shuffle, Bell, BellOff, CheckCircle, FileText, AlertTriangle, ExternalLink } from "lucide-react";
 import { PostResult } from "../types";
 import { formatTimeAgo } from "../utils/ui-helpers";
 import { CycleCountdown } from "../components/CycleCountdown";
@@ -165,13 +165,24 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               </div>
 
               {/* RUN MODE STRIP */}
-              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div className="mb-4 px-3.5 py-2 bg-slate-950/70 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-slate-300 flex items-center gap-2 whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   Posting Mode: <strong className="text-white font-semibold">Live CoinMarketCap Browser</strong>
                 </span>
-                <span className="text-slate-400 font-mono hidden sm:inline">
-                  Account: <strong className="text-emerald-400">{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong>
+                <span className="text-slate-400 font-mono inline-flex items-center gap-2 flex-wrap">
+                  <span>Account: <strong className="text-emerald-400">{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong></span>
+                  {activeProfile?.communityProfileUrl && (
+                    <a
+                      href={activeProfile.communityProfileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold inline-flex items-center gap-1 transition whitespace-nowrap"
+                      title={`Open ${activeProfile.cmcUsername || activeProfile.name} on CoinMarketCap Community to verify posted comments`}
+                    >
+                      @{activeProfile.cmcNickname || activeProfile.cmcUsername} <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  )}
                 </span>
               </div>
 

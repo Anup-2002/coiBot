@@ -355,11 +355,11 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                           href={activeProfile?.communityProfileUrl || profileResults[profileResults.length - 1]?.profileUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="py-1.5 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-sm font-bold border border-emerald-500/30 flex items-center gap-1.5 transition duration-200 cursor-pointer whitespace-nowrap shrink-0"
+                          className="py-1.5 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-bold border border-emerald-500/30 flex items-center gap-1.5 transition duration-200 cursor-pointer whitespace-nowrap shrink-0"
                           title={`Open posted account's CoinMarketCap Community Profile (${activeProfile?.cmcUsername || profileResults[profileResults.length - 1]?.cmcUsername || "Active Account"}) to verify all posted comments`}
                         >
                           <ExternalLink className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          Verify Account Posts ({activeProfile?.cmcNickname || activeProfile?.cmcUsername || profileResults[profileResults.length - 1]?.cmcUsername || "Profile"})
+                          CMC Profile (@{activeProfile?.cmcNickname || activeProfile?.cmcUsername || profileResults[profileResults.length - 1]?.cmcUsername || "Active"})
                         </a>
                       )}
                       <button
@@ -425,10 +425,10 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                   {histItem.timestamp || "N/A"}
                                 </td>
                                 <td className="py-3 px-4 border-r border-slate-800/80">
-                                  <div className="font-bold text-white leading-none">{histItem.name}</div>
-                                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{histItem.symbol}</span>
+                                  <div className="font-bold text-white leading-snug">{histItem.name}</div>
+                                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mt-0.5">{histItem.symbol}</span>
                                 </td>
-                                <td className="py-3 px-4 font-bold border-r border-slate-800/80">
+                                <td className="py-3 px-4 font-bold border-r border-slate-800/80 whitespace-nowrap">
                                   {(histItem.sentiment || "bullish") === "bearish" ? (
                                     <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
                                       Bearish
@@ -439,22 +439,22 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-3 px-4 font-semibold border-r border-slate-800/80">
+                                <td className="py-3 px-4 font-semibold border-r border-slate-800/80 whitespace-nowrap">
                                   {histItem.status === "success" ? (
-                                    <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                                      <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
+                                    <span className="text-emerald-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                      <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> Post Submitted
                                     </span>
                                   ) : histItem.status === "skipped" ? (
-                                    <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (No Community Page)
+                                    <span className="text-slate-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-slate-400 shrink-0" /> Skipped (No Community Page)
                                     </span>
                                   ) : histItem.status === "captcha" ? (
-                                    <span className="text-amber-400 flex items-center gap-1 font-bold">
-                                      <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha
+                                    <span className="text-amber-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                      <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400 shrink-0" /> Captcha
                                     </span>
                                   ) : (
-                                    <span className="text-red-400 flex items-center gap-1 font-bold">
-                                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {histItem.status.toUpperCase()}
+                                    <span className="text-red-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" /> {histItem.status.toUpperCase()}
                                     </span>
                                   )}
                                 </td>
@@ -524,10 +524,10 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                     {item ? (item.timestamp || "N/A") : "Pending"}
                                   </td>
                                   <td className="py-3.5 px-4 border-r border-slate-800/80">
-                                    <div className="font-bold text-white leading-none">{msgItem.name}</div>
-                                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{msgItem.symbol}</span>
+                                    <div className="font-bold text-white leading-snug">{msgItem.name}</div>
+                                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mt-0.5">{msgItem.symbol}</span>
                                   </td>
-                                  <td className="py-3.5 px-4 font-bold border-r border-slate-800/80">
+                                  <td className="py-3.5 px-4 font-bold border-r border-slate-800/80 whitespace-nowrap">
                                     {(item?.sentiment || msgItem.sentiment || "bullish") === "bearish" ? (
                                       <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
                                         Bearish
@@ -538,38 +538,38 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                       </span>
                                     )}
                                   </td>
-                                  <td className="py-3.5 px-4 font-semibold border-r border-slate-800/80">
+                                  <td className="py-3.5 px-4 font-semibold border-r border-slate-800/80 whitespace-nowrap">
                                     {!item ? (
                                       isPostingActive ? (
-                                        <span className="text-cyan-400 flex items-center gap-1.5 font-medium font-mono">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                                        <span className="text-cyan-400 inline-flex items-center gap-1.5 font-medium font-mono whitespace-nowrap">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
                                           In Queue {seqStr && <span className="text-[10px] text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
                                         </span>
                                       ) : (
-                                        <span className="text-slate-400 flex items-center gap-1.5 font-medium font-mono">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                                        <span className="text-slate-400 inline-flex items-center gap-1.5 font-medium font-mono whitespace-nowrap">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600 shrink-0"></span>
                                           Pending Run {seqStr && <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
                                         </span>
                                       )
                                     ) : item.status === "skipped" ? (
-                                      <span className="text-slate-400 flex items-center gap-1 font-bold">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-slate-400" /> Skipped (No Community Page)
+                                      <span className="text-slate-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-slate-400 shrink-0" /> Skipped (No Community Page)
                                       </span>
                                     ) : item.status === "success" ? (
-                                      <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400" /> Post Submitted
+                                      <span className="text-emerald-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> Post Submitted
                                       </span>
                                     ) : item.status === "captcha" ? (
-                                      <span className="text-amber-400 flex items-center gap-1 font-bold">
-                                        <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400" /> Captcha Detected
+                                      <span className="text-amber-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                        <AlertTriangle className="h-3.5 w-3.5 animate-bounce text-amber-400 shrink-0" /> Captcha Detected
                                       </span>
                                     ) : item.status === "expired" ? (
-                                      <span className="text-rose-400 flex items-center gap-1 font-bold" title="Account session expired: CoinMarketCap displayed Log In">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-rose-400" /> Login expired — please log in again
+                                      <span className="text-rose-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap" title="Account session expired: CoinMarketCap displayed Log In">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-rose-400 shrink-0" /> Login expired — please log in again
                                       </span>
                                     ) : (
-                                      <span className="text-red-400 flex items-center gap-1 font-bold">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> {item.status.toUpperCase()}
+                                      <span className="text-red-400 inline-flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" /> {item.status.toUpperCase()}
                                       </span>
                                     )}
                                   </td>
