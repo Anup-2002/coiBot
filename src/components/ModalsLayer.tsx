@@ -427,28 +427,45 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
         </div>
       )}
 
-      {/* Smart Compact Auto-Hiding Floating Toast Pill */}
+      {/* Smart Auto-Hiding Floating Toast Banner */}
       {toast && (
-        <div className="fixed top-16 right-4 sm:right-6 z-50 pointer-events-none flex justify-end max-w-[calc(100vw-2rem)]">
-          <div className="pointer-events-auto flex items-center gap-2.5 px-3.5 py-2 rounded-xl border shadow-xl bg-slate-900/95 border-slate-700/90 text-xs sm:text-sm text-white max-w-sm backdrop-blur-md transition-all animate-in fade-in slide-in-from-top-2 duration-150">
+        <div role="alert" className="fixed bottom-5 right-5 z-50 pointer-events-none flex justify-end max-w-[calc(100vw-2rem)]">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-2xl bg-slate-900/95 border-slate-700/90 text-xs sm:text-sm text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
             {toast.isProcess ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400 shrink-0" />
+              <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 shrink-0">
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+              </div>
             ) : toast.type === "success" ? (
-              <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <div className="p-1.5 bg-emerald-500/15 text-emerald-400 rounded-lg border border-emerald-500/30 shrink-0">
+                <CheckCircle className="h-4 w-4 text-emerald-400" />
+              </div>
             ) : toast.type === "error" ? (
-              <AlertTriangle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+              <div className="p-1.5 bg-rose-500/15 text-rose-400 rounded-lg border border-rose-500/30 shrink-0">
+                <AlertTriangle className="h-4 w-4 text-rose-400" />
+              </div>
             ) : toast.type === "warning" ? (
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              <div className="p-1.5 bg-amber-500/15 text-amber-400 rounded-lg border border-amber-500/30 shrink-0">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+              </div>
             ) : (
-              <Info className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+              <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 shrink-0">
+                <Info className="h-4 w-4 text-blue-400" />
+              </div>
             )}
 
-            <span className="font-semibold text-slate-100 leading-snug line-clamp-2">{toast.message}</span>
+            <div className="flex-1 min-w-0 pr-1 leading-snug">
+              <span className="font-semibold text-slate-100 block">{toast.message}</span>
+              {toast.isProcess && (
+                <span className="block text-[10px] text-blue-400 font-mono mt-0.5">
+                  Auto-updates &amp; hides when finished
+                </span>
+              )}
+            </div>
 
-            <div className="flex items-center gap-1 pl-1.5 border-l border-slate-800 shrink-0">
+            <div className="flex items-center gap-1 pl-2 border-l border-slate-800 shrink-0">
               <button
                 onClick={toggleNotifications}
-                className="p-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition cursor-pointer"
                 title="Mute popup alerts (re-enable anytime via Alerts: ON/OFF)"
                 aria-label="Mute popup alerts"
               >
@@ -456,7 +473,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
               </button>
               <button
                 onClick={dismissToast}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                 title="Dismiss"
                 aria-label="Dismiss notification"
               >

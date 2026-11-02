@@ -210,7 +210,7 @@ export function useAppController() {
   // Transient Toast Notification State (No history stored, auto-dismisses in seconds)
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("cmc_notifications_enabled");
+      const saved = localStorage.getItem("cmc_toast_alerts_enabled");
       return saved !== null ? saved === "true" : true;
     }
     return true;
@@ -246,16 +246,16 @@ export function useAppController() {
       processToastStartedAtRef.current = 0;
     }
     setToast({ message, type, isProcess: type === "process" });
-    // Smart auto-hide durations: process toasts hide quickly (2.0s) since the button/progress card shows the live spinner;
-    // info/success hide in 2.5s; warning/error stay 3.8s so the user can read the reason.
+    // Process toasts stay visible while the action is actively running and auto-clear the moment it finishes;
+    // completion/info/success toasts stay 3.5s and then auto-hide; warning/error stay 4.5s.
     const effectiveDuration =
       type === "process"
-        ? 2000
+        ? 60000
         : durationMs !== undefined
-          ? Math.min(durationMs, type === "error" || type === "warning" ? 4200 : 2800)
+          ? durationMs
           : type === "error" || type === "warning"
-            ? 3800
-            : 2500;
+            ? 4500
+            : 3500;
     toastTimerRef.current = setTimeout(() => {
       setToast(null);
     }, effectiveDuration);
@@ -272,7 +272,7 @@ export function useAppController() {
   const toggleNotifications = () => {
     setNotificationsEnabled(prev => {
       const nextVal = !prev;
-      localStorage.setItem("cmc_notifications_enabled", String(nextVal));
+      localStorage.setItem("cmc_toast_alerts_enabled", String(nextVal));
       if (!nextVal) {
         dismissToast();
       } else {
@@ -1293,9 +1293,8 @@ export function useAppController() {
 
   const isSchedulerRunning = Boolean(schedulerData?.cycleRunning);
 
-  // Auto-resolve any lingering "process" toast once backend & local pending states return to idle
+  // Sync live backend process status with the toast banner & auto-hide immediately when the process finishes
   useEffect(() => {
-    if (!toast?.isProcess) return;
     const anyPending =
       isPending.login ||
       isPending.fetch ||
@@ -1314,10 +1313,39 @@ export function useAppController() {
       status === "Verifying Code" ||
       status === "Checking Login" ||
       (activeProcess !== "none" && activeProcess !== "");
+
+    // If backend is actively running a process and no toast is currently displayed, surface a live process toast
+    if (backendActive && !toast && notificationsEnabled) {
+      let liveMsg = activeProcessDescription || "";
+      if (!liveMsg) {
+        if (status === "Fetching") liveMsg = "Fetching live trending coins from CoinMarketCap...";
+        else if (status === "Generating") liveMsg = "Generating tailored crypto comments using AI...";
+        else if (status === "Posting") liveMsg = currentCoin && currentCoin !== "N/A" ? `Posting comment on ${currentCoin}...` : "Posting comments to CoinMarketCap...";
+        else if (status === "Stopping") liveMsg = "Finishing current coin and stopping...";
+        else if (status === "Authenticating" || status === "Verifying Code") liveMsg = "Authenticating CoinMarketCap account...";
+        else if (status === "Checking Login") liveMsg = "Verifying CoinMarketCap session...";
+      }
+      if (liveMsg) {
+        processToastStartedAtRef.current = Date.now();
+        setToast({ message: liveMsg, type: "process", isProcess: true });
+      }
+      return;
+    }
+
+    // Keep live posting coin name updated in the process toast while posting
+    if (toast?.isProcess && status === "Posting" && currentCoin && currentCoin !== "N/A") {
+      const nextMsg = `Posting comment on ${currentCoin}...`;
+      if (toast.message !== nextMsg) {
+        setToast({ message: nextMsg, type: "process", isProcess: true });
+      }
+      return;
+    }
+
+    if (!toast?.isProcess) return;
     if (anyPending || backendActive) return;
 
     const elapsed = Date.now() - (processToastStartedAtRef.current || 0);
-    const delayMs = elapsed < 1500 ? 1500 - elapsed : 300;
+    const delayMs = elapsed < 1200 ? 1200 - elapsed : 250;
     const t = setTimeout(() => {
       setToast((prev) => (prev && prev.isProcess ? null : prev));
     }, delayMs);
@@ -1325,7 +1353,10 @@ export function useAppController() {
   }, [
     toast,
     status,
+    currentCoin,
     activeProcess,
+    activeProcessDescription,
+    notificationsEnabled,
     isPending.login,
     isPending.fetch,
     isPending.generate,
