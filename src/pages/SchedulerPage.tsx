@@ -122,42 +122,15 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
 
                 <button
                   type="button"
-                  onClick={toggleNotifications}
-                  className={`px-3 py-2 rounded-xl border text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer shadow-sm whitespace-nowrap shrink-0 ${
-                    notificationsEnabled
-                      ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/40"
-                      : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30"
-                  }`}
-                  title={notificationsEnabled ? "In-app toast alerts are ON. Click to mute." : "In-app toast alerts are muted. Click to turn ON."}
-                >
-                  {notificationsEnabled ? (
-                    <Bell className="h-4 w-4 text-emerald-400 shrink-0" />
-                  ) : (
-                    <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
-                  )}
-                  <span>{notificationsEnabled ? "Alerts: ON" : "Alerts: OFF"}</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => {
                     setLogsTab("scheduler");
                     navigateTo("logs");
                   }}
-                  className="px-3 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
-                  title="View Scheduler Activity History"
+                  className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
+                  title="View Scheduler Execution Logs"
                 >
                   <TerminalIcon className="h-4 w-4 text-indigo-400 shrink-0" />
-                  <span>Logs</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => navigateTo("dashboard")}
-                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
-                >
-                  <ArrowLeft className="h-4 w-4 shrink-0" />
-                  <span>Dashboard</span>
+                  <span>Scheduler Logs</span>
                 </button>
               </div>
             </div>

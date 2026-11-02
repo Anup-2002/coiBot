@@ -39,9 +39,6 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                 <RefreshCw className={`h-4 w-4 text-emerald-400 shrink-0 ${isCheckingSystem ? "animate-spin" : ""}`} />
                 <span>{isCheckingSystem ? "Checking..." : "Refresh Check"}</span>
               </button>
-              <button onClick={() => navigateTo("dashboard")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0">
-                <ArrowLeft className="h-4 w-4 shrink-0" /> Back to Dashboard
-              </button>
             </div>
           </div>
 

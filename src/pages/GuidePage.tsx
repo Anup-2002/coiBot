@@ -36,12 +36,6 @@ export function renderGuidePage(navigateTo: any, handleResetLoginState: any, set
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => navigateTo("dashboard")}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md self-start sm:self-auto shrink-0"
-            >
-              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-            </button>
           </div>
 
           {/* BEGINNER 3-STEP QUICK WORKFLOW BANNER */}
