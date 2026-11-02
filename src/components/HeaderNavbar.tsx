@@ -47,12 +47,12 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
             </button>
 
             {/* Unified Smart Account + Active Account Split Pill */}
-            <div className={`inline-flex items-stretch rounded-xl border shadow-sm overflow-hidden shrink-0 transition ${
+            <div data-select-anchor="true" id="navbar-account-pill" className={`inline-flex items-stretch rounded-xl border shadow-sm overflow-hidden shrink-0 transition ${
               (isBusy || isPostingActive || isContinuousLoopActive)
                 ? "border-amber-500/40 bg-slate-900"
                 : (activeProfile || sessionExists)
-                  ? "border-emerald-500/30 bg-slate-900"
-                  : "border-amber-500/30 bg-slate-900"
+                  ? "border-emerald-500/30 bg-slate-900 hover:border-emerald-500/50"
+                  : "border-amber-500/30 bg-slate-900 hover:border-amber-500/50"
             }`}>
               <button
                 type="button"
@@ -80,9 +80,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                     <span>Switching...</span>
                   </span>
                 ) : (
-                  <span className="truncate max-w-[115px] sm:max-w-[155px]">
-                    {activeProfile?.name || "Account"}
-                  </span>
+                  <span>Account</span>
                 )}
                 {profilesList.length > 0 && (
                   <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
@@ -95,34 +93,29 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
               {profilesList.length > 0 && (
                 <CustomSelect
                   iconOnly
+                  alignToParent
                   value={activeProfile?.id || ""}
                   disabled={isSwitchLocked}
                   accent="emerald"
-                  menuMinWidth={240}
-                  className="border-l border-slate-700/80 bg-slate-900 hover:bg-slate-800 text-emerald-400 rounded-none h-full px-2"
+                  menuMinWidth={220}
+                  className={`border-l h-full px-2 rounded-none ${
+                    activeProfile || sessionExists
+                      ? "border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
+                      : "border-amber-500/25 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400"
+                  }`}
                   title={
                     isSwitchLocked
                       ? "Stop active posting before switching accounts"
-                      : "Quick-switch active CoinMarketCap account"
+                      : activeProfile
+                        ? `Active: ${activeProfile.name} — Click to switch account`
+                        : "Quick-switch active CoinMarketCap account"
                   }
-                  options={[
-                    ...profilesList.map((p: any) => ({
-                      value: p.id,
-                      label: p.name,
-                      badge: p.isActive ? "Active" : undefined,
-                    })),
-                    {
-                      value: "__manage_accounts__",
-                      label: "+ Manage / Add Accounts...",
-                    },
-                  ]}
+                  options={profilesList.map((p: any) => ({
+                    value: p.id,
+                    label: p.name,
+                    badge: p.isActive ? "Active" : undefined,
+                  }))}
                   onChange={(val) => {
-                    if (val === "__manage_accounts__") {
-                      handleResetLoginState();
-                      setLoginTab("credentials");
-                      setShowSessionModal(true);
-                      return;
-                    }
                     const target = profilesList.find((p: any) => String(p.id) === String(val));
                     if (target) promptSwitchProfile(target);
                   }}

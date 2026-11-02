@@ -12,6 +12,7 @@ export const CustomSelect: React.FC<{
   className?: string;
   menuMinWidth?: number;
   iconOnly?: boolean;
+  alignToParent?: boolean;
 }> = ({
   value,
   options,
@@ -22,6 +23,7 @@ export const CustomSelect: React.FC<{
   className = "",
   menuMinWidth = 180,
   iconOnly = false,
+  alignToParent = false,
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -37,7 +39,13 @@ export const CustomSelect: React.FC<{
 
   const updatePosition = () => {
     if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
+    const anchorEl =
+      alignToParent
+        ? (triggerRef.current.closest("[data-select-anchor]") as HTMLElement) ||
+          triggerRef.current.parentElement?.parentElement ||
+          triggerRef.current
+        : triggerRef.current;
+    const rect = anchorEl.getBoundingClientRect();
     const menuWidth = Math.max(rect.width, menuMinWidth);
     const maxLeft = Math.max(8, window.innerWidth - menuWidth - 8);
     const left = Math.min(Math.max(8, rect.left), maxLeft);
@@ -101,7 +109,7 @@ export const CustomSelect: React.FC<{
     accent === "emerald" ? "hover:border-emerald-500/50" : "hover:border-indigo-500/50";
 
   return (
-    <div className="relative inline-flex items-center">
+    <div className={`relative inline-flex ${iconOnly ? "items-stretch" : "items-center"}`}>
       <button
         ref={triggerRef}
         type="button"
@@ -110,9 +118,7 @@ export const CustomSelect: React.FC<{
         onClick={() => {
           if (!disabled) setOpen((prev) => !prev);
         }}
-        className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : "gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm"} ${hoverBorderClass} text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-          open ? activeRingClass : ""
-        } ${className}`}
+        className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : `gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm ${hoverBorderClass} ${open ? activeRingClass : ""}`} text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
       >
         {!iconOnly && <span className="truncate">{selectedOption ? selectedOption.label : String(value)}</span>}
         <ChevronDown
