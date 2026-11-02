@@ -427,59 +427,63 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
         </div>
       )}
 
-      {/* Smart Auto-Hiding Floating Toast Banner */}
+      {/* Attention-Grabbing One-Time Auto-Hiding Toast Notification (bottom-6 right-6) */}
       {toast && (
-        <div role="alert" className="fixed bottom-5 right-5 z-50 pointer-events-none flex justify-end max-w-[calc(100vw-2rem)]">
-          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-2xl bg-slate-900/95 border-slate-700/90 text-xs sm:text-sm text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
-            {toast.isProcess ? (
-              <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 shrink-0">
-                <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
-              </div>
-            ) : toast.type === "success" ? (
-              <div className="p-1.5 bg-emerald-500/15 text-emerald-400 rounded-lg border border-emerald-500/30 shrink-0">
-                <CheckCircle className="h-4 w-4 text-emerald-400" />
-              </div>
-            ) : toast.type === "error" ? (
-              <div className="p-1.5 bg-rose-500/15 text-rose-400 rounded-lg border border-rose-500/30 shrink-0">
-                <AlertTriangle className="h-4 w-4 text-rose-400" />
-              </div>
-            ) : toast.type === "warning" ? (
-              <div className="p-1.5 bg-amber-500/15 text-amber-400 rounded-lg border border-amber-500/30 shrink-0">
-                <AlertTriangle className="h-4 w-4 text-amber-400" />
-              </div>
-            ) : (
-              <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 shrink-0">
-                <Info className="h-4 w-4 text-blue-400" />
-              </div>
-            )}
-
-            <div className="flex-1 min-w-0 pr-1 leading-snug">
-              <span className="font-semibold text-slate-100 block">{toast.message}</span>
-              {toast.isProcess && (
-                <span className="block text-[10px] text-blue-400 font-mono mt-0.5">
-                  Auto-updates &amp; hides when finished
-                </span>
-              )}
+        <div
+          role="alert"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-2xl bg-slate-900/95 text-sm text-white max-w-md backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+            toast.type === "success"
+              ? "border-emerald-500/40 shadow-emerald-500/10"
+              : toast.type === "error"
+                ? "border-rose-500/40 shadow-rose-500/10"
+                : toast.type === "warning"
+                  ? "border-amber-500/40 shadow-amber-500/10"
+                  : "border-blue-500/40 shadow-blue-500/10"
+          }`}
+        >
+          {toast.isProcess ? (
+            <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 flex-shrink-0">
+              <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
             </div>
-
-            <div className="flex items-center gap-1 pl-2 border-l border-slate-800 shrink-0">
-              <button
-                onClick={toggleNotifications}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition cursor-pointer"
-                title="Mute popup alerts (re-enable anytime via Alerts: ON/OFF)"
-                aria-label="Mute popup alerts"
-              >
-                <BellOff className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={dismissToast}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                title="Dismiss"
-                aria-label="Dismiss notification"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+          ) : toast.type === "success" ? (
+            <div className="p-1.5 bg-emerald-500/15 text-emerald-400 rounded-lg border border-emerald-500/30 flex-shrink-0">
+              <CheckCircle className="h-4 w-4 text-emerald-400" />
             </div>
+          ) : toast.type === "error" ? (
+            <div className="p-1.5 bg-rose-500/15 text-rose-400 rounded-lg border border-rose-500/30 flex-shrink-0">
+              <AlertTriangle className="h-4 w-4 text-rose-400" />
+            </div>
+          ) : toast.type === "warning" ? (
+            <div className="p-1.5 bg-amber-500/15 text-amber-400 rounded-lg border border-amber-500/30 flex-shrink-0">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+            </div>
+          ) : (
+            <div className="p-1.5 bg-blue-500/15 text-blue-400 rounded-lg border border-blue-500/30 flex-shrink-0">
+              <Info className="h-4 w-4 text-blue-400" />
+            </div>
+          )}
+
+          <div className="flex-1 pr-1 leading-snug">
+            <span className="font-semibold text-slate-100">{toast.message}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
+            <button
+              onClick={toggleNotifications}
+              className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-[11px] text-slate-300 hover:text-white font-semibold flex items-center gap-1 transition cursor-pointer"
+              title="Mute toast notifications (re-enable anytime from the Alerts: ON/OFF button)"
+            >
+              <BellOff className="h-3 w-3 text-amber-400" />
+              <span>Mute</span>
+            </button>
+            <button
+              onClick={dismissToast}
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Dismiss"
+              aria-label="Dismiss notification"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       )}

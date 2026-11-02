@@ -246,16 +246,13 @@ export function useAppController() {
       processToastStartedAtRef.current = 0;
     }
     setToast({ message, type, isProcess: type === "process" });
-    // Process toasts stay visible while the action is actively running and auto-clear the moment it finishes;
-    // completion/info/success toasts stay 3.5s and then auto-hide; warning/error stay 4.5s.
+    // Every toast grabs the user's attention once (3.2s for process/info/success, 4.2s for warning/error) and then auto-hides cleanly
     const effectiveDuration =
       type === "process"
-        ? 60000
-        : durationMs !== undefined
-          ? durationMs
-          : type === "error" || type === "warning"
-            ? 4500
-            : 3500;
+        ? 3200
+        : type === "error" || type === "warning"
+          ? 4200
+          : 3200;
     toastTimerRef.current = setTimeout(() => {
       setToast(null);
     }, effectiveDuration);
@@ -1293,79 +1290,17 @@ export function useAppController() {
 
   const isSchedulerRunning = Boolean(schedulerData?.cycleRunning);
 
-  // Sync live backend process status with the toast banner & auto-hide immediately when the process finishes
+  // Track backend status transitions so if a background/scheduled process starts or finishes, it pops a 1-time attention toast and auto-hides
+  const prevBackendStatusRef = useRef<string>(status);
   useEffect(() => {
-    const anyPending =
-      isPending.login ||
-      isPending.fetch ||
-      isPending.generate ||
-      isPending.post ||
-      isPending.full ||
-      isPending.clear ||
-      isRefreshingFreshData ||
-      Boolean(switchingProfileId);
-    const backendActive =
-      status === "Fetching" ||
-      status === "Generating" ||
-      status === "Posting" ||
-      status === "Stopping" ||
-      status === "Authenticating" ||
-      status === "Verifying Code" ||
-      status === "Checking Login" ||
-      (activeProcess !== "none" && activeProcess !== "");
+    const prev = prevBackendStatusRef.current;
+    prevBackendStatusRef.current = status;
+    if (prev === status) return;
 
-    // If backend is actively running a process and no toast is currently displayed, surface a live process toast
-    if (backendActive && !toast && notificationsEnabled) {
-      let liveMsg = activeProcessDescription || "";
-      if (!liveMsg) {
-        if (status === "Fetching") liveMsg = "Fetching live trending coins from CoinMarketCap...";
-        else if (status === "Generating") liveMsg = "Generating tailored crypto comments using AI...";
-        else if (status === "Posting") liveMsg = currentCoin && currentCoin !== "N/A" ? `Posting comment on ${currentCoin}...` : "Posting comments to CoinMarketCap...";
-        else if (status === "Stopping") liveMsg = "Finishing current coin and stopping...";
-        else if (status === "Authenticating" || status === "Verifying Code") liveMsg = "Authenticating CoinMarketCap account...";
-        else if (status === "Checking Login") liveMsg = "Verifying CoinMarketCap session...";
-      }
-      if (liveMsg) {
-        processToastStartedAtRef.current = Date.now();
-        setToast({ message: liveMsg, type: "process", isProcess: true });
-      }
-      return;
+    if (status === "Completed" && prev === "Posting") {
+      showToast("Batch posting completed!", "success");
     }
-
-    // Keep live posting coin name updated in the process toast while posting
-    if (toast?.isProcess && status === "Posting" && currentCoin && currentCoin !== "N/A") {
-      const nextMsg = `Posting comment on ${currentCoin}...`;
-      if (toast.message !== nextMsg) {
-        setToast({ message: nextMsg, type: "process", isProcess: true });
-      }
-      return;
-    }
-
-    if (!toast?.isProcess) return;
-    if (anyPending || backendActive) return;
-
-    const elapsed = Date.now() - (processToastStartedAtRef.current || 0);
-    const delayMs = elapsed < 1200 ? 1200 - elapsed : 250;
-    const t = setTimeout(() => {
-      setToast((prev) => (prev && prev.isProcess ? null : prev));
-    }, delayMs);
-    return () => clearTimeout(t);
-  }, [
-    toast,
-    status,
-    currentCoin,
-    activeProcess,
-    activeProcessDescription,
-    notificationsEnabled,
-    isPending.login,
-    isPending.fetch,
-    isPending.generate,
-    isPending.post,
-    isPending.full,
-    isPending.clear,
-    isRefreshingFreshData,
-    switchingProfileId,
-  ]);
+  }, [status]);
 
   const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 300, proxy: string = "") => {
     if (!name.trim() || !stateJson.trim()) {
