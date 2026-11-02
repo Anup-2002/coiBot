@@ -1,5 +1,6 @@
 import React from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { SmartScrollNavigator } from "./components/SmartScrollNavigator";
 import { useAppController } from "./hooks/useAppController";
 
 export { ErrorBoundary };
@@ -34,6 +35,7 @@ export default function App() {
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-sm text-slate-500">
         <p className="tracking-wide">CoinMarketCap Automated Community Bot Control Panel © 2026. All rights reserved.</p>
       </footer>
+      <SmartScrollNavigator />
       {sessionModalNode}
       {modalsLayerNode}
     </div>
