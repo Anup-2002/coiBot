@@ -99,7 +99,10 @@ sudo chown -R cmcbot:cmcbot /home/cmcbot/cmc-bot
 echo "=== [5/5] Installing dependencies, compiling & launching with PM2 ==="
 sudo -u cmcbot -i bash -c "
   cd /home/cmcbot/cmc-bot
-  npm install
+  if ! grep -q "rollup-linux-x64-gnu" package-lock.json 2>/dev/null; then
+    rm -f package-lock.json
+  fi
+  npm install --no-audit --no-fund
   (npx playwright install --with-deps chromium 2>/dev/null || npx playwright install chromium)
   npm run build
   if pm2 describe cmc-bot &>/dev/null; then

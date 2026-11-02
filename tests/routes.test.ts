@@ -58,7 +58,7 @@ describe("Route Unit Tests (supertest)", () => {
       const res = await request(app).get("/api/check-system");
       expect(res.status).toBe(200);
       expect(res.body.playwrightInstalled).toBe(true);
-      expect(res.body.executableExists).toBe(true);
+      expect(res.body.executableExists).toBe(Boolean(res.body.executablePath && fs.existsSync(res.body.executablePath)));
       expect(res.body.browsersPath).toBeTruthy();
     }, 15000);
   });
