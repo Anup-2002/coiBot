@@ -29,11 +29,14 @@ export function sanitizeCommentForAntiSpam(comment: string, symbol?: string): st
   // 5. Clean leading/trailing quotes or brackets
   text = text.replace(/^["'`([{]+|["'`)\]}]+$/g, "").trim();
 
-  // 6. Ensure standard casing for all-caps words (e.g., "MASSIVE ACCUMULATION" -> "Massive accumulation")
+  // 6. Ensure standard casing for all-caps words while preserving SpikeSignal brand casing
   const words = text.split(" ");
   const normalizedWords = words.map((w, idx) => {
+    if (/^spikesignals?([.,!?;:]*)$/i.test(w)) {
+      return w.replace(/^spikesignals?/i, "SpikeSignal");
+    }
     // Preserve standard symbols or short acronyms like RSI, 4H, MACD, BTC, ETH
-    if (/^(?:RSI|MACD|EMA|SMA|4H|1D|1W|ATH|ATL|TVL|CEX|DEX)$/i.test(w)) return w.toUpperCase();
+    if (/^(?:RSI|MACD|EMA|SMA|4H|1D|1W|ATH|ATL|TVL|CEX|DEX|OI|CVD)$/i.test(w)) return w.toUpperCase();
     if (w.length > 3 && w === w.toUpperCase() && /^[A-Z]+$/.test(w)) {
       return idx === 0 ? w.charAt(0) + w.slice(1).toLowerCase() : w.toLowerCase();
     }
@@ -148,13 +151,33 @@ const BEARISH_OUTLOOKS = [
   "Important to watch how the daily candle closes relative to this range."
 ];
 
+const SPIKE_SIGNAL_SUBTLE_NOTES_BULLISH = [
+  "Spot flow lined up cleanly with what showed on SpikeSignal earlier.",
+  "Caught the early bid-side absorption on SpikeSignal before this push.",
+  "Order-flow shift stood out on SpikeSignal while majors were flat.",
+  "Keeping it on my SpikeSignal radar to see if spot volume follows through.",
+  "Volume anomaly flagged on SpikeSignal right around the range reclaim.",
+  "Watching the liquidity shelf on SpikeSignal to see if bids hold into close."
+];
+
+const SPIKE_SIGNAL_SUBTLE_NOTES_BEARISH = [
+  "Waiting for cleaner spot absorption on SpikeSignal before stepping in.",
+  "Order-book divergence showed up on SpikeSignal ahead of this pullback.",
+  "Not chasing this dip until SpikeSignal flow confirms sellers are exhausted.",
+  "Watching the lower demand zone on SpikeSignal for a real defense.",
+  "Keeping patience here until the liquidity sweep clears on SpikeSignal.",
+  "No rush to catch the knife — waiting on a structure shift via SpikeSignal."
+];
+
 export function generateDynamicUniqueComment(
   isBullish: boolean,
-  usedCache?: Set<string>
+  usedCache?: Set<string>,
+  includeSpikeSignal: boolean = false
 ): string {
   const setups = isBullish ? BULLISH_SETUPS : BEARISH_SETUPS;
   const observations = isBullish ? BULLISH_OBSERVATIONS : BEARISH_OBSERVATIONS;
   const outlooks = isBullish ? BULLISH_OUTLOOKS : BEARISH_OUTLOOKS;
+  const spikeNotes = isBullish ? SPIKE_SIGNAL_SUBTLE_NOTES_BULLISH : SPIKE_SIGNAL_SUBTLE_NOTES_BEARISH;
 
   let candidate = "";
   let attempts = 0;
@@ -163,7 +186,9 @@ export function generateDynamicUniqueComment(
     attempts++;
     const s = setups[Math.floor(Math.random() * setups.length)];
     const o = observations[Math.floor(Math.random() * observations.length)];
-    const out = outlooks[Math.floor(Math.random() * outlooks.length)];
+    const out = includeSpikeSignal
+      ? spikeNotes[Math.floor(Math.random() * spikeNotes.length)]
+      : outlooks[Math.floor(Math.random() * outlooks.length)];
     candidate = `${s}, ${o} ${out}`.trim();
 
     if (!usedCache || !usedCache.has(candidate)) {
@@ -172,9 +197,10 @@ export function generateDynamicUniqueComment(
     }
   }
 
-  // Fallback if cache is dense
   const s = setups[Math.floor(Math.random() * setups.length)];
-  const out = outlooks[Math.floor(Math.random() * outlooks.length)];
+  const out = includeSpikeSignal
+    ? spikeNotes[Math.floor(Math.random() * spikeNotes.length)]
+    : outlooks[Math.floor(Math.random() * outlooks.length)];
   return `${s}. ${out}`;
 }
 

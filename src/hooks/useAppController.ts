@@ -231,7 +231,7 @@ export function useAppController() {
     onConfirm: () => void;
   } | null>(null);
 
-  const showToast = (message: string, type: "success" | "error" | "info" | "process" | "warning" = "info", durationMs: number = 4000) => {
+  const showToast = (message: string, type: "success" | "error" | "info" | "process" | "warning" = "info", durationMs?: number) => {
     // If notifications are turned off, suppress unless it's a critical error
     if (!notificationsEnabled && type !== "error") {
       return;
@@ -246,10 +246,19 @@ export function useAppController() {
       processToastStartedAtRef.current = 0;
     }
     setToast({ message, type, isProcess: type === "process" });
-    // Process toasts auto-clear when the process finishes (with a 90s max safety ceiling so they never stick forever)
+    // Smart auto-hide durations: process toasts hide quickly (2.0s) since the button/progress card shows the live spinner;
+    // info/success hide in 2.5s; warning/error stay 3.8s so the user can read the reason.
+    const effectiveDuration =
+      type === "process"
+        ? 2000
+        : durationMs !== undefined
+          ? Math.min(durationMs, type === "error" || type === "warning" ? 4200 : 2800)
+          : type === "error" || type === "warning"
+            ? 3800
+            : 2500;
     toastTimerRef.current = setTimeout(() => {
       setToast(null);
-    }, type === "process" ? 90000 : durationMs);
+    }, effectiveDuration);
   };
 
   const dismissToast = () => {
@@ -1584,53 +1593,74 @@ export function useAppController() {
       }
       const res = await apiFetch(resolveUrl(endpoint), options);
       const data = await parseResponseJson(res, {});
-      if (data && data.error) {
-        showToast(data.error, "error", 5000);
+      const isRouteFailure =
+        !res.ok ||
+        Boolean(data?.error) ||
+        data?.status === "error" ||
+        data?.status === "Error" ||
+        data?.success === false;
+
+      if (isRouteFailure) {
+        if (endpoint.includes("post-chat")) {
+          setIsStartingPost(false);
+        }
+        const failReason =
+          data?.error ||
+          data?.message ||
+          `Action failed (HTTP ${res.status}). Check Activity Logs for details.`;
+        showToast(failReason, "error", 4000);
       } else if (data && data.status === "stale_warning") {
         setIsStartingPost(false);
         setStatus("Idle");
         setShowStaleWarningModal(true);
-        showToast("Market data is >2 days old. We recommend fetching new coins before posting.", "info", 5000);
+        showToast("Market data is >2 days old. We recommend fetching new coins before posting.", "info", 3500);
         return;
       } else {
-        // Successful response feedback
+        // Verified response feedback — never show fake success if counts or auth status failed
         if (endpoint.includes("check-login")) {
-          showToast(data.message || (data.status === "Logged In" ? "Session verified active! Browser authenticated." : "Session check completed."), "success", 4000);
+          if (data?.status === "Logged In") {
+            showToast(data.message || "Session verified active! Browser authenticated.", "success", 2500);
+          } else {
+            showToast(data?.message || "Account session is expired or not logged in.", "warning", 3800);
+          }
         } else if (endpoint.includes("fetch-trending")) {
-          showToast(`Fetched ${data.totalCoins || "trending"} coins successfully!`, "success", 4000);
-          const fTime = data.coinsFetchedAt || Date.now();
-          setCoinsFetchedAt(fTime);
-          try {
-            localStorage.setItem(`cmc_real_fetch_${activeProfile?.id || "default"}`, String(fTime));
-          } catch (_) {}
+          const fetchedCount = Number(data?.totalCoins ?? (Array.isArray(data?.coins) ? data.coins.length : 0));
+          if (fetchedCount > 0) {
+            showToast(`Fetched ${fetchedCount} trending coins!`, "success", 2500);
+            const fTime = data.coinsFetchedAt || Date.now();
+            setCoinsFetchedAt(fTime);
+            try {
+              localStorage.setItem(`cmc_real_fetch_${activeProfile?.id || "default"}`, String(fTime));
+            } catch (_) {}
+          } else {
+            showToast(data?.message || "No trending coins were returned. Please check CoinMarketCap connection.", "warning", 3800);
+          }
         } else if (endpoint.includes("generate-messages")) {
-          showToast(`Generated ${data.totalGenerated || "new"} comments successfully!`, "success", 4000);
-          const gTime = data.commentsGeneratedAt || Date.now();
-          setCommentsGeneratedAt(gTime);
-          try {
-            localStorage.setItem(`cmc_real_gen_${activeProfile?.id || "default"}`, String(gTime));
-          } catch (_) {}
+          const genCount = Number(data?.totalGenerated ?? data?.count ?? 0);
+          if (genCount > 0) {
+            showToast(`Generated ${genCount} comments!`, "success", 2500);
+            const gTime = data.commentsGeneratedAt || Date.now();
+            setCommentsGeneratedAt(gTime);
+            try {
+              localStorage.setItem(`cmc_real_gen_${activeProfile?.id || "default"}`, String(gTime));
+            } catch (_) {}
+          } else {
+            showToast(data?.message || "No comments were generated. Check AI status on System Health.", "warning", 3800);
+          }
         } else if (endpoint.includes("post-chat")) {
-          showToast("Posting sequence started successfully.", "success", 4000);
+          showToast("Posting sequence started.", "success", 2200);
         } else if (endpoint.includes("stop-posting")) {
           if (data?.isStopping || data?.status === "Stopping") {
-            showToast(data.message || "Stopping gracefully after current coin finishes...", "info", 4000);
+            showToast(data.message || "Stopping gracefully after current coin finishes...", "info", 2500);
           } else {
-            showToast(data?.message || "Posting sequence stopped.", "info", 4000);
+            showToast(data?.message || "Posting sequence stopped.", "info", 2500);
           }
         } else if (endpoint.includes("full-flow")) {
-          showToast("Full bot cycle execution initiated.", "success", 4000);
-          const now = Date.now();
-          setCoinsFetchedAt(now);
-          setCommentsGeneratedAt(now);
-          try {
-            localStorage.setItem(`cmc_real_fetch_${activeProfile?.id || "default"}`, String(now));
-            localStorage.setItem(`cmc_real_gen_${activeProfile?.id || "default"}`, String(now));
-          } catch (_) {}
+          showToast("Full automated cycle started.", "success", 2200);
         } else if (endpoint.includes("clear-all")) {
-          showToast("Storage and stats reset successfully.", "success", 4000);
+          showToast("Queue and stats cleared.", "success", 2200);
         } else if (endpoint.includes("clear-session")) {
-          showToast("Session file removed.", "success", 4000);
+          showToast("Session file removed.", "info", 2200);
         }
       }
       // Set timestamp after execution to invalidate poll requests sent during command
@@ -1648,12 +1678,12 @@ export function useAppController() {
         fetchStats();
         setTimeout(() => fetchStats(), 1500);
       }
-      if (endpoint.includes("post-chat")) {
+      if (endpoint.includes("post-chat") && res.ok && !data?.error && data?.status !== "error") {
         setIsStartingPost(false);
         setIsStoppingPost(false);
         setStatus("Posting");
       }
-      if (endpoint.includes("clear-all")) {
+      if (endpoint.includes("clear-all") && res.ok && !data?.error) {
         setCoinsFetchedAt(null);
         setCommentsGeneratedAt(null);
         try {
