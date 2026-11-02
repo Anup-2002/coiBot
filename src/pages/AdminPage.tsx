@@ -21,7 +21,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-export function renderAdminPage(navigateTo: any, adminSection: any, setAdminSection: any, adminAuthRequired: any, telegramEnabled: any, retentionDays: any, handleSaveRetentionSettings: any, handlePruneOldData: any, isPruningData: any, isBusy: any, isPostingActive: any, handleToggleTelegram: any, telegramToken: any, telegramChatId: any, handleDetectTelegramChatId: any, isDetectingTelegram: any, handleTestEmergencyAlert: any, isTestingTelegram: any, handleToggleAdminAuth: any, showRevealedAdminPassword: any, setShowRevealedAdminPassword: any, handleCopyPassword: any, currentAdminPassword: any, handleCopyShareLink: any, newAdminPasswordInput: any, setNewAdminPasswordInput: any, handleUpdatePassword: any) {
+export function renderAdminPage(navigateTo: any, adminSection: any, setAdminSection: any, adminAuthRequired: any, telegramEnabled: any, retentionDays: any, handleSaveRetentionSettings: any, handlePruneOldData: any, isPruningData: any, isBusy: any, isPostingActive: any, handleToggleTelegram: any, telegramToken: any, telegramChatId: any, handleDetectTelegramChatId: any, isDetectingTelegram: any, handleTestEmergencyAlert: any, isTestingTelegram: any, handleToggleAdminAuth: any, showRevealedAdminPassword: any, setShowRevealedAdminPassword: any, handleCopyPassword: any, currentAdminPassword: any, handleCopyShareLink: any, newAdminPasswordInput: any, setNewAdminPasswordInput: any, handleUpdatePassword: any, handleAdminLogout?: any) {
 
   return (
         /* ADMIN SETTINGS SCREEN (Strictly Team Security, Telegram Emergency Bot & Data Cleanup Rules — Zero Health or Account Modal Duplication) */
@@ -40,7 +40,19 @@ export function renderAdminPage(navigateTo: any, adminSection: any, setAdminSect
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {handleAdminLogout && (
+                <button
+                  type="button"
+                  onClick={handleAdminLogout}
+                  id="admin-logout-btn"
+                  title="Lock dashboard and return to Company Admin Password gate"
+                  className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
+                >
+                  <Lock className="h-4 w-4 text-rose-400 shrink-0" /> Lock / Logout
+                </button>
+              )}
               <button
+                type="button"
                 onClick={() => navigateTo("dashboard")}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-md whitespace-nowrap shrink-0"
               >

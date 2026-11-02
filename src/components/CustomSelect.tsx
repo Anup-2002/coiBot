@@ -11,6 +11,7 @@ export const CustomSelect: React.FC<{
   accent?: "emerald" | "indigo";
   className?: string;
   menuMinWidth?: number;
+  iconOnly?: boolean;
 }> = ({
   value,
   options,
@@ -20,6 +21,7 @@ export const CustomSelect: React.FC<{
   accent = "indigo",
   className = "",
   menuMinWidth = 180,
+  iconOnly = false,
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -108,11 +110,11 @@ export const CustomSelect: React.FC<{
         onClick={() => {
           if (!disabled) setOpen((prev) => !prev);
         }}
-        className={`inline-flex items-center justify-between gap-2 bg-slate-900 border border-slate-700/90 ${hoverBorderClass} rounded-xl px-2.5 py-1 text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${
+        className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : "gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm"} ${hoverBorderClass} text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
           open ? activeRingClass : ""
         } ${className}`}
       >
-        <span className="truncate">{selectedOption ? selectedOption.label : String(value)}</span>
+        {!iconOnly && <span className="truncate">{selectedOption ? selectedOption.label : String(value)}</span>}
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 ${
             open ? "rotate-180 text-white" : ""

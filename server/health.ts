@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import type express from "express";import { execFile } from "child_process";
 import { promisify } from "util";
 import { fs, path, chromium } from "./config.ts";
@@ -348,7 +349,10 @@ export async function runSystemDiagnosticsCheck(force = false): Promise<any> {
 
 
 export function generateAdminToken(): string {
-  const token = "admin_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+  const settings = getLocalBotSettings();
+  const currentPassword = (settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123").trim();
+  const hmac = crypto.createHmac("sha256", "cmc-admin-session-v1").update(currentPassword).digest("hex");
+  const token = `admin_${hmac}`;
   st.activeAdminSessions.add(token);
   return token;
 }
@@ -365,8 +369,13 @@ export function verifyAdminRequest(req: express.Request): boolean {
 
   if (!token) return false;
 
-  const currentPassword = settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123";
+  const currentPassword = (settings.adminPassword || process.env.ADMIN_PASSWORD || "admin123").trim();
   if (token === currentPassword) {
+    return true;
+  }
+
+  const expectedToken = `admin_${crypto.createHmac("sha256", "cmc-admin-session-v1").update(currentPassword).digest("hex")}`;
+  if (token === expectedToken) {
     return true;
   }
 

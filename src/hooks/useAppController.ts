@@ -523,9 +523,17 @@ export function useAppController() {
             showToast("Authenticated via Company Admin 1-Click Link!", "success");
             const cleanUrl = window.location.pathname;
             window.history.replaceState({}, document.title, cleanUrl);
+            setAdminAuthLoading(false);
+            return;
           }
           setAdminAuthLoading(false);
         }
+
+        // Token missing or invalidated (e.g. password changed) -> require login gate
+        try {
+          localStorage.removeItem("cmc_admin_auth_token");
+        } catch (_) {}
+        setIsAdminAuthenticated(false);
       } catch (err) {
         console.warn("Admin auth verification error:", err);
       }
@@ -1947,7 +1955,7 @@ export function useAppController() {
   const headerNode = renderHeaderNavbar(isContinuousLoopActive, healthData, switchingProfileId, sessionExists, setShowSessionModal, profilesList, activeProfile, currentView, navigateTo, setLoginTab, schedulerData, isPostingActive, isBusy, promptSwitchProfile, handleResetLoginState);
 
   const pageNode = currentView === "admin" ? (
-    renderAdminPage(navigateTo, adminSection, setAdminSection, adminAuthRequired, telegramEnabled, retentionDays, handleSaveRetentionSettings, handlePruneOldData, isPruningData, isBusy, isPostingActive, handleToggleTelegram, telegramToken, telegramChatId, handleDetectTelegramChatId, isDetectingTelegram, handleTestEmergencyAlert, isTestingTelegram, handleToggleAdminAuth, showRevealedAdminPassword, setShowRevealedAdminPassword, handleCopyPassword, currentAdminPassword, handleCopyShareLink, newAdminPasswordInput, setNewAdminPasswordInput, handleUpdatePassword)
+    renderAdminPage(navigateTo, adminSection, setAdminSection, adminAuthRequired, telegramEnabled, retentionDays, handleSaveRetentionSettings, handlePruneOldData, isPruningData, isBusy, isPostingActive, handleToggleTelegram, telegramToken, telegramChatId, handleDetectTelegramChatId, isDetectingTelegram, handleTestEmergencyAlert, isTestingTelegram, handleToggleAdminAuth, showRevealedAdminPassword, setShowRevealedAdminPassword, handleCopyPassword, currentAdminPassword, handleCopyShareLink, newAdminPasswordInput, setNewAdminPasswordInput, handleUpdatePassword, handleAdminLogout)
   ) : currentView === "scheduler" ? (
     renderSchedulerPage(schedulerData, toggleNotifications, notificationsEnabled, setLogsTab, navigateTo, isSchedulerActionPending, isSchedulerRunning, handleToggleScheduler, schedulerIntervalInput, setSchedulerIntervalInput, handleUpdateSchedulerInterval, targetCoinsCount, handleUpdateTargetCoins, isBusy, handleResumeScheduler, handleRunSchedulerNow, handlePauseScheduler, handleStopScheduler, imageUploadEnabled, marketingImages, imageSelectionMode, handleToggleImageUpload, isUpdatingImageSettings, imageFileInputRef, isUploadingImages, setActiveTab, handleResetLoginState, setLoginTab, setShowSessionModal, handleDragStart, handleDragOver, handleDrop, draggedAccountIndex, handleDirectOrderInput, handleMoveAccount, handleUpdateAccountSchedule)
   ) : currentView === "guide" ? (

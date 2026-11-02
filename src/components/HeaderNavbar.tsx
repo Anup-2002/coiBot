@@ -3,6 +3,8 @@ import { Home, Terminal as TerminalIcon, Clock, RefreshCw, Users, Activity, Lock
 import { CustomSelect } from "./CustomSelect";
 
 export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any, switchingProfileId: any, sessionExists: any, setShowSessionModal: any, profilesList: any, activeProfile: any, currentView: any, navigateTo: any, setLoginTab: any, schedulerData: any, isPostingActive: any, isBusy: any, promptSwitchProfile: any, handleResetLoginState: any) {
+  const isSwitchLocked = Boolean(isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null);
+
   return (
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50 px-4 sm:px-6 py-3">
         <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
@@ -44,89 +46,87 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
               <span>Home</span>
             </button>
 
-            {/* Attached Account + Settings Split Pill & Active Account Switcher */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* Unified Attached Account + Settings Pill */}
-              <div className="inline-flex items-stretch rounded-xl border border-slate-700/80 bg-slate-900 shadow-sm overflow-hidden shrink-0">
-                <button
-                  onClick={() => {
-                    handleResetLoginState();
-                    setLoginTab("credentials");
-                    setShowSessionModal(true);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap ${
-                    activeProfile || sessionExists
-                      ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                      : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
-                  }`}
-                  title="Manage CoinMarketCap accounts"
-                  id="navbar-login-btn"
-                >
+            {/* Unified Smart Account + Active Account Split Pill */}
+            <div className={`inline-flex items-stretch rounded-xl border shadow-sm overflow-hidden shrink-0 transition ${
+              (isBusy || isPostingActive || isContinuousLoopActive)
+                ? "border-amber-500/40 bg-slate-900"
+                : (activeProfile || sessionExists)
+                  ? "border-emerald-500/30 bg-slate-900"
+                  : "border-amber-500/30 bg-slate-900"
+            }`}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetLoginState();
+                  setLoginTab("credentials");
+                  setShowSessionModal(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap ${
+                  activeProfile || sessionExists
+                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                    : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                }`}
+                title={activeProfile ? `Active account: ${activeProfile.name} (Click to manage accounts)` : "Manage CoinMarketCap accounts"}
+                id="navbar-login-btn"
+              >
+                {(isBusy || isPostingActive || isContinuousLoopActive) ? (
+                  <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                ) : (
                   <Users className="h-3.5 w-3.5 shrink-0" />
-                  <span>Account</span>
-                  {profilesList.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
-                      {profilesList.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Attached Settings Gear Icon Button */}
-                <button
-                  onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
-                  className={`px-2.5 py-1.5 border-l border-slate-700/80 transition duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
-                    currentView === "admin"
-                      ? "bg-blue-600/30 text-blue-300"
-                      : "bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800"
-                  }`}
-                  title="Admin Settings"
-                  aria-label="Admin Settings"
-                  id="navbar-admin-settings-btn"
-                >
-                  <Settings className={`h-4 w-4 text-blue-400 transition-transform duration-300 ${currentView === "admin" ? "rotate-90" : "hover:rotate-45"}`} />
-                </button>
-              </div>
-
-              {/* Quick Account Switcher Dropdown (Custom Dark Menu) */}
-              {profilesList.length > 1 && (
-                <div className={`flex items-center gap-1.5 bg-slate-950 border rounded-xl px-2.5 py-1 text-xs sm:text-sm shadow-inner transition ${
-                  (isBusy || isPostingActive || isContinuousLoopActive) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-800'
-                }`}>
-                  <span className="text-[11px] text-slate-400 font-mono uppercase font-bold flex items-center gap-1 shrink-0">
-                    {(isBusy || isPostingActive || isContinuousLoopActive) && (
-                      <Lock className="h-3 w-3 text-amber-400 shrink-0" />
-                    )}
-                    Active:
+                )}
+                {switchingProfileId ? (
+                  <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                    <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
+                    <span>Switching...</span>
                   </span>
-                  {switchingProfileId ? (
-                    <span className="flex items-center gap-1 text-emerald-400 font-bold text-xs sm:text-sm px-2 py-0.5">
-                      <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
-                      Switching...
-                    </span>
-                  ) : (
-                    <CustomSelect
-                      value={activeProfile?.id || ""}
-                      disabled={isBusy || isPostingActive || isContinuousLoopActive || switchingProfileId !== null}
-                      accent="emerald"
-                      menuMinWidth={240}
-                      className="text-emerald-400 max-w-[140px] sm:max-w-[200px] border-slate-800 bg-slate-900/90 py-0.5 px-2"
-                      title={
-                        (isBusy || isPostingActive || isContinuousLoopActive)
-                          ? "Stop active posting before switching accounts"
-                          : "Switch active CoinMarketCap account"
-                      }
-                      options={profilesList.map((p) => ({
-                        value: p.id,
-                        label: p.name,
-                        badge: p.isActive ? "Active" : undefined,
-                      }))}
-                      onChange={(val) => {
-                        const target = profilesList.find((p) => String(p.id) === String(val));
-                        if (target) promptSwitchProfile(target);
-                      }}
-                    />
-                  )}
-                </div>
+                ) : (
+                  <span className="truncate max-w-[115px] sm:max-w-[155px]">
+                    {activeProfile?.name || "Account"}
+                  </span>
+                )}
+                {profilesList.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
+                    {profilesList.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Right Half of Split Pill: 1-Click Quick Account Switcher Dropdown */}
+              {profilesList.length > 0 && (
+                <CustomSelect
+                  iconOnly
+                  value={activeProfile?.id || ""}
+                  disabled={isSwitchLocked}
+                  accent="emerald"
+                  menuMinWidth={240}
+                  className="border-l border-slate-700/80 bg-slate-900 hover:bg-slate-800 text-emerald-400 rounded-none h-full px-2"
+                  title={
+                    isSwitchLocked
+                      ? "Stop active posting before switching accounts"
+                      : "Quick-switch active CoinMarketCap account"
+                  }
+                  options={[
+                    ...profilesList.map((p: any) => ({
+                      value: p.id,
+                      label: p.name,
+                      badge: p.isActive ? "Active" : undefined,
+                    })),
+                    {
+                      value: "__manage_accounts__",
+                      label: "+ Manage / Add Accounts...",
+                    },
+                  ]}
+                  onChange={(val) => {
+                    if (val === "__manage_accounts__") {
+                      handleResetLoginState();
+                      setLoginTab("credentials");
+                      setShowSessionModal(true);
+                      return;
+                    }
+                    const target = profilesList.find((p: any) => String(p.id) === String(val));
+                    if (target) promptSwitchProfile(target);
+                  }}
+                />
               )}
             </div>
 
@@ -166,21 +166,21 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
             {/* Logs Link Button */}
             <button
               onClick={() => navigateTo(currentView === "logs" ? "dashboard" : "logs")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
                 currentView === "logs"
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
               title="Open Activity Logs"
             >
-              <TerminalIcon className="h-3.5 w-3.5 text-emerald-400" />
+              <TerminalIcon className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span>Logs</span>
             </button>
 
             {/* Health Link Button */}
             <button
               onClick={() => navigateTo(currentView === "health" ? "dashboard" : "health")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
                 currentView === "health"
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
@@ -188,21 +188,38 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
               title="Open System Health"
             >
               <span className={`w-2 h-2 rounded-full inline-block ${!healthData || healthData?.overall === "ok" || healthData?.healthy ? "bg-emerald-400" : "bg-rose-500 animate-pulse"}`} />
-              <Activity className="h-3.5 w-3.5 text-emerald-400" />
+              <Activity className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span>Health</span>
+            </button>
+
+            {/* Admin Settings Button */}
+            <button
+              type="button"
+              onClick={() => navigateTo(currentView === "admin" ? "dashboard" : "admin")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
+                currentView === "admin"
+                  ? "bg-blue-600/30 border-blue-500/60 text-blue-300 ring-1 ring-blue-500/30 shadow-sm"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Open Admin Settings & Password Security"
+              aria-label="Admin Settings"
+              id="navbar-admin-settings-btn"
+            >
+              <Settings className={`h-3.5 w-3.5 text-blue-400 shrink-0 transition-transform duration-300 ${currentView === "admin" ? "rotate-90" : "hover:rotate-45"}`} />
+              <span>Admin</span>
             </button>
 
             {/* QUICK START GUIDE BUTTON */}
             <button
               onClick={() => navigateTo(currentView === "guide" ? "dashboard" : "guide")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
                 currentView === "guide"
                   ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-500/20"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
               }`}
               title="Open User Guide"
             >
-              <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
+              <BookOpen className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
               <span>Guide</span>
             </button>
           </div>
