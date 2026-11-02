@@ -148,6 +148,7 @@ export const CustomSelect: React.FC<{
               <button
                 key={String(opt.value)}
                 type="button"
+                title={opt.label}
                 onClick={() => {
                   setOpen(false);
                   if (String(opt.value) !== String(value)) {

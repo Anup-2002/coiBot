@@ -80,8 +80,12 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                     <span>Switching...</span>
                   </span>
                 ) : (
-                  <span className="truncate max-w-[130px] sm:max-w-[175px]">
-                    {activeProfile?.name || "Account"}
+                  <span>
+                    {activeProfile?.name
+                      ? activeProfile.name.length > 10
+                        ? `${activeProfile.name.slice(0, 10)}...`
+                        : activeProfile.name
+                      : "Account"}
                   </span>
                 )}
                 {profilesList.length > 0 && (
