@@ -79,6 +79,19 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
   const lastLogsLength = useRef(0);
   const lastRequestTimestamp = useRef<number>(0);
+  const lastStatSnapshotRef = useRef<{
+    status: string;
+    totalCoins: number;
+    generatedMessages: number;
+    coinsFetchedAt: number | null;
+    commentsGeneratedAt: number | null;
+  }>({
+    status: "Idle",
+    totalCoins: -1,
+    generatedMessages: -1,
+    coinsFetchedAt: null,
+    commentsGeneratedAt: null,
+  });
 
   // Initial mount hydration (no cross-page background polling while dashboard is open)
   useEffect(() => {
@@ -316,10 +329,39 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
         }
         lastRequestTimestamp.current = reqTime;
         const data = await parseResponseJson(res, {});
-        setStatus(data.status || "Idle");
+        const nextStatus = data.status || "Idle";
+        const nextTotalCoins = data.totalCoins || 0;
+        const nextGenerated = data.generatedMessages || 0;
+        const nextCoinsAt = data.coinsFetchedAt ?? null;
+        const nextCommentsAt = data.commentsGeneratedAt ?? null;
+        const prevSnap = lastStatSnapshotRef.current;
+        const coinsChanged =
+          prevSnap.totalCoins !== -1 &&
+          (prevSnap.totalCoins !== nextTotalCoins ||
+            prevSnap.coinsFetchedAt !== nextCoinsAt ||
+            (prevSnap.status === "Fetching" && nextStatus !== "Fetching"));
+        const messagesChanged =
+          prevSnap.generatedMessages !== -1 &&
+          (prevSnap.generatedMessages !== nextGenerated ||
+            prevSnap.commentsGeneratedAt !== nextCommentsAt ||
+            (prevSnap.status === "Generating" && nextStatus !== "Generating"));
+        lastStatSnapshotRef.current = {
+          status: nextStatus,
+          totalCoins: nextTotalCoins,
+          generatedMessages: nextGenerated,
+          coinsFetchedAt: nextCoinsAt,
+          commentsGeneratedAt: nextCommentsAt,
+        };
+        if (coinsChanged) {
+          fetchCoins(data.activeProfileId || curPid);
+        }
+        if (messagesChanged) {
+          fetchMessages(data.activeProfileId || curPid);
+        }
+        setStatus(nextStatus);
         setRunMode(data.runMode || "Real Browser");
-        setTotalCoins(data.totalCoins || 0);
-        setGeneratedCount(data.generatedMessages || 0);
+        setTotalCoins(nextTotalCoins);
+        setGeneratedCount(nextGenerated);
         setPostedCount(data.postedCount || 0);
         setFailedCount(data.failedCount || 0);
         if (Array.isArray(data.results)) {

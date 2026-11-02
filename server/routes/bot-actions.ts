@@ -166,7 +166,7 @@ app.post("/api/fetch-trending", async (req, res) => {
   } catch (error) {
     addLog("error", `Failed fetching coins: ${(error as Error).message}`);
     st.botStatus = "Idle";
-    res.status(500).json({ status: "error", message: (error as Error).message });
+    res.status(500).json({ status: "error", error: (error as Error).message, message: (error as Error).message });
   } finally {
     releaseProcessLock("fetching_coins");
   }
@@ -219,7 +219,7 @@ app.post("/api/generate-messages", async (req, res) => {
   } catch (error) {
     addLog("error", `Failed message generation: ${(error as Error).message}`);
     st.botStatus = "Idle";
-    res.status(500).json({ status: "error", message: (error as Error).message });
+    res.status(500).json({ status: "error", error: (error as Error).message, message: (error as Error).message });
   } finally {
     st.isGeneratingRunning = false;
     releaseProcessLock("generating_comments");

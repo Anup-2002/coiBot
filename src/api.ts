@@ -90,7 +90,11 @@ export interface HealthResponse {
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const isLongAction =
+    (options.method && options.method.toUpperCase() !== "GET") ||
+    url.includes("/api/check-system");
+  const timeoutMs = isLongAction ? 120000 : 30000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       ...options,

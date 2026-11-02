@@ -284,7 +284,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 {/* 2. Get trending coins */}
                 <button
                   onClick={async () => {
-                    if (coinsList.length > 0) {
+                    if (coinsList.length > 0 || totalCoins > 0) {
                       setShowConfirmFetchModal(true);
                     } else {
                       await runCommand("/api/fetch-trending", "fetch");
@@ -327,11 +327,11 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 {/* 3. Write comments */}
                 <button
                   onClick={async () => {
-                    if (coinsList.length === 0) {
+                    if (coinsList.length === 0 && totalCoins === 0) {
                       showToast("Cannot generate comments: Trending coins list is empty. Please fetch trending data first.", "error");
                       return;
                     }
-                    if (messagesList.length > 0) {
+                    if (messagesList.length > 0 || generatedCount > 0) {
                       setShowConfirmGenerateModal(true);
                     } else {
                       await runCommand("/api/generate-messages", "generate");
@@ -414,11 +414,11 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 ) : (
                   <button
                     onClick={async () => {
-                      if (coinsList.length === 0) {
+                      if (coinsList.length === 0 && totalCoins === 0) {
                         showToast("Cannot start posting: Trending coins list is empty. Please fetch trending data first.", "error");
                         return;
                       }
-                      if (messagesList.length === 0) {
+                      if (messagesList.length === 0 && generatedCount === 0) {
                         showToast("Cannot start posting: Generated comments are empty. Please generate comments first.", "error");
                         return;
                       }

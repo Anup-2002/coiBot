@@ -222,6 +222,7 @@ export function useAppController() {
     isProcess?: boolean;
   } | null>(null);
   const toastTimerRef = useRef<any>(null);
+  const processToastStartedAtRef = useRef<number>(0);
 
   const [inlineConfirmModal, setInlineConfirmModal] = useState<{
     isOpen: boolean;
@@ -239,13 +240,16 @@ export function useAppController() {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
-    setToast({ message, type, isProcess: type === "process" });
-    // Process toasts stay visible until the process completes or changes
-    if (type !== "process") {
-      toastTimerRef.current = setTimeout(() => {
-        setToast(null);
-      }, durationMs);
+    if (type === "process") {
+      processToastStartedAtRef.current = Date.now();
+    } else {
+      processToastStartedAtRef.current = 0;
     }
+    setToast({ message, type, isProcess: type === "process" });
+    // Process toasts auto-clear when the process finishes (with a 90s max safety ceiling so they never stick forever)
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+    }, type === "process" ? 90000 : durationMs);
   };
 
   const dismissToast = () => {
@@ -1280,6 +1284,49 @@ export function useAppController() {
 
   const isSchedulerRunning = Boolean(schedulerData?.cycleRunning);
 
+  // Auto-resolve any lingering "process" toast once backend & local pending states return to idle
+  useEffect(() => {
+    if (!toast?.isProcess) return;
+    const anyPending =
+      isPending.login ||
+      isPending.fetch ||
+      isPending.generate ||
+      isPending.post ||
+      isPending.full ||
+      isPending.clear ||
+      isRefreshingFreshData ||
+      Boolean(switchingProfileId);
+    const backendActive =
+      status === "Fetching" ||
+      status === "Generating" ||
+      status === "Posting" ||
+      status === "Stopping" ||
+      status === "Authenticating" ||
+      status === "Verifying Code" ||
+      status === "Checking Login" ||
+      (activeProcess !== "none" && activeProcess !== "");
+    if (anyPending || backendActive) return;
+
+    const elapsed = Date.now() - (processToastStartedAtRef.current || 0);
+    const delayMs = elapsed < 1500 ? 1500 - elapsed : 300;
+    const t = setTimeout(() => {
+      setToast((prev) => (prev && prev.isProcess ? null : prev));
+    }, delayMs);
+    return () => clearTimeout(t);
+  }, [
+    toast,
+    status,
+    activeProcess,
+    isPending.login,
+    isPending.fetch,
+    isPending.generate,
+    isPending.post,
+    isPending.full,
+    isPending.clear,
+    isRefreshingFreshData,
+    switchingProfileId,
+  ]);
+
   const handleSaveProfile = async (name: string, stateJson: string, dailyPostLimit: number = 300, proxy: string = "") => {
     if (!name.trim() || !stateJson.trim()) {
       showToast("Please provide both profile name and cookies JSON.", "error");
@@ -1638,6 +1685,11 @@ export function useAppController() {
       }
     } catch (error) {
       console.error(error);
+      await Promise.all([fetchStats(), fetchCoins(), fetchMessages(), fetchResults()]).catch(() => {});
+      const errMsg = (error as Error)?.name === "AbortError"
+        ? "Request took longer than expected — synced latest status from server."
+        : ((error as Error)?.message || "Command failed.");
+      showToast(errMsg, (error as Error)?.name === "AbortError" ? "info" : "error", 4000);
     } finally {
       setIsPending(prev => ({ ...prev, [pendingKey]: false }));
     }

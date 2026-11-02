@@ -455,7 +455,11 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
           <div className="flex-1 pr-1 leading-snug">
             <span className="font-semibold text-slate-100">{toast.message}</span>
             {toast.isProcess && (
-              <span className="block text-[10px] text-blue-400 font-mono mt-0.5 animate-pulse">Posting to CoinMarketCap in background...</span>
+              <span className="block text-[10px] text-blue-400 font-mono mt-0.5 animate-pulse">
+                {toast.message.toLowerCase().includes("post")
+                  ? "Posting to CoinMarketCap in background..."
+                  : "Working in background — updates automatically..."}
+              </span>
             )}
           </div>
 

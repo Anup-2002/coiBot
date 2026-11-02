@@ -170,15 +170,15 @@ export async function syncLocalFromCloudIfStale(force = false) {
         }
       }
 
-      if (force) {
+      const localTs = readJsonFile<ProfileTimestamps>(st.TIMESTAMPS_FILE, {
+        coinsFetchedAt: null,
+        coinsFetchedTime: null,
+        commentsGeneratedAt: null,
+        commentsGeneratedTime: null,
+      });
+      if (force || !localTs.coinsFetchedAt || !localTs.commentsGeneratedAt) {
         const cloudTs = await getTimestampsCloud(activeId || undefined);
         if (cloudTs && (cloudTs.coinsFetchedAt || cloudTs.commentsGeneratedAt)) {
-          const localTs = readJsonFile<ProfileTimestamps>(st.TIMESTAMPS_FILE, {
-            coinsFetchedAt: null,
-            coinsFetchedTime: null,
-            commentsGeneratedAt: null,
-            commentsGeneratedTime: null,
-          });
           let tsChanged = false;
           if (!localTs.coinsFetchedAt && cloudTs.coinsFetchedAt) {
             localTs.coinsFetchedAt = cloudTs.coinsFetchedAt;
@@ -368,8 +368,17 @@ export async function hydrateLocalFromCloud() {
       addLog("success", `[FIREBASE] Hydrated ${st.logs.length} system logs from Firestore!`);
     }
 
+    const cloudTs = await getTimestampsCloud(activeId || undefined);
+    if (cloudTs && (cloudTs.coinsFetchedAt || cloudTs.commentsGeneratedAt)) {
+      fs.writeFileSync(st.TIMESTAMPS_FILE, JSON.stringify(cloudTs, null, 2), "utf-8");
+      addLog("success", "[FIREBASE] Hydrated batch timestamps from Firestore!");
+    }
+
     const cloudSettings = await getSettingsCloud();
     if (cloudSettings) {
+      if (!st.isSchedulerCycleRunning && (cloudSettings as any).schedulerStatus === "running") {
+        (cloudSettings as any).schedulerStatus = cloudSettings.schedulerEnabled ? "idle" : "stopped";
+      }
       fs.writeFileSync(st.SETTINGS_FILE, JSON.stringify(cloudSettings, null, 2), "utf-8");
       addLog("success", "[FIREBASE] Hydrated bot settings from Firestore!");
     }
