@@ -46,7 +46,7 @@ export const CustomSelect: React.FC<{
           triggerRef.current
         : triggerRef.current;
     const rect = anchorEl.getBoundingClientRect();
-    const menuWidth = Math.max(rect.width, menuMinWidth);
+    const menuWidth = alignToParent ? Math.max(rect.width, 190) : Math.max(rect.width, menuMinWidth);
     const maxLeft = Math.max(8, window.innerWidth - menuWidth - 8);
     const left = Math.min(Math.max(8, rect.left), maxLeft);
     const spaceBelow = window.innerHeight - rect.bottom;
@@ -136,6 +136,7 @@ export const CustomSelect: React.FC<{
             top: coords.openUp ? undefined : coords.top,
             bottom: coords.openUp ? window.innerHeight - coords.top : undefined,
             left: coords.left,
+            width: alignToParent ? coords.width : undefined,
             minWidth: coords.width,
             maxWidth: "calc(100vw - 16px)",
           }}

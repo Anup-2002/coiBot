@@ -80,7 +80,9 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                     <span>Switching...</span>
                   </span>
                 ) : (
-                  <span>Account</span>
+                  <span className="truncate max-w-[130px] sm:max-w-[175px]">
+                    {activeProfile?.name || "Account"}
+                  </span>
                 )}
                 {profilesList.length > 0 && (
                   <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
@@ -97,7 +99,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                   value={activeProfile?.id || ""}
                   disabled={isSwitchLocked}
                   accent="emerald"
-                  menuMinWidth={220}
+                  menuMinWidth={0}
                   className={`border-l h-full px-2 rounded-none ${
                     activeProfile || sessionExists
                       ? "border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
