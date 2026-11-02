@@ -318,6 +318,14 @@ app.post("/api/set-continuous-loop", (req, res) => {
     }
   }
 
+  // Enforce UI lock: wait timer cannot be changed while Auto-Repeat Mode is active
+  if (st.isContinuousLoopActive && active === undefined && intervalMinutes !== undefined) {
+    return res.status(409).json({
+      success: false,
+      error: "Pause or stop Auto-Repeat Mode before changing the wait timer.",
+    });
+  }
+
   let intervalChanged = false;
   if (intervalMinutes !== undefined && typeof intervalMinutes === "number" && intervalMinutes > 0) {
     const safeMins = Math.max(5, Math.round(intervalMinutes));

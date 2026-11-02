@@ -187,14 +187,22 @@ export function readBotProgress(specificProfileId?: string): BotProgressData {
 }
 
 export function saveBotProgress(updates: Partial<BotProgressData>): BotProgressData {
-  const current = readBotProgress();
+  const activeId = getActiveProfileId();
+  const filePath = activeId ? path.join(st.OUTPUT_DIR, activeId, "post_progress.json") : st.POST_PROGRESS_FILE;
+  const current = readBotProgress(activeId);
   const merged: BotProgressData = {
     ...current,
     ...updates,
-    daily_post_limit: updates.daily_post_limit || getAccountDailyPostLimit(),
+    daily_post_limit: updates.daily_post_limit || getAccountDailyPostLimit(activeId),
     updated_at: new Date().toISOString()
   };
-  writeJsonFile(st.POST_PROGRESS_FILE, merged);
+  writeJsonFile(filePath, merged);
+  if (filePath !== st.POST_PROGRESS_FILE) {
+    writeJsonFile(st.POST_PROGRESS_FILE, merged);
+  }
+  if (activeId && !isTestEnv) {
+    saveBotProgressCloud(merged, activeId).catch(() => {});
+  }
   return merged;
 }
 

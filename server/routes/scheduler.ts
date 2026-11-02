@@ -63,15 +63,18 @@ app.get("/api/scheduler", (req, res) => {
 });
 
 app.post("/api/scheduler/settings", (req, res) => {
-  if (isSchedulerRunning()) {
+  const { enabled, intervalMinutes, mode, maxCyclesPerDay } = req.body;
+  const current = getLocalBotSettings();
+  if ((isSchedulerRunning() || current.schedulerEnabled) && enabled === undefined) {
     return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
   }
-  const { enabled, intervalMinutes, mode, maxCyclesPerDay } = req.body;
+  if (isSchedulerRunning() && enabled === true) {
+    return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
+  }
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return res.status(400).json({ error: "Invalid 'enabled' value. Must be a boolean." });
   }
 
-  const current = getLocalBotSettings();
   const nextEnabled = enabled !== undefined ? enabled : current.schedulerEnabled;
   let nextMode = current.schedulerMode || "peak_hours";
   if (mode === "peak_hours" || mode === "interval") {

@@ -290,6 +290,15 @@ app.get("/api/status", async (req, res) => {
   const rawProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
   const activeProfile = rawProfiles.find(p => p.id === activeId);
   const activeCmcInfo = activeProfile?.stateJson ? extractCmcProfileInfo(activeProfile.stateJson) : {};
+  const todayStr = getTodayDateString();
+  const todaySuccessCount = results.filter(r => {
+    if (r.status !== "success") return false;
+    const rDate = r.createdAt
+      ? new Date(Number(r.createdAt)).toISOString().split("T")[0]
+      : (typeof r.timestamp === "string" && r.timestamp.length >= 10 ? r.timestamp.slice(0, 10) : "");
+    return rDate === todayStr;
+  }).length;
+  const effectiveDailyPostCount = Math.max(progress.daily_post_count || 0, todaySuccessCount);
 
   res.json({
     status: st.isStopping ? "Stopping" : st.botStatus,
@@ -307,7 +316,7 @@ app.get("/api/status", async (req, res) => {
     generated: messages,
     results,
     progressIndex: Math.max(0, Math.min(st.isPostingRunning ? st.currentPostingIndex : (progress.next_index || 0), Math.max(coins.length, messages.length))),
-    dailyPostCount: progress.daily_post_count || 0,
+    dailyPostCount: effectiveDailyPostCount,
     dailyPostLimit,
     lastPostDate: progress.last_post_date || getTodayDateString(),
     currentCoin: st.currentCoinName,

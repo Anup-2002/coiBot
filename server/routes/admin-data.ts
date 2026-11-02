@@ -300,7 +300,7 @@ app.post("/api/profiles/verify-all", async (req, res) => {
 
 // 11d. Target Coins Selector Setting
 app.post("/api/settings/target-coins", (req, res) => {
-  if (isSchedulerRunning()) {
+  if (isSchedulerRunning() || getLocalBotSettings().schedulerEnabled) {
     return res.status(409).json({ error: "Pause or stop the scheduler to change settings" });
   }
   try {
