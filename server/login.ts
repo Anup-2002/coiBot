@@ -2,22 +2,31 @@ import { fs, path } from "./config.ts";
 import { st } from "./state.ts";
 import { addLog } from "./logger.ts";
 import { saveSessionStateCloudIfChanged } from "./files.ts";
-import { getActiveProfileId, sessionHasValidCookies, autoSyncSessionToProfiles, normalizeStateJson } from "./profiles.ts";
+import { getActiveProfileId, sessionHasValidCookies, autoSyncSessionToProfiles, normalizeStateJson, ensureValidActiveProfile } from "./profiles.ts";
 import { saveSessionStateCloud } from "../src/storage.ts";
 import { withTimeout, PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, fillInputResiliently, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails, hasRealAuthCookies, isEditorPostButtonRequiringLogin } from "./browser.ts";
 
 export async function checkLoginRealInternal(): Promise<{ status: "success" | "expired" | "captcha" | "failed"; message: string }> {
-  // Pre-flight check: If auth/state.json doesn't exist or has no valid session cookies, return immediately without launching browser
-  if (!fs.existsSync(st.AUTH_STATE_FILE)) {
-    return { status: "expired", message: "No session state file found" };
-  }
-  try {
-    const rawContent = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
-    if (!sessionHasValidCookies(rawContent)) {
-      return { status: "expired", message: "Session cookies missing or expired in auth state" };
+  // Pre-flight check: If auth/state.json doesn't exist or has no valid session cookies, attempt to restore from saved valid profile first
+  let hasValidFile = false;
+  if (fs.existsSync(st.AUTH_STATE_FILE)) {
+    try {
+      const rawContent = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+      hasValidFile = sessionHasValidCookies(rawContent);
+    } catch (_) {
+      hasValidFile = false;
     }
-  } catch (_) {
-    return { status: "expired", message: "Malformed session state file" };
+  }
+  if (!hasValidFile) {
+    const restored = await ensureValidActiveProfile();
+    if (restored) {
+      addLog("info", `Restored valid session cookies from saved account profile "${restored.name}".`);
+      hasValidFile = true;
+    }
+  }
+  if (!hasValidFile) {
+    addLog("warning", "Session check completed: No valid session cookies found. Please sign in or import cookies.");
+    return { status: "expired", message: "Session cookies missing or expired in auth state" };
   }
 
   addLog("info", "Playwright launching headlessly with stealth configurations...");
@@ -232,6 +241,7 @@ export async function executeStartLogin(email: string, password: string): Promis
     addLog("info", `Starting automated credentials login flow for email: ${email}...`);
     st.loginState = { status: "authenticating", message: `Initializing secure headless browser for email: ${email}...` };
     let browser: any = null;
+    st.loginCancelled = false;
     try {
       browser = await launchBrowserResilient({
         headless: true,
@@ -244,6 +254,7 @@ export async function executeStartLogin(email: string, password: string): Promis
         ]
       });
 
+      st.activeLoginBrowser = browser;
       const context = await browser.newContext({
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         viewport: { width: 1366, height: 768 },
@@ -720,6 +731,14 @@ export async function executeStartLogin(email: string, password: string): Promis
 
       if (detectedError) {
         await browser.close().catch(() => {});
+        st.activeLoginBrowser = null;
+        const fallback = await ensureValidActiveProfile(email);
+        if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
+          addLog("success", `Restored existing active session for "${fallback.name}" after login notice.`);
+          st.loginState = { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
+          st.botStatus = "Idle";
+          return { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
+        }
         st.loginState = { status: "failed", message: `Login failed: ${detectedError}` };
         st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${detectedError}` };
@@ -744,6 +763,7 @@ export async function executeStartLogin(email: string, password: string): Promis
         }
 
         await browser.close().catch(() => {});
+        st.activeLoginBrowser = null;
         st.loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
         st.botStatus = "Idle";
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
@@ -796,6 +816,14 @@ export async function executeStartLogin(email: string, password: string): Promis
 
       if (modalErrorMessage) {
         await browser.close().catch(() => {});
+        st.activeLoginBrowser = null;
+        const fallback = await ensureValidActiveProfile(email);
+        if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
+          addLog("success", `Restored existing active session for "${fallback.name}" after login notice.`);
+          st.loginState = { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
+          st.botStatus = "Idle";
+          return { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
+        }
         st.loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
         st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
@@ -838,6 +866,7 @@ export async function executeStartLogin(email: string, password: string): Promis
         }
 
         await browser.close().catch(() => {});
+        st.activeLoginBrowser = null;
         st.loginState = { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
         st.botStatus = "Idle";
         return { status: "success", message: "Login successful! Session cookies saved and account profile activated." };
@@ -845,7 +874,18 @@ export async function executeStartLogin(email: string, password: string): Promis
 
       await saveDebugScreenshot(page, "credentials_login_failed");
       await browser.close().catch(() => {});
-      
+      st.activeLoginBrowser = null;
+
+      // Fallback: if this account already has valid saved cookies in profiles.json, activate & use them;
+      // otherwise ensure any existing valid account remains active so the bot is never left with Active profile: None
+      const fallback = await ensureValidActiveProfile(email);
+      if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
+        addLog("success", `Restored existing active session for "${fallback.name}" from saved profile.`);
+        st.loginState = { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
+        st.botStatus = "Idle";
+        return { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
+      }
+
       const finalMsg = modalErrorMessage 
         ? `Login failed: ${modalErrorMessage}` 
         : (editorRequiresLogin ? "Login incomplete: CoinMarketCap still prompts to Log In on the community page. Please verify your credentials or check for an email verification code." : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.");
@@ -855,9 +895,23 @@ export async function executeStartLogin(email: string, password: string): Promis
 
   } catch (error) {
     const errMsg = (error as Error).message;
-    addLog("error", `Exception in interactive login flow: ${errMsg}`);
     if (browser) {
       await browser.close().catch(() => {});
+    }
+    st.activeLoginBrowser = null;
+    if (st.loginCancelled) {
+      addLog("info", "Login session was cancelled by user.");
+      st.loginState = { status: "idle", message: "Login session cancelled." };
+      st.botStatus = "Idle";
+      return { status: "failed", message: "Login session cancelled." };
+    }
+    addLog("error", `Exception in interactive login flow: ${errMsg}`);
+    const fallback = await ensureValidActiveProfile(email);
+    if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
+      addLog("success", `Restored existing active session for "${fallback.name}" from saved profile.`);
+      st.loginState = { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
+      st.botStatus = "Idle";
+      return { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
     }
     st.loginState = { status: "failed", message: errMsg };
     return { status: "failed", message: errMsg };
@@ -1067,9 +1121,16 @@ export async function executeSubmitOtp(otp: string): Promise<{ status: "success"
 }
 
 export async function executeCancelLogin(): Promise<void> {
+  st.loginCancelled = true;
+  if (st.activeLoginBrowser) {
+    addLog("warning", "Manually cancelling and closing active login browser...");
+    await st.activeLoginBrowser.close().catch(() => {});
+    st.activeLoginBrowser = null;
+  }
   if (st.activeLoginSession) {
-    addLog("warning", "Manually cancelling and closing active login session...");
+    addLog("warning", "Manually cancelling and closing active OTP login session...");
     await st.activeLoginSession.browser.close().catch(() => {});
     st.activeLoginSession = null;
   }
+  await ensureValidActiveProfile().catch(() => {});
 }

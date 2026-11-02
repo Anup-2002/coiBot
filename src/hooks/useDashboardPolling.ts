@@ -401,7 +401,9 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
         if (data.loginState) {
           const step = data.loginState.status === "requires_otp" ? "otp_required" : data.loginState.status;
           setLoginStep(prev => {
-            // When in idle state waiting for user input, stay idle so user can enter new credentials
+            if (step === "authenticating") return "authenticating";
+            if (step === "otp_required") return "otp_required";
+            // When in idle state waiting for user input, stay idle unless backend is actively authenticating or requesting OTP
             if (prev === "idle") {
               return "idle";
             }
@@ -412,8 +414,6 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
               fetchMessages(data.activeProfileId || "");
               fetchResults(data.activeProfileId || "");
             }
-            if (step === "authenticating") return "authenticating";
-            if (step === "otp_required") return "otp_required";
             if (step === "success") return "success";
             if (step === "failed") return "failed";
             return prev;

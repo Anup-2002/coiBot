@@ -1773,7 +1773,18 @@ export function useAppController() {
     setOtpCode("");
   };
 
-  const handleResetLoginState = async () => {
+  const handleResetLoginState = async (forceReset = false) => {
+    if (
+      !forceReset &&
+      (loginStep === "authenticating" ||
+        loginStep === "otp_required" ||
+        status === "Authenticating" ||
+        status === "Verifying Code")
+    ) {
+      fetchStats();
+      fetchProfiles();
+      return;
+    }
     setLoginStep("idle");
     setLoginStatusMessage("");
     setOtpCode("");

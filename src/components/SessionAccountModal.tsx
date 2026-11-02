@@ -45,9 +45,8 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   type="button"
                   onClick={() => {
                     setLoginTab("credentials");
-                    handleResetLoginState();
                   }}
-                  disabled={isBusy || isContinuousLoopActive}
+                  disabled={isContinuousLoopActive}
                   className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "credentials"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
@@ -63,7 +62,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                 <button
                   type="button"
                   onClick={() => setLoginTab("cookies")}
-                  disabled={isBusy || isContinuousLoopActive}
+                  disabled={isContinuousLoopActive}
                   className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "cookies"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
@@ -78,10 +77,10 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   onClick={() => {
                     setLoginTab("profiles");
                     if (loginStep === "success") {
-                      handleResetLoginState();
+                      handleResetLoginState(true);
                     }
                   }}
-                  disabled={isBusy || isContinuousLoopActive}
+                  disabled={isContinuousLoopActive}
                   className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "profiles"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
@@ -202,6 +201,13 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                           <RefreshCw className="h-3 w-3 animate-spin" /> Saving login session...
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={handleCancelLogin}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                      >
+                        Cancel Login
+                      </button>
                     </div>
                   )}
 
@@ -254,7 +260,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                         <button
                           onClick={() => {
                             setShowSessionModal(false);
-                            handleResetLoginState();
+                            handleResetLoginState(true);
                           }}
                           className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm transition cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
                         >
@@ -263,7 +269,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                         </button>
                         <button
                           onClick={() => {
-                            handleResetLoginState();
+                            handleResetLoginState(true);
                             setLoginTab("credentials");
                           }}
                           className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
@@ -273,7 +279,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                         </button>
                         <button
                           onClick={() => {
-                            handleResetLoginState();
+                            handleResetLoginState(true);
                             setLoginTab("profiles");
                           }}
                           className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-1.5"
@@ -337,7 +343,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                           Close
                         </button>
                         <button
-                          onClick={handleResetLoginState}
+                          onClick={() => handleResetLoginState(true)}
                           className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-sm font-bold cursor-pointer transition shadow-sm flex items-center justify-center gap-1.5"
                         >
                           <RefreshCw className="h-3.5 w-3.5 shrink-0" />

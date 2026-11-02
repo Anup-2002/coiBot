@@ -44,6 +44,8 @@ export const st = {
   continuousLoopIntervalMinutes: 20,
 
   activeLoginSession: null as LoginSession | null,
+  activeLoginBrowser: null as any,
+  loginCancelled: false,
   loginState: {
     status: "idle" as "idle" | "authenticating" | "requires_otp" | "success" | "failed" | "captcha",
     message: "",

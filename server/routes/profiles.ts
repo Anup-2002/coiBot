@@ -2,7 +2,7 @@ import { fs, path, app, OUTPUT_DIR, isOpenAiConfigured, isCmcConfigured } from "
 import { st } from "../state.ts";
 import { addLog } from "../logger.ts";
 import { readJsonFile, writeJsonFileSyncAtomic } from "../files.ts";
-import { getActiveProfileId, getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths, normalizeStateJson, activateProfileInternal, normalizeProfilesWithSchedule } from "../profiles.ts";
+import { getActiveProfileId, getNextImportedAccountName, ensureProfileDirectory, updateActiveProfilePaths, normalizeStateJson, activateProfileInternal, normalizeProfilesWithSchedule, sessionHasValidCookies } from "../profiles.ts";
 import { saveBotProgress } from "../settings.ts";
 import { isBusy, acquireProcessLock, releaseProcessLock } from "../locks.ts";
 import { syncLocalFromCloudIfStale } from "../sync.ts";
@@ -416,6 +416,19 @@ app.post("/api/delete-profile", async (req, res) => {
 
     // Always reset login flow state to idle on deletion to prevent sticky success banner
     st.loginState = { status: "idle", message: "" };
+
+    // If the deleted profile was active and another profile with valid cookies exists, automatically activate it
+    if (wasActive && profiles.length > 0) {
+      const nextValidIdx = profiles.findIndex(p => sessionHasValidCookies(p.stateJson));
+      if (nextValidIdx >= 0) {
+        profiles[nextValidIdx].isActive = true;
+        profiles[nextValidIdx].loginStatus = "logged_in";
+        const normalized = normalizeStateJson(profiles[nextValidIdx].stateJson);
+        profiles[nextValidIdx].stateJson = normalized;
+        fs.writeFileSync(st.AUTH_STATE_FILE, normalized, "utf-8");
+        addLog("info", `Automatically switched active account to "${profiles[nextValidIdx].name}" after deleting "${deletedName}".`);
+      }
+    }
 
     fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     addLog("warning", `Deleted profile: "${deletedName}"`);

@@ -14,7 +14,13 @@ function buildHealthPayload() {
   const now = Date.now();
   const activeId = getActiveProfileId();
   const sessionOk = isProfileSessionActive(activeId);
-  const currentAccountStatus = (activeId && sessionOk) ? "ok" : "degraded";
+  const isAuthInProgress =
+    st.botStatus === "Authenticating" ||
+    st.botStatus === "Verifying Code" ||
+    st.botStatus === "Checking Login" ||
+    st.loginState.status === "authenticating" ||
+    st.loginState.status === "requires_otp";
+  const currentAccountStatus = (activeId && sessionOk) || isAuthInProgress ? "ok" : "degraded";
   const currentOpenAiErr = st.lastOpenAiError || null;
 
   if (
@@ -81,8 +87,12 @@ function buildHealthPayload() {
   // 5. Account check
   const accountCheck = {
     status: currentAccountStatus,
-    details: activeId ? "Profile loaded" : "No active profile",
-    message: (activeId && sessionOk) ? "CoinMarketCap account session is authenticated." : "CoinMarketCap account session expired or not logged in. Log in to resume operations.",
+    details: isAuthInProgress ? "Authenticating" : (activeId ? "Profile loaded" : "No active profile"),
+    message: isAuthInProgress
+      ? "CoinMarketCap login or session verification is currently in progress..."
+      : (activeId && sessionOk)
+        ? "CoinMarketCap account session is authenticated."
+        : "CoinMarketCap account session expired or not logged in. Log in to resume operations.",
   };
 
   const isHealthy = serverCheck.status === "ok" &&
@@ -169,7 +179,9 @@ app.get("/api/status", async (req, res) => {
       coinsAgeMs: null,
       commentsAgeMs: null,
       staleReason: null,
-      sessionStatus: "Login expired — please log in again",
+      sessionStatus: (st.botStatus === "Authenticating" || st.botStatus === "Verifying Code" || st.botStatus === "Checking Login" || st.loginState.status === "authenticating" || st.loginState.status === "requires_otp")
+        ? "Authenticating session..."
+        : "Login expired — please log in again",
       apiStatus: {
         openai: isOpenAiConfigured,
         gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),

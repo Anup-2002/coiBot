@@ -4,6 +4,7 @@ import { addLog } from "../logger.ts";
 import { readJsonFile, saveProfilesCloudIfChanged } from "../files.ts";
 import { acquireProcessLock, releaseProcessLock, isBusy } from "../locks.ts";
 import { checkLoginReal, executeStartLogin, executeSubmitOtp, executeCancelLogin } from "../login.ts";
+import { ensureValidActiveProfile } from "../profiles.ts";
 
 
 // 5. Check login session (Runs real headless Playwright against CoinMarketCap)
@@ -18,6 +19,9 @@ app.post("/api/check-login", async (req, res) => {
   addLog("info", "Checking live login session validity on CoinMarketCap using Playwright...");
   st.botStatus = "Checking Login";
 
+  if (!fs.existsSync(st.AUTH_STATE_FILE)) {
+    await ensureValidActiveProfile();
+  }
   const sessionExists = fs.existsSync(st.AUTH_STATE_FILE);
   if (!sessionExists) {
     releaseProcessLock("checking_login");
@@ -188,6 +192,20 @@ app.post("/api/cancel-login", async (req, res) => {
 
 // 5.3b. Reset login state to idle cleanly (for logging into another account)
 app.post("/api/reset-login-state", async (req, res) => {
+  // Never interrupt an active login or OTP challenge when the user closes the modal or switches tabs
+  if (
+    st.botStatus === "Authenticating" ||
+    st.botStatus === "Verifying Code" ||
+    st.loginState.status === "authenticating" ||
+    st.loginState.status === "requires_otp"
+  ) {
+    return res.json({
+      success: true,
+      active: true,
+      loginState: st.loginState,
+      message: "Login in progress — keeping active session state.",
+    });
+  }
   releaseProcessLock("authenticating");
   try {
     if (st.activeLoginSession) {
