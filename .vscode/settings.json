@@ -1,0 +1,14 @@
+{
+  "workbench.browser.openLocalhostLinks": true,
+  "remote.autoForwardPorts": true,
+  "remote.portsAttributes": {
+    "3000": {
+      "label": "coiBot Server",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "remote.otherPortsAttributes": {
+    "onAutoForward": "openPreview"
+  }
+}
+
