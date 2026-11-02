@@ -1,8 +1,28 @@
 import React from "react";
-import { Play, Clock, RefreshCw, ChevronRight, Layers, Trash2, Square, Activity, Lock, Settings, Zap, Globe, Search, Pause, Upload, Image as ImageIcon, Shuffle, Bell, BellOff, CheckCircle, FileText, AlertTriangle, ExternalLink } from "lucide-react";
+import { Play, Clock, RefreshCw, ChevronRight, ChevronDown, Layers, Trash2, Square, Activity, Lock, Settings, Zap, Globe, Search, Pause, Upload, Image as ImageIcon, Shuffle, Bell, BellOff, CheckCircle, FileText, AlertTriangle, ExternalLink } from "lucide-react";
 import { PostResult } from "../types";
 import { formatTimeAgo } from "../utils/ui-helpers";
 import { CycleCountdown } from "../components/CycleCountdown";
+
+const CollapsibleSection: React.FC<{
+  className?: string;
+  headerLeft: (expanded: boolean, toggle: () => void) => React.ReactNode;
+  headerRight: React.ReactNode;
+  children: React.ReactNode;
+  alwaysVisibleBottom?: React.ReactNode;
+}> = ({ className = "", headerLeft, headerRight, children, alwaysVisibleBottom }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2">
+        {headerLeft(expanded, () => setExpanded((prev) => !prev))}
+        {headerRight}
+      </div>
+      {expanded && children}
+      {alwaysVisibleBottom}
+    </div>
+  );
+};
 
 export function renderDashboardControlPanel(status: string, navigateTo: any, isBusy: any, isPostingActive: any, schedulerData: any, toggleNotifications: any, notificationsEnabled: any, isSchedulerRunning: any, imageUploadEnabled: any, marketingImages: any, imageSelectionMode: any, handleToggleImageUpload: any, isUpdatingImageSettings: any, imageFileInputRef: any, isUploadingImages: any, setActiveTab: any, setInlineConfirmModal: any, runCommand: any, isPending: any, activeProfile: any, profilesList: any, sessionExists: any, dailyPostCount: any, coinsList: any, messagesList: any, postedCount: any, failedCount: any, setIsExternalImportModalOpen: any, totalCoins: any, isContinuousLoopActive: any, showToast: any, isStoppingPost: any, generatedCount: any, activeProcess: any, activeProcessDescription: any, setShowConfirmFetchModal: any, coinsFetchedAt: any, setShowConfirmGenerateModal: any, commentsGeneratedAt: any, setIsStoppingPost: any, isDataOlderThan2Days: any, setShowStaleWarningModal: any, setIsStartingPost: any, isStartingPost: any, handleRefreshFreshData: any, isRefreshingFreshData: any, continuousInterval: any, toggleContinuousLoop: any, setContinuousInterval: any, saveIntervalToServer: any, nextCycleStartTime: any, activeImageIndex: any, activeProfileIdRef: any, results: any, progressIndex: any, currentCoin: any, dailyPostLimit: any) {
   const activePid = activeProfileIdRef.current || activeProfile?.id;
@@ -247,40 +267,42 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 </div>
               )}
 
-              {/* 2x2 MODERN ACTION DECK - ZERO TRUNCATION 2-LINE CARDS */}
+              {/* 2x2 MODERN ACTION DECK - BALANCED ICON + STACKED TEXT + STATUS PILL */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
                 {/* 1. Check Login */}
                 <button
                   onClick={() => runCommand("/api/check-login", "login")}
                   disabled={isPending.login || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex flex-col justify-between gap-1.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[74px] h-full p-3.5 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800/90 hover:border-emerald-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-login"
                 >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500/20 border border-emerald-500/20 transition shrink-0">
-                        <CheckCircle className="h-4 w-4" />
-                      </span>
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition whitespace-nowrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:bg-emerald-500/20 border border-emerald-500/20 transition shrink-0">
+                      <CheckCircle className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition leading-tight">
                         1. Check Login
                       </h3>
+                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                        Verify account session
+                      </p>
                     </div>
-                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
-                      isPending.login || status === "Authenticating"
-                        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                        : sessionExists
-                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                          : "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                    }`}>
-                      {isPending.login && <RefreshCw className="h-3 w-3 animate-spin" />}
-                      {isPending.login || status === "Authenticating"
-                        ? "Checking..."
-                        : sessionExists
-                          ? "Signed In"
-                          : "Sign In"}
-                    </span>
                   </div>
-                  <p className="text-xs text-slate-400 pl-8">Verify active account session</p>
+                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                    isPending.login || status === "Authenticating"
+                      ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                      : sessionExists
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  }`}>
+                    {isPending.login && <RefreshCw className="h-3 w-3 animate-spin" />}
+                    {isPending.login || status === "Authenticating"
+                      ? "Checking..."
+                      : sessionExists
+                        ? "Signed In"
+                        : "Sign In"}
+                  </span>
                 </button>
 
                 {/* 2. Fetch Coins */}
@@ -293,33 +315,35 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     }
                   }}
                   disabled={isPending.fetch || isPending.clear || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex flex-col justify-between gap-1.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[74px] h-full p-3.5 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800/90 hover:border-blue-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-fetch"
                   title={coinsFetchedAt ? `Fetched: ${formatTimeAgo(coinsFetchedAt).full}` : "Fetch latest trending coins from CoinMarketCap"}
                 >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg group-hover:bg-blue-500/20 border border-blue-500/20 transition shrink-0">
-                        <Search className="h-4 w-4" />
-                      </span>
-                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition whitespace-nowrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl group-hover:bg-blue-500/20 border border-blue-500/20 transition shrink-0">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition leading-tight">
                         2. Fetch Coins
                       </h3>
+                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                        Get live trending coins
+                      </p>
                     </div>
-                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
-                      isPending.fetch || status === "Fetching"
-                        ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                        : totalCoins > 0
-                          ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
-                          : "bg-slate-800 text-slate-400 border-slate-700"
-                    }`}>
-                      {isPending.fetch && <RefreshCw className="h-3 w-3 animate-spin" />}
-                      {isPending.fetch || status === "Fetching"
-                        ? "Fetching..."
-                        : `${totalCoins} Coins`}
-                    </span>
                   </div>
-                  <p className="text-xs text-slate-400 pl-8">Get live trending coins list</p>
+                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                    isPending.fetch || status === "Fetching"
+                      ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                      : totalCoins > 0
+                        ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                        : "bg-slate-800 text-slate-400 border-slate-700"
+                  }`}>
+                    {isPending.fetch && <RefreshCw className="h-3 w-3 animate-spin" />}
+                    {isPending.fetch || status === "Fetching"
+                      ? "Fetching..."
+                      : `${totalCoins} Coins`}
+                  </span>
                 </button>
 
                 {/* 3. Write Comments */}
@@ -336,33 +360,35 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     }
                   }}
                   disabled={isPending.generate || isBusy || isContinuousLoopActive}
-                  className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex flex-col justify-between gap-1.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                  className="action-grid-btn min-h-[74px] h-full p-3.5 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800/90 hover:border-purple-500/40 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                   id="btn-generate"
                   title={commentsGeneratedAt ? `Generated: ${formatTimeAgo(commentsGeneratedAt).full}` : "Write AI comments for each coin"}
                 >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="p-1.5 bg-purple-500/10 text-purple-400 rounded-lg group-hover:bg-purple-500/20 border border-purple-500/20 transition shrink-0">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition whitespace-nowrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl group-hover:bg-purple-500/20 border border-purple-500/20 transition shrink-0">
+                      <FileText className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition leading-tight">
                         3. Write Comments
                       </h3>
+                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                        Generate AI commentary
+                      </p>
                     </div>
-                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
-                      isPending.generate || status === "Generating"
-                        ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
-                        : generatedCount > 0
-                          ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
-                          : "bg-slate-800 text-slate-400 border-slate-700"
-                    }`}>
-                      {isPending.generate && <RefreshCw className="h-3 w-3 animate-spin" />}
-                      {isPending.generate || status === "Generating"
-                        ? "Writing..."
-                        : `${generatedCount} Ready`}
-                    </span>
                   </div>
-                  <p className="text-xs text-slate-400 pl-8">Generate AI market commentary</p>
+                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                    isPending.generate || status === "Generating"
+                      ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
+                      : generatedCount > 0
+                        ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
+                        : "bg-slate-800 text-slate-400 border-slate-700"
+                  }`}>
+                    {isPending.generate && <RefreshCw className="h-3 w-3 animate-spin" />}
+                    {isPending.generate || status === "Generating"
+                      ? "Writing..."
+                      : `${generatedCount} Ready`}
+                  </span>
                 </button>
 
                 {/* 4. Start / Stop Posting */}
@@ -373,39 +399,39 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       runCommand("/api/stop-posting", "post");
                     }}
                     disabled={isPending.post}
-                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex flex-col justify-between gap-1.5 group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[74px] h-full p-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2.5 group disabled:opacity-60 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-pause"
                   >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`p-1.5 rounded-lg border transition shrink-0 ${
-                          (isStoppingPost || status === "Stopping")
-                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            : "bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse"
-                        }`}>
-                          {(isStoppingPost || status === "Stopping") ? (
-                            <RefreshCw className="h-4 w-4 animate-spin text-amber-300" />
-                          ) : (
-                            <Pause className="h-4 w-4" />
-                          )}
-                        </span>
-                        <h3 className="text-sm font-bold text-white whitespace-nowrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`p-2.5 rounded-xl border transition shrink-0 ${
+                        (isStoppingPost || status === "Stopping")
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                          : "bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse"
+                      }`}>
+                        {(isStoppingPost || status === "Stopping") ? (
+                          <RefreshCw className="h-4 w-4 animate-spin text-amber-300" />
+                        ) : (
+                          <Pause className="h-4 w-4" />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white leading-tight">
                           {(isStoppingPost || status === "Stopping") ? "Stopping..." : "4. Stop Posting"}
                         </h3>
+                        <p className="text-[11px] text-rose-300/80 leading-tight mt-1">
+                          {(isStoppingPost || status === "Stopping") ? "Finishing current coin..." : "Halt active sequence"}
+                        </p>
                       </div>
-                      {(isStoppingPost || status === "Stopping" || isPending.post) ? (
-                        <span className="text-[11px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30 flex items-center gap-1 shrink-0 whitespace-nowrap">
-                          <RefreshCw className="h-3 w-3 animate-spin" /> Stopping
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-mono uppercase bg-rose-500/20 px-2 py-0.5 rounded-full font-bold border border-rose-500/30 shrink-0 whitespace-nowrap">
-                          Posting
-                        </span>
-                      )}
                     </div>
-                    <p className="text-xs text-rose-300/80 pl-8">
-                      {(isStoppingPost || status === "Stopping") ? "Finishing current coin..." : "Halt active posting sequence"}
-                    </p>
+                    {(isStoppingPost || status === "Stopping" || isPending.post) ? (
+                      <span className="text-[11px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded-full font-bold border border-amber-500/30 flex items-center gap-1 shrink-0 whitespace-nowrap">
+                        <RefreshCw className="h-3 w-3 animate-spin" /> Stopping
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-mono uppercase bg-rose-500/20 px-2.5 py-1 rounded-full font-bold border border-rose-500/30 shrink-0 whitespace-nowrap">
+                        Posting
+                      </span>
+                    )}
                   </button>
                 ) : (
                   <button
@@ -426,38 +452,40 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       await runCommand("/api/post-chat", "post");
                     }}
                     disabled={isPending.post || isStartingPost || isBusy || isContinuousLoopActive}
-                    className="action-grid-btn min-h-[76px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex flex-col justify-between gap-1.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
+                    className="action-grid-btn min-h-[74px] h-full p-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 text-left flex items-center justify-between gap-2.5 group disabled:opacity-40 disabled:hover:translate-y-0 cursor-pointer shadow-sm"
                     id="btn-start"
                   >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 group-hover:scale-105 transition-transform shrink-0">
-                          {isStartingPost ? (
-                            <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
-                          ) : (
-                            <Play className="h-4 w-4 fill-emerald-400" />
-                          )}
-                        </span>
-                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition whitespace-nowrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30 group-hover:scale-105 transition-transform shrink-0">
+                        {isStartingPost ? (
+                          <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                        ) : (
+                          <Play className="h-4 w-4 fill-emerald-400" />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition leading-tight">
                           {isStartingPost ? "Starting..." : "4. Start Posting"}
                         </h3>
+                        <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                          Post comments to CMC
+                        </p>
                       </div>
-                      <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
-                        totalCoins > 0 && generatedCount > 0
-                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                          : "bg-slate-800 text-slate-400 border-slate-700"
-                      }`}>
-                        {(isStartingPost || isPending.post) && <RefreshCw className="h-3 w-3 animate-spin" />}
-                        {isStartingPost || isPending.post
-                          ? "Starting..."
-                          : isBatchCompleted
-                            ? "Completed"
-                            : totalCoins > 0 && generatedCount > 0
-                              ? `${remainingBatch} Left`
-                              : "Need Queue"}
-                      </span>
                     </div>
-                    <p className="text-xs text-slate-400 pl-8">Post comments to CoinMarketCap</p>
+                    <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                      totalCoins > 0 && generatedCount > 0
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        : "bg-slate-800 text-slate-400 border-slate-700"
+                    }`}>
+                      {(isStartingPost || isPending.post) && <RefreshCw className="h-3 w-3 animate-spin" />}
+                      {isStartingPost || isPending.post
+                        ? "Starting..."
+                        : isBatchCompleted
+                          ? "Completed"
+                          : totalCoins > 0 && generatedCount > 0
+                            ? `${remainingBatch} Left`
+                            : "Need Queue"}
+                    </span>
                   </button>
                 )}
               </div>
@@ -485,7 +513,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               )}
             </div>
 
-            {/* FULL AUTOMATION SEQUENCE & COMPACT EXPANDABLE MODULES */}
+            {/* FULL AUTOMATION SEQUENCE & COLLAPSIBLE DROPDOWN CARDS */}
             <div className="mt-4 pt-3 flex flex-col gap-2.5 relative z-10">
               <button
                 onClick={() => runCommand("/api/full-flow", "full", { continuous: isContinuousLoopActive, intervalMinutes: continuousInterval })}
@@ -516,31 +544,39 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 )}
               </button>
 
-              {/* AUTO-REPEAT MODE (COMPACT WHEN OFF, EXPANDS TIMER WHEN ON) */}
-              <div className={`px-3.5 py-2.5 rounded-xl border flex flex-col gap-2.5 shadow-inner transition-all duration-150 ${
-                isContinuousLoopActive
-                  ? "bg-emerald-950/30 border-emerald-500/40"
-                  : "bg-slate-950/60 border-slate-800/60"
-              }`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
+              {/* AUTO-REPEAT MODE (DROPDOWN TO CONFIGURE WAIT TIME BEFORE ENABLING, LOCKED WHILE ACTIVE) */}
+              <CollapsibleSection
+                className={`px-3.5 py-2.5 rounded-xl border flex flex-col gap-2.5 shadow-inner transition-all duration-150 ${
+                  isContinuousLoopActive
+                    ? "bg-emerald-950/30 border-emerald-500/40"
+                    : "bg-slate-950/60 border-slate-800/60"
+                }`}
+                headerLeft={(expanded, toggle) => (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    className="flex items-center gap-2.5 min-w-0 text-left cursor-pointer group"
+                    title="Click to show or hide wait timer settings"
+                  >
                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                       isContinuousLoopActive ? "bg-emerald-400 animate-ping" : "bg-slate-500"
                     }`} />
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs sm:text-sm font-bold text-slate-200">
-                        Auto-Repeat Mode
-                      </span>
-                      <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
-                        isContinuousLoopActive
-                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                          : "bg-slate-900 text-slate-400 border-slate-800"
-                      }`}>
-                        {isContinuousLoopActive ? `ACTIVE • ${continuousInterval}m GAP` : `OFF (${continuousInterval}m)`}
-                      </span>
-                    </div>
-                  </div>
-
+                    <span className="text-xs sm:text-sm font-bold text-slate-200 group-hover:text-white transition">
+                      Auto-Repeat Mode
+                    </span>
+                    <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                      isContinuousLoopActive
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                        : "bg-slate-900 text-slate-400 border-slate-800"
+                    }`}>
+                      {isContinuousLoopActive ? `ACTIVE • ${continuousInterval}m` : `OFF • ${continuousInterval}m`}
+                    </span>
+                    <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${expanded ? "rotate-180 text-emerald-400" : ""}`} />
+                    </span>
+                  </button>
+                )}
+                headerRight={
                   <button
                     type="button"
                     id="chk-continuous"
@@ -564,158 +600,155 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       </>
                     )}
                   </button>
-                </div>
-
-                {isContinuousLoopActive && (
-                  <>
-                    <div className="flex flex-col gap-2 pt-2 border-t border-emerald-500/20">
-                      <div className="flex items-center justify-between text-[10px]">
-                        <span className="text-slate-300 font-medium">Wait between rounds:</span>
-                        <div className="flex items-center gap-1.5">
-                          {[5, 15, 30, 60].map((preset) => (
-                            <button
-                              key={preset}
-                              disabled={isSchedulerRunning}
-                              onClick={() => {
-                                setContinuousInterval(preset);
-                                saveIntervalToServer(preset);
-                              }}
-                              className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition-all ${
-                                continuousInterval === preset
-                                  ? "bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/20"
-                                  : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800/80"
-                              } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
-                            >
-                              {preset}m
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5">
-                        <input
-                          type="range"
-                          min="5"
-                          max="120"
-                          disabled={isSchedulerRunning}
-                          value={continuousInterval}
-                          onChange={(e) => setContinuousInterval(Math.max(5, Number(e.target.value)))}
-                          onMouseUp={() => saveIntervalToServer(continuousInterval)}
-                          onTouchEnd={() => saveIntervalToServer(continuousInterval)}
-                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                          id="slider-interval"
-                        />
-                        <input
-                          type="number"
-                          min="5"
-                          max="1440"
-                          disabled={isSchedulerRunning}
-                          value={continuousInterval}
-                          onChange={(e) => {
-                            const val = Math.max(5, Number(e.target.value));
-                            setContinuousInterval(val);
-                            saveIntervalToServer(val);
-                          }}
-                          className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner disabled:opacity-40 disabled:cursor-not-allowed"
-                          id="num-interval"
-                        />
-                      </div>
-                    </div>
+                }
+                alwaysVisibleBottom={
+                  isContinuousLoopActive ? (
                     <CycleCountdown nextCycleStartTime={nextCycleStartTime} />
-                  </>
-                )}
-              </div>
+                  ) : null
+                }
+              >
+                <div className="flex flex-col gap-2 pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400 font-medium">
+                      {isContinuousLoopActive
+                        ? "Wait timer locked while active (Stop Repeat to change):"
+                        : "Set wait time between rounds before enabling:"}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {[5, 15, 30, 60].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          disabled={isContinuousLoopActive || isSchedulerRunning}
+                          onClick={() => {
+                            setContinuousInterval(preset);
+                            saveIntervalToServer(preset);
+                          }}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                            continuousInterval === preset
+                              ? "bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/20"
+                              : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800/80"
+                          } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+                        >
+                          {preset}m
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              {/* MARKETING IMAGE ATTACHMENT BAR (COMPACT WHEN PAUSED, EXPANDS ACTIONS WHEN ACTIVE) */}
-              <div className={`px-3.5 py-2.5 rounded-xl border flex flex-col gap-2.5 shadow-inner transition-all duration-150 ${
-                imageUploadEnabled
-                  ? "bg-indigo-950/25 border-indigo-500/40"
-                  : "bg-slate-950/60 border-slate-800/60"
-              }`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="range"
+                      min="5"
+                      max="120"
+                      disabled={isContinuousLoopActive || isSchedulerRunning}
+                      value={continuousInterval}
+                      onChange={(e) => setContinuousInterval(Math.max(5, Number(e.target.value)))}
+                      onMouseUp={() => saveIntervalToServer(continuousInterval)}
+                      onTouchEnd={() => saveIntervalToServer(continuousInterval)}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                      id="slider-interval"
+                    />
+                    <input
+                      type="number"
+                      min="5"
+                      max="1440"
+                      disabled={isContinuousLoopActive || isSchedulerRunning}
+                      value={continuousInterval}
+                      onChange={(e) => {
+                        const val = Math.max(5, Number(e.target.value));
+                        setContinuousInterval(val);
+                        saveIntervalToServer(val);
+                      }}
+                      className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner disabled:opacity-40 disabled:cursor-not-allowed"
+                      id="num-interval"
+                    />
+                  </div>
+                </div>
+              </CollapsibleSection>
+
+              {/* MARKETING IMAGES (DROPDOWN TO UPLOAD / IMPORT / MANAGE ANYTIME) */}
+              <CollapsibleSection
+                className={`px-3.5 py-2.5 rounded-xl border flex flex-col gap-2.5 shadow-inner transition-all duration-150 ${
+                  imageUploadEnabled
+                    ? "bg-indigo-950/25 border-indigo-500/40"
+                    : "bg-slate-950/60 border-slate-800/60"
+                }`}
+                headerLeft={(expanded, toggle) => (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    className="flex items-center gap-2.5 min-w-0 text-left cursor-pointer group"
+                    title="Click to show or hide image upload & library tools"
+                  >
                     <span className={`p-1.5 rounded-lg border shrink-0 ${imageUploadEnabled ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" : "bg-slate-900 text-slate-400 border-slate-800"}`}>
                       <ImageIcon className="h-3.5 w-3.5" />
                     </span>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs sm:text-sm font-bold text-slate-200">
-                        Marketing Images
-                      </span>
-                      <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
-                        imageUploadEnabled
-                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                          : "bg-slate-900 text-slate-400 border-slate-800"
-                      }`}>
-                        {imageUploadEnabled ? `ACTIVE • ${marketingImages.length} Ready` : `PAUSED (${marketingImages.length} in Library)`}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {!imageUploadEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => imageFileInputRef.current?.click()}
-                        disabled={isUploadingImages}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                        title="Upload images from your computer"
-                      >
-                        <Upload className="h-3 w-3 text-indigo-400" />
-                        <span>{isUploadingImages ? "Uploading..." : "Upload"}</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleImageUpload(!imageUploadEnabled)}
-                      disabled={isUpdatingImageSettings}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-                        imageUploadEnabled
-                          ? "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-sm"
-                          : "bg-slate-900 hover:bg-slate-800 text-indigo-300 border-indigo-500/30"
-                      }`}
-                      id="chk-image-upload"
-                    >
-                      {imageUploadEnabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                      <span>{imageUploadEnabled ? "Pause Images" : "Enable Images"}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {imageUploadEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-indigo-500/20">
-                    <button
-                      type="button"
-                      onClick={() => imageFileInputRef.current?.click()}
-                      disabled={isUploadingImages}
-                      className="py-1.5 px-3 bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      <span>{isUploadingImages ? "Uploading..." : "Upload Images"}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsExternalImportModalOpen(true)}
-                      className="py-1.5 px-3 bg-teal-600/15 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Globe className="h-3.5 w-3.5" />
-                      <span>Import from Link</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab("images");
-                        document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
-                      }}
-                      className="py-1.5 px-3 bg-indigo-500/15 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      <span>Image Library ({marketingImages.length})</span>
-                    </button>
-                  </div>
+                    <span className="text-xs sm:text-sm font-bold text-slate-200 group-hover:text-white transition">
+                      Marketing Images
+                    </span>
+                    <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                      imageUploadEnabled
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                        : "bg-slate-900 text-slate-400 border-slate-800"
+                    }`}>
+                      {imageUploadEnabled ? `ACTIVE • ${marketingImages.length}` : `PAUSED • ${marketingImages.length}`}
+                    </span>
+                    <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${expanded ? "rotate-180 text-indigo-400" : ""}`} />
+                    </span>
+                  </button>
                 )}
-              </div>
+                headerRight={
+                  <button
+                    type="button"
+                    onClick={() => handleToggleImageUpload(!imageUploadEnabled)}
+                    disabled={isUpdatingImageSettings}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                      imageUploadEnabled
+                        ? "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-sm"
+                        : "bg-slate-900 hover:bg-slate-800 text-indigo-300 border-indigo-500/30"
+                    }`}
+                    id="chk-image-upload"
+                  >
+                    {imageUploadEnabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                    <span>{imageUploadEnabled ? "Pause Images" : "Enable Images"}</span>
+                  </button>
+                }
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => imageFileInputRef.current?.click()}
+                    disabled={isUploadingImages}
+                    className="py-1.5 px-3 bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>{isUploadingImages ? "Uploading..." : "Upload Images"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsExternalImportModalOpen(true)}
+                    className="py-1.5 px-3 bg-teal-600/15 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    <span>Import from Link</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("images");
+                      document.getElementById("storage-explorer")?.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    className="py-1.5 px-3 bg-indigo-500/15 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    <span>Image Library ({marketingImages.length})</span>
+                  </button>
+                </div>
+              </CollapsibleSection>
             </div>
           </section>
 
