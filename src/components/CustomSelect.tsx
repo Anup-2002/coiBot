@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { ChevronDown, CheckCircle } from "lucide-react";
 import type { CustomSelectOption } from "../types";
 
@@ -28,12 +28,7 @@ export const CustomSelect: React.FC<{
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState<{ top: number; left: number; width: number; openUp: boolean }>({
-    top: 0,
-    left: 0,
-    width: menuMinWidth,
-    openUp: false,
-  });
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number; openUp: boolean } | null>(null);
 
   const selectedOption = options.find((o) => String(o.value) === String(value)) || options[0];
 
@@ -60,9 +55,13 @@ export const CustomSelect: React.FC<{
     });
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     updatePosition();
+  }, [open, options.length, menuMinWidth, alignToParent]);
+
+  useEffect(() => {
+    if (!open) return;
     const handleOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
@@ -98,7 +97,7 @@ export const CustomSelect: React.FC<{
       window.removeEventListener("resize", handleScrollOrResize);
       window.removeEventListener("blur", handleBlur);
     };
-  }, [open, options.length, menuMinWidth]);
+  }, [open]);
 
   const activeRingClass =
     accent === "emerald"
@@ -116,7 +115,13 @@ export const CustomSelect: React.FC<{
         disabled={disabled}
         title={title}
         onClick={() => {
-          if (!disabled) setOpen((prev) => !prev);
+          if (disabled) return;
+          if (!open) {
+            updatePosition();
+            setOpen(true);
+          } else {
+            setOpen(false);
+          }
         }}
         className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : `gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm ${hoverBorderClass} ${open ? activeRingClass : ""}`} text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
       >
@@ -128,7 +133,7 @@ export const CustomSelect: React.FC<{
         />
       </button>
 
-      {open && !disabled && (
+      {open && !disabled && coords && (
         <div
           ref={menuRef}
           style={{
@@ -139,8 +144,9 @@ export const CustomSelect: React.FC<{
             width: alignToParent ? coords.width : undefined,
             minWidth: coords.width,
             maxWidth: "calc(100vw - 16px)",
+            transition: "none",
           }}
-          className="z-[100] bg-slate-900/98 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl p-1.5 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
+          className="z-[100] bg-slate-900/98 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl p-1.5 max-h-60 overflow-y-auto transition-none"
         >
           {options.map((opt) => {
             const isSelected = String(opt.value) === String(value);
@@ -186,4 +192,3 @@ export const CustomSelect: React.FC<{
     </div>
   );
 };
-
