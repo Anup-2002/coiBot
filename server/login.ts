@@ -112,8 +112,8 @@ export async function checkLoginRealInternal(): Promise<{ status: "success" | "e
     // Scan page for the comment editor
     const editor = await locateAndPrepareCommentEditor(page);
 
-    if (!hasAuthCookie && !hasUprodCookie && !editor) {
-      addLog("error", "Login validation failed: Missing core 'Authorization' or 'u-prod' cookies in context, and comment editor is missing.");
+    if (!hasAuthCookie && !hasUprodCookie) {
+      addLog("error", "Login validation failed: Missing core 'Authorization' or 'u-prod' cookies in browser session.");
       return { status: "expired", message: "Logged out (Missing auth cookies)" };
     }
 

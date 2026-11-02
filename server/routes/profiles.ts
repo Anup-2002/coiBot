@@ -233,7 +233,7 @@ app.post("/api/save-profile", async (req, res) => {
       name,
       stateJson: normalizeStateJson(stateJson),
       isActive: existingIndex >= 0 ? profiles[existingIndex].isActive : false,
-      loginStatus: existingIndex >= 0 ? (profiles[existingIndex].loginStatus || "unknown") : "unknown",
+      loginStatus: sessionHasValidCookies(stateJson) ? "logged_in" : "expired",
       dailyPostLimit: dailyLimit,
       proxy: proxyVal,
       updatedAt: new Date().toISOString()

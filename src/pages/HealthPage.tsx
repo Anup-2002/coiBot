@@ -110,7 +110,7 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">2. AI Comment Writer</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm shrink-0">
                     <span className="text-slate-400 font-mono">OpenAI:</span>
-                    {(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? (
+                    {(healthData?.checks?.openai ? healthData.checks.openai.status === "ok" : (apiStatus.openai && !apiStatus.openaiError)) ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle className="h-3.5 w-3.5" /> Enabled
                       </span>
@@ -126,8 +126,10 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Model: <strong className="text-slate-200 font-mono">{(apiStatus.openai || healthData?.checks?.openai?.status === "ok") ? "AI Enabled" : "Gemini / Fallback"}</strong></span>
-                <span className="text-emerald-400 font-mono font-bold">Ready</span>
+                <span>Model: <strong className="text-slate-200 font-mono">{(healthData?.checks?.openai ? healthData.checks.openai.status === "ok" : (apiStatus.openai && !apiStatus.openaiError)) ? "AI Enabled" : "Gemini / Fallback"}</strong></span>
+                <span className={(healthData?.checks?.openai?.status === "error" || apiStatus.openaiError) ? "text-rose-400 font-mono font-bold" : "text-emerald-400 font-mono font-bold"}>
+                  {(healthData?.checks?.openai?.status === "error" || apiStatus.openaiError) ? "Quota / Error" : "Ready"}
+                </span>
               </div>
             </div>
 
@@ -138,7 +140,7 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">3. CoinMarketCap Browser</span>
                   <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-sm shrink-0">
                     <span className="text-slate-400 font-mono">CMC:</span>
-                    {(!systemCheckResult || systemCheckResult.success) ? (
+                    {(healthData?.checks?.cmc?.status !== "error" && (!systemCheckResult || systemCheckResult.success)) ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle className="h-3.5 w-3.5" /> Ready
                       </span>
@@ -154,8 +156,10 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Browser Launch: <strong className="text-slate-200 font-mono">{(!systemCheckResult || systemCheckResult.launchStatus === "success") ? "Healthy" : "Action Needed"}</strong></span>
-                <span className="text-emerald-400 font-mono font-bold">Verified</span>
+                <span>Browser Launch: <strong className="text-slate-200 font-mono">{(healthData?.checks?.cmc?.status !== "error" && (!systemCheckResult || systemCheckResult.launchStatus === "success")) ? "Healthy" : "Action Needed"}</strong></span>
+                <span className={(healthData?.checks?.cmc?.status !== "error" && (!systemCheckResult || systemCheckResult.success)) ? "text-emerald-400 font-mono font-bold" : "text-rose-400 font-mono font-bold"}>
+                  {(healthData?.checks?.cmc?.status !== "error" && (!systemCheckResult || systemCheckResult.success)) ? "Verified" : "Check Needed"}
+                </span>
               </div>
             </div>
 
@@ -186,8 +190,10 @@ export function renderHealthPage(checkSystemHealth: any, isCheckingSystem: any, 
                 </p>
               </div>
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Active Account: <strong className="text-emerald-400 font-mono">{activeProfile?.name || "None"}</strong></span>
-                <span className="text-emerald-400 font-mono font-bold">Synced</span>
+                <span>Active Account: <strong className={activeProfile?.name ? "text-emerald-400 font-mono" : "text-amber-400 font-mono"}>{activeProfile?.name || "Not Signed In"}</strong></span>
+                <span className={healthData?.checks?.account?.status === "ok" ? "text-emerald-400 font-mono font-bold" : "text-amber-400 font-mono font-bold"}>
+                  {healthData?.checks?.account?.status === "ok" ? "Session Active" : "Sign In Needed"}
+                </span>
               </div>
             </div>
 

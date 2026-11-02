@@ -28,7 +28,7 @@ export function isProfileSessionActive(profileId?: string | null): boolean {
       if (fs.existsSync(st.PROFILES_FILE)) {
         const profiles = JSON.parse(fs.readFileSync(st.PROFILES_FILE, "utf-8"));
         const target = profiles.find((p: any) => p.id === profileId);
-        if (target && target.stateJson && sessionHasValidCookies(target.stateJson)) {
+        if (target && target.loginStatus !== "expired" && target.stateJson && sessionHasValidCookies(target.stateJson)) {
           if (target.isActive && !fs.existsSync(st.AUTH_STATE_FILE)) {
             try {
               fs.writeFileSync(st.AUTH_STATE_FILE, target.stateJson, "utf-8");
@@ -87,8 +87,15 @@ export function normalizeProfilesWithSchedule(profiles: any[]): any[] {
     let dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
     if (dailyPostLimit === 500) dailyPostLimit = 300;
     const cmcInfo = extractCmcProfileInfo(p.stateJson);
+    const hasCookies = sessionHasValidCookies(p.stateJson);
+    const loginStatus = !hasCookies
+      ? "expired"
+      : p.loginStatus === "expired" || lastRun.status === "skipped_expired"
+        ? "expired"
+        : "logged_in";
     return {
       ...p,
+      loginStatus,
       dailyPostLimit,
       schedule,
       lastRun,

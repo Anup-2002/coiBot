@@ -10,6 +10,11 @@ export function updateProfileLastRun(
     const targetIdx = profiles.findIndex(p => p.id === profileId);
     if (targetIdx !== -1) {
       profiles[targetIdx].lastRun = lastRunData;
+      if (lastRunData.status === "skipped_expired" || lastRunData.status === "skipped_missing_session") {
+        profiles[targetIdx].loginStatus = "expired";
+      } else if (lastRunData.status === "completed" && lastRunData.posted > 0) {
+        profiles[targetIdx].loginStatus = "logged_in";
+      }
       profiles[targetIdx].updatedAt = new Date().toISOString();
       fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
       saveProfilesCloud(profiles).catch(err => console.error("[STORAGE] Error syncing lastRun to cloud:", err));
@@ -404,13 +409,13 @@ export async function runScheduledCycle(): Promise<void> {
         saveLocalBotSettings({
           ...curSettings,
           schedulerStatus: st.pauseSchedulerRequested ? "paused" : "stopped",
-          schedulerSavedPosition: {
+          schedulerSavedPosition: st.pauseSchedulerRequested ? {
             queue: remQueue.length > 0 ? remQueue : st.schedulerQueue,
             currentAccountId: account.id,
             pausedAt: new Date().toISOString(),
-          },
+          } : null,
         });
-        addLog("warning", `[SCHEDULER] ${st.pauseSchedulerRequested ? "Pause" : "Stop"} active. Saved position for account [${account.name || account.id}].`);
+        addLog("warning", `[SCHEDULER] ${st.pauseSchedulerRequested ? "Pause" : "Stop"} active.`);
         break;
       }
 
@@ -621,13 +626,13 @@ export async function runScheduledCycle(): Promise<void> {
         saveLocalBotSettings({
           ...curSettings,
           schedulerStatus: st.pauseSchedulerRequested ? "paused" : "stopped",
-          schedulerSavedPosition: remQueue.length > 0 ? {
+          schedulerSavedPosition: (st.pauseSchedulerRequested && remQueue.length > 0) ? {
             queue: remQueue,
             currentAccountId: nextAccId,
             pausedAt: new Date().toISOString(),
           } : null,
         });
-        addLog("info", `[SCHEDULER] Cycle ${st.pauseSchedulerRequested ? "paused" : "stopped"}. Position saved at account [${nextAccId}].`);
+        addLog("info", `[SCHEDULER] Cycle ${st.pauseSchedulerRequested ? "paused" : "stopped"}.`);
         break;
       }
     }
@@ -651,27 +656,33 @@ export async function runScheduledCycle(): Promise<void> {
       ).catch(() => {});
     }
 
-    const todayStr = getTodayDateString();
-    const currentSettings = getLocalBotSettings();
-    let updatedDailyCycles = (currentSettings.dailyCycleCount || 0) + 1;
-    if (currentSettings.lastCycleDate !== todayStr) {
-      updatedDailyCycles = 1;
+    if (st.pauseSchedulerRequested || st.stopSchedulerRequested || st.isStopping) {
+      st.botStatus = "Idle";
+    } else if (totalCyclePosted === 0 && dueAccounts.length > 0) {
+      st.botStatus = "Idle";
+    } else {
+      const todayStr = getTodayDateString();
+      const currentSettings = getLocalBotSettings();
+      let updatedDailyCycles = (currentSettings.dailyCycleCount || 0) + 1;
+      if (currentSettings.lastCycleDate !== todayStr) {
+        updatedDailyCycles = 1;
+      }
+      const maxCycles = currentSettings.maxCyclesPerDay || 4;
+      saveLocalBotSettings({
+        ...currentSettings,
+        dailyCycleCount: updatedDailyCycles,
+        lastCycleDate: todayStr,
+      });
+
+      // Auto-prune old completed records and archive
+      try {
+        pruneOldAndCompletedData();
+      } catch (_) {}
+
+      addLog("info", "==================================================");
+      addLog("success", `[SCHEDULER] Sequential multi-account scheduled cycle finished. (Cycle ${updatedDailyCycles}/${maxCycles} completed for today).`);
+      st.botStatus = "Completed";
     }
-    const maxCycles = currentSettings.maxCyclesPerDay || 4;
-    saveLocalBotSettings({
-      ...currentSettings,
-      dailyCycleCount: updatedDailyCycles,
-      lastCycleDate: todayStr,
-    });
-
-    // Auto-prune old completed records and archive
-    try {
-      pruneOldAndCompletedData();
-    } catch (_) {}
-
-    addLog("info", "==================================================");
-    addLog("success", `[SCHEDULER] Sequential multi-account scheduled cycle finished. (Cycle ${updatedDailyCycles}/${maxCycles} completed for today).`);
-    st.botStatus = "Completed";
   } catch (err) {
     addLog("error", `[SCHEDULER] Fatal error in scheduled cycle: ${(err as Error).message}`);
     st.botStatus = "Idle";

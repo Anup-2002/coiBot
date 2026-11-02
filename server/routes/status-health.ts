@@ -241,13 +241,16 @@ app.get("/api/status", async (req, res) => {
   const dailyPostLimit = getAccountDailyPostLimit(activeId);
   const ts = getRealTimestamps(activeId);
 
-  const batchGenAt = ts.commentsGeneratedAt || 0;
-  const currentBatchResults = batchGenAt > 0
-    ? results.filter(r => {
-        const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
-        return !isNaN(rTime) && rTime >= (batchGenAt - 120000);
-      })
-    : results;
+  const batchGenAt = ts.commentsGeneratedAt || ts.coinsFetchedAt || 0;
+  const hasActiveBatchQueue = coins.length > 0 || messages.length > 0 || st.isPostingRunning;
+  const currentBatchResults = !hasActiveBatchQueue
+    ? []
+    : batchGenAt > 0
+      ? results.filter(r => {
+          const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+          return !isNaN(rTime) && rTime >= (batchGenAt - 120000);
+        })
+      : [];
   const batchSuccessCount = currentBatchResults.filter(r => r.status === "success").length;
   const batchFailedCount = currentBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
 

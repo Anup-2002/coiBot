@@ -603,13 +603,19 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
       stopReason = "stopped_by_user";
       logWithPrefix("warning", "Posting loop paused: stop command was received.");
     } else if (st.currentPostingIndex >= messages.length || runPosted + runFailed >= initialPendingCount) {
-      stopReason = "completed";
-      if (runFailed > 0) {
-        logWithPrefix("warning", `Automated posting run finished with partial failures: ${runPosted} verified posted on CoinMarketCap, ${runFailed} failed/unposted.`);
+      if (runPosted === 0 && runFailed > 0) {
+        stopReason = "failed";
+        logWithPrefix("error", `Automated posting run failed: 0 posted, ${runFailed} failed on CoinMarketCap.`);
+        st.botStatus = "Idle";
+      } else if (runFailed > 0) {
+        stopReason = "completed";
+        logWithPrefix("warning", `Automated posting run finished with partial failures: ${runPosted} posted on CoinMarketCap, ${runFailed} failed/unposted.`);
+        st.botStatus = "Idle";
       } else {
-        logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Verified Posted: ${runPosted}, Failed: 0)`);
+        stopReason = "completed";
+        logWithPrefix("success", `CONGRATULATIONS: Complete automated posting run finished successfully! (Posted: ${runPosted}, Failed: 0)`);
+        st.botStatus = "Completed";
       }
-      st.botStatus = "Completed";
       st.isPostingRunning = false;
       if (!isSchedulerCall) st.isSinglePostingRunning = false;
 

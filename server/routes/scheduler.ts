@@ -25,7 +25,8 @@ app.get("/api/scheduler", (req, res) => {
       schedule,
       lastRun,
       nextDueAt: nextDueAt(schedule, lastRun.at),
-      hasValidSession: sessionHasValidCookies(p.stateJson),
+      loginStatus: p.loginStatus,
+      hasValidSession: sessionHasValidCookies(p.stateJson) && p.loginStatus !== "expired" && lastRun.status !== "skipped_expired",
       cmcUsername: p.cmcUsername,
       cmcNickname: p.cmcNickname,
       communityProfileUrl: p.communityProfileUrl,
@@ -98,6 +99,7 @@ app.post("/api/scheduler/settings", (req, res) => {
     schedulerStatus: nextEnabled
       ? (current.schedulerStatus === "paused" && enabled === undefined ? "paused" : "stopped")
       : "stopped",
+    ...(enabled !== undefined ? { schedulerSavedPosition: null } : {}),
     schedulerMode: nextMode,
     maxCyclesPerDay: nextMaxCycles,
     schedulerIntervalMinutes: nextInterval,
@@ -464,18 +466,14 @@ app.post("/api/scheduler/stop", async (req, res) => {
   }
 
   const currentSettings = getLocalBotSettings();
-  const queueToSave = st.schedulerQueue.length > 0 ? st.schedulerQueue : (currentSettings.schedulerSavedPosition?.queue || []);
-  const accountToSave = st.currentSchedulerAccountId || currentSettings.schedulerSavedPosition?.currentAccountId || (queueToSave[0] || null);
+  st.schedulerQueue = [];
+  st.currentSchedulerAccountId = null;
 
   saveLocalBotSettings({
     ...currentSettings,
     schedulerEnabled: false,
     schedulerStatus: "stopped",
-    schedulerSavedPosition: accountToSave ? {
-      queue: queueToSave,
-      currentAccountId: accountToSave,
-      pausedAt: new Date().toISOString(),
-    } : null,
+    schedulerSavedPosition: null,
   });
 
   addLog("warning", "[SCHEDULER] Stop requested. Letting current coin finish first (force closing after 2 minutes if needed)...");

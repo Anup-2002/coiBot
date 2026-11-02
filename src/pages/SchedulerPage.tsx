@@ -783,6 +783,11 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                                   <CheckCircle className="h-3 w-3" />
                                   Valid
                                 </span>
+                              ) : (acc.loginStatus === "expired" || acc.lastRun?.status === "skipped_expired") ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Expired
+                                </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                   <AlertTriangle className="h-3 w-3" />

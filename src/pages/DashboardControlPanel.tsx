@@ -728,17 +728,16 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               {(() => {
                 const activePid = activeProfileIdRef.current || activeProfile?.id;
                 const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
-                const batchGenTime = commentsGeneratedAt || 0;
+                const batchGenTime = commentsGeneratedAt || coinsFetchedAt || 0;
+                const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
                 const isCurBatchResult = (r: PostResult) => {
-                  if (!batchGenTime) return true;
+                  if (activeBatchTotal === 0 || !batchGenTime) return false;
                   const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
                   return !isNaN(rTime) && rTime >= (batchGenTime - 120000);
                 };
                 const curBatchResults = profileResults.filter(isCurBatchResult);
                 const verifiedBatchSuccessCount = curBatchResults.filter(r => r.status === "success").length;
                 const verifiedBatchFailedCount = curBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
-
-                const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
                 // Use verified successful posts for the current batch when results are loaded; never fake 100% when coins failed
                 const displayPostedCount = curBatchResults.length > 0 ? verifiedBatchSuccessCount : postedCount;
                 const displayFailedCount = curBatchResults.length > 0 ? verifiedBatchFailedCount : failedCount;
@@ -911,8 +910,8 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               })()}
 
               <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-0.5">
-                <span>Success Rate: <strong className="text-slate-200 font-semibold">{postedCount + failedCount > 0 ? Math.round((postedCount / (postedCount + failedCount)) * 100) : 100}%</strong></span>
-                <span>Active Profile: <strong className="text-emerald-400 font-semibold">{activeProfile?.name || "Active"}</strong></span>
+                <span>Success Rate: <strong className="text-slate-200 font-semibold">{postedCount + failedCount > 0 ? `${Math.round((postedCount / (postedCount + failedCount)) * 100)}%` : "—"}</strong></span>
+                <span>Active Profile: <strong className={activeProfile?.name || sessionExists ? "text-emerald-400 font-semibold" : "text-slate-400 font-semibold"}>{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong></span>
               </div>
             </div>
           </section>
