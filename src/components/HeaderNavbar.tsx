@@ -1,5 +1,5 @@
 import React from "react";
-import { Terminal as TerminalIcon, Clock, RefreshCw, Users, Activity, Lock, Settings, BookOpen } from "lucide-react";
+import { Home, Terminal as TerminalIcon, Clock, RefreshCw, Users, Activity, Lock, Settings, BookOpen } from "lucide-react";
 import { CustomSelect } from "./CustomSelect";
 
 export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any, switchingProfileId: any, sessionExists: any, setShowSessionModal: any, profilesList: any, activeProfile: any, currentView: any, navigateTo: any, setLoginTab: any, schedulerData: any, isPostingActive: any, isBusy: any, promptSwitchProfile: any, handleResetLoginState: any) {
@@ -27,6 +27,23 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
 
           {/* TOP CONTROLS & NAVIGATION ROW */}
           <div className="flex flex-wrap items-center justify-start xl:justify-end gap-1.5 text-sm">
+            {/* Home (Dashboard) Button */}
+            <button
+              type="button"
+              onClick={() => navigateTo("dashboard")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
+                currentView === "dashboard"
+                  ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30 shadow-sm"
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+              }`}
+              title="Go to Home Dashboard"
+              aria-label="Go to Home Dashboard"
+              id="navbar-home-btn"
+            >
+              <Home className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span>Home</span>
+            </button>
+
             {/* Attached Account + Settings Split Pill & Active Account Switcher */}
             <div className="flex flex-wrap items-center gap-1.5">
               {/* Unified Attached Account + Settings Pill */}

@@ -251,8 +251,20 @@ app.get("/api/status", async (req, res) => {
           return !isNaN(rTime) && rTime >= (batchGenAt - 120000);
         })
       : [];
-  const batchSuccessCount = currentBatchResults.filter(r => r.status === "success").length;
-  const batchFailedCount = currentBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
+  const normBatchSym = (s?: string) => String(s || "").replace(/^\$/, "").trim().toLowerCase();
+  const postedBatchSyms = new Set(
+    currentBatchResults.filter(r => r.status === "success").map(r => normBatchSym(r.symbol)).filter(Boolean)
+  );
+  const satisfiedMessagesCount = messages.length > 0
+    ? messages.filter(m => postedBatchSyms.has(normBatchSym(m.symbol))).length
+    : coins.filter(c => postedBatchSyms.has(normBatchSym(c.symbol))).length;
+  const batchSuccessCount = Math.max(
+    currentBatchResults.filter(r => r.status === "success").length,
+    satisfiedMessagesCount
+  );
+  const batchFailedCount = currentBatchResults.filter(
+    r => r.status !== "success" && r.status !== "skipped" && !postedBatchSyms.has(normBatchSym(r.symbol))
+  ).length;
 
   const now = Date.now();
   const TWO_DAYS_MS = 48 * 60 * 60 * 1000;

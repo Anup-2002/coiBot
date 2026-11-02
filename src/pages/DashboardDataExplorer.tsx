@@ -68,56 +68,61 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             </div>
           </div>
 
-          {/* TAB BAR & WINDOW CONTENT (Smoothly expands on 1-click Expand, completely hidden when minimized) */}
+          {/* COMPACT 5-TAB BAR (Always in place, zero dropdown arrows — click any tab to open, click active tab again or Hide to collapse) */}
+          <div className="mt-3.5 flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "coins" ? "" : "coins")}
+              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                activeTab === "coins" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              1. Trending Coins ({coinsList.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "comments" ? "" : "comments")}
+              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                activeTab === "comments" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              2. Generated Comments ({messagesList.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "results" ? "" : "results")}
+              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                activeTab === "results" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              3. Post Submissions ({submissionCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "reports" ? "" : "reports")}
+              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+                activeTab === "reports" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              4. CSV Exports &amp; Reports
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "images" ? "" : "images")}
+              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <ImageIcon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+              <span>5. Image Library ({marketingImages.length})</span>
+              <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+                {imageUploadEnabled ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          </div>
+
           {isExpanded && (
-          <div className="min-h-[200px] pt-4 mt-4 border-t border-slate-800 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* Exporter selector tabs */}
-            <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-              <button
-                onClick={() => setActiveTab("coins")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "coins" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                1. Trending Coins ({coinsList.length})
-              </button>
-              <button
-                onClick={() => setActiveTab("comments")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "comments" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                2. Generated Comments ({messagesList.length})
-              </button>
-              <button
-                onClick={() => setActiveTab("results")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "results" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                3. Post Submissions ({submissionCount})
-              </button>
-              <button
-                onClick={() => setActiveTab("reports")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
-                  activeTab === "reports" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                4. CSV Exports &amp; Reports
-              </button>
-              <button
-                onClick={() => setActiveTab("images")}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <ImageIcon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                <span>5. Image Library ({marketingImages.length})</span>
-                <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
-                  {imageUploadEnabled ? 'ON' : 'OFF'}
-                </span>
-              </button>
-            </div>
+          <div className="min-h-[200px] pt-4 mt-3 border-t border-slate-800 space-y-4 animate-in fade-in duration-150">
             
             {/* TAB 1: COINS LIST */}
             {activeTab === "coins" && (

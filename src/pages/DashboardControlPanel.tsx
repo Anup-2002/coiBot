@@ -5,6 +5,44 @@ import { formatTimeAgo } from "../utils/ui-helpers";
 import { CycleCountdown } from "../components/CycleCountdown";
 
 export function renderDashboardControlPanel(status: string, navigateTo: any, isBusy: any, isPostingActive: any, schedulerData: any, toggleNotifications: any, notificationsEnabled: any, isSchedulerRunning: any, imageUploadEnabled: any, marketingImages: any, imageSelectionMode: any, handleToggleImageUpload: any, isUpdatingImageSettings: any, imageFileInputRef: any, isUploadingImages: any, setActiveTab: any, setInlineConfirmModal: any, runCommand: any, isPending: any, activeProfile: any, profilesList: any, sessionExists: any, dailyPostCount: any, coinsList: any, messagesList: any, postedCount: any, failedCount: any, setIsExternalImportModalOpen: any, totalCoins: any, isContinuousLoopActive: any, showToast: any, isStoppingPost: any, generatedCount: any, activeProcess: any, activeProcessDescription: any, setShowConfirmFetchModal: any, coinsFetchedAt: any, setShowConfirmGenerateModal: any, commentsGeneratedAt: any, setIsStoppingPost: any, isDataOlderThan2Days: any, setShowStaleWarningModal: any, setIsStartingPost: any, isStartingPost: any, handleRefreshFreshData: any, isRefreshingFreshData: any, continuousInterval: any, toggleContinuousLoop: any, setContinuousInterval: any, saveIntervalToServer: any, nextCycleStartTime: any, activeImageIndex: any, activeProfileIdRef: any, results: any, progressIndex: any, currentCoin: any, dailyPostLimit: any) {
+  const activePid = activeProfileIdRef.current || activeProfile?.id;
+  const profileResults = results.filter((r: any) => !activePid || !r.profileId || r.profileId === activePid);
+  const batchGenTime = commentsGeneratedAt || coinsFetchedAt || 0;
+  const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
+  const normSym = (s?: string) => String(s || "").replace(/^\$/, "").trim().toLowerCase();
+  const isCurBatchResult = (r: PostResult) => {
+    if (activeBatchTotal === 0 || !batchGenTime) return false;
+    const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+    return !isNaN(rTime) && rTime >= (batchGenTime - 120000);
+  };
+  const curBatchResults = profileResults.filter(isCurBatchResult);
+  const postedSymsInBatch = new Set(
+    curBatchResults.filter((r: PostResult) => r.status === "success").map((r: PostResult) => normSym(r.symbol)).filter(Boolean)
+  );
+  const satisfiedQueueCount = messagesList.length > 0
+    ? messagesList.filter((m: any) => postedSymsInBatch.has(normSym(m.symbol))).length
+    : coinsList.filter((c: any) => postedSymsInBatch.has(normSym(c.symbol))).length;
+  const verifiedBatchSuccessCount = Math.max(
+    curBatchResults.filter((r: PostResult) => r.status === "success").length,
+    satisfiedQueueCount
+  );
+  const verifiedBatchFailedCount = curBatchResults.filter(
+    (r: PostResult) => r.status !== "success" && r.status !== "skipped" && !postedSymsInBatch.has(normSym(r.symbol))
+  ).length;
+  const displayPostedCount = curBatchResults.length > 0 ? verifiedBatchSuccessCount : Math.min(postedCount, activeBatchTotal);
+  const displayFailedCount = curBatchResults.length > 0 ? verifiedBatchFailedCount : failedCount;
+  const clampedProgress = Math.min(
+    curBatchResults.length > 0 ? verifiedBatchSuccessCount : Math.max(postedCount, progressIndex),
+    activeBatchTotal
+  );
+  const batchPercent = activeBatchTotal > 0 ? Math.min(100, Math.max(0, Math.round((clampedProgress / activeBatchTotal) * 100))) : 0;
+  const remainingBatch = Math.max(0, activeBatchTotal - clampedProgress);
+  const isBatchCompleted = activeBatchTotal > 0 && remainingBatch === 0 && displayPostedCount >= activeBatchTotal;
+  const firstUnpostedCoin = messagesList.find((m: any) => !postedSymsInBatch.has(normSym(m.symbol))) || coinsList.find((c: any) => !postedSymsInBatch.has(normSym(c.symbol)));
+  const nextQueuedSymbol = isBatchCompleted
+    ? null
+    : (firstUnpostedCoin?.symbol || coinsList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol || messagesList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol);
+
   return (
     <>
         {/* PRIMARY FEATURE SPOTLIGHT: 24/7 MULTI-ACCOUNT AUTO-SCHEDULER */}
@@ -156,9 +194,11 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         ? "Stopping"
                         : status !== "Idle"
                           ? status
-                          : (totalCoins > 0 && generatedCount > 0)
-                            ? "Ready"
-                            : "Standby"}
+                          : isBatchCompleted
+                            ? "Completed"
+                            : (totalCoins > 0 && generatedCount > 0)
+                              ? "Ready"
+                              : "Standby"}
                     </span>
                   </div>
                 </div>
@@ -417,9 +457,11 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       }`}>
                         {isStartingPost || isPending.post
                           ? "Starting..."
-                          : totalCoins > 0 && generatedCount > 0
-                            ? "Ready"
-                            : "Need Queue"}
+                          : isBatchCompleted
+                            ? "Completed"
+                            : totalCoins > 0 && generatedCount > 0
+                              ? `${remainingBatch} Left`
+                              : "Need Queue"}
                       </span>
                       {isStartingPost || isPending.post ? (
                         <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400 shrink-0" />
@@ -717,38 +759,17 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       ? "Halting"
                       : status !== "Idle"
                         ? status
-                        : (totalCoins > 0 && generatedCount > 0)
-                          ? "Queue Ready"
-                          : "Standby"}
+                        : isBatchCompleted
+                          ? "Completed"
+                          : (totalCoins > 0 && generatedCount > 0)
+                            ? "Queue Ready"
+                            : "Standby"}
                   </span>
                 </div>
               </div>
 
               {/* CURRENT COIN SPOTLIGHT CARD */}
               {(() => {
-                const activePid = activeProfileIdRef.current || activeProfile?.id;
-                const profileResults = results.filter(r => !activePid || !r.profileId || r.profileId === activePid);
-                const batchGenTime = commentsGeneratedAt || coinsFetchedAt || 0;
-                const activeBatchTotal = generatedCount > 0 ? generatedCount : (totalCoins > 0 ? totalCoins : 0);
-                const isCurBatchResult = (r: PostResult) => {
-                  if (activeBatchTotal === 0 || !batchGenTime) return false;
-                  const rTime = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
-                  return !isNaN(rTime) && rTime >= (batchGenTime - 120000);
-                };
-                const curBatchResults = profileResults.filter(isCurBatchResult);
-                const verifiedBatchSuccessCount = curBatchResults.filter(r => r.status === "success").length;
-                const verifiedBatchFailedCount = curBatchResults.filter(r => r.status !== "success" && r.status !== "skipped").length;
-                // Use verified successful posts for the current batch when results are loaded; never fake 100% when coins failed
-                const displayPostedCount = curBatchResults.length > 0 ? verifiedBatchSuccessCount : postedCount;
-                const displayFailedCount = curBatchResults.length > 0 ? verifiedBatchFailedCount : failedCount;
-                const clampedProgress = Math.min(
-                  curBatchResults.length > 0 ? verifiedBatchSuccessCount : progressIndex,
-                  activeBatchTotal
-                );
-                const batchPercent = activeBatchTotal > 0 ? Math.min(100, Math.max(0, Math.round((clampedProgress / activeBatchTotal) * 100))) : 0;
-                const remainingBatch = Math.max(0, activeBatchTotal - clampedProgress);
-                const nextQueuedSymbol = coinsList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol || messagesList[Math.min(progressIndex, Math.max(0, activeBatchTotal - 1))]?.symbol;
-
                 return (
                   <>
                     <div className="spotlight-asset-card min-h-[86px] p-4 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
@@ -910,7 +931,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               })()}
 
               <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-0.5">
-                <span>Success Rate: <strong className="text-slate-200 font-semibold">{postedCount + failedCount > 0 ? `${Math.round((postedCount / (postedCount + failedCount)) * 100)}%` : "—"}</strong></span>
+                <span>Success Rate: <strong className="text-slate-200 font-semibold">{displayPostedCount + displayFailedCount > 0 ? `${Math.round((displayPostedCount / (displayPostedCount + displayFailedCount)) * 100)}%` : "—"}</strong></span>
                 <span>Active Profile: <strong className={activeProfile?.name || sessionExists ? "text-emerald-400 font-semibold" : "text-slate-400 font-semibold"}>{activeProfile?.name || (sessionExists ? "Active" : "Not Logged In")}</strong></span>
               </div>
             </div>

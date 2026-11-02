@@ -84,13 +84,52 @@ export function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
     const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
+    let resolvedLastRun = lastRun;
+    if (p.id) {
+      try {
+        const profDir = path.join(st.OUTPUT_DIR, p.id);
+        const tsPath = path.join(profDir, "timestamps.json");
+        const resPath = path.join(profDir, "results.json");
+        const msgsPath = path.join(profDir, "generated_messages.json");
+        if (fs.existsSync(resPath)) {
+          const profResults = readJsonFile<any[]>(resPath, []);
+          const profTs = fs.existsSync(tsPath) ? readJsonFile<any>(tsPath, {}) : {};
+          const profMsgs = fs.existsSync(msgsPath) ? readJsonFile<any[]>(msgsPath, []) : [];
+          const batchStart = profTs.commentsGeneratedAt || profTs.coinsFetchedAt || 0;
+          const relevant = batchStart > 0
+            ? profResults.filter(r => {
+                const t = r.createdAt ? Number(r.createdAt) : new Date(r.timestamp).getTime();
+                return !isNaN(t) && t >= (batchStart - 120000);
+              })
+            : profResults.slice(-30);
+          if (relevant.length > 0) {
+            const normS = (s?: string) => String(s || "").replace(/^\$/, "").trim().toLowerCase();
+            const okSyms = new Set(relevant.filter(r => r.status === "success").map(r => normS(r.symbol)).filter(Boolean));
+            const satCount = profMsgs.length > 0 ? profMsgs.filter(m => okSyms.has(normS(m.symbol))).length : 0;
+            const postedCnt = Math.max(relevant.filter(r => r.status === "success").length, satCount);
+            const failedCnt = relevant.filter(r => r.status !== "success" && r.status !== "skipped" && !okSyms.has(normS(r.symbol))).length;
+            const lastItem = relevant[relevant.length - 1];
+            const latestTimeMs = lastItem?.createdAt ? Number(lastItem.createdAt) : (batchStart || 0);
+            const existingTimeMs = resolvedLastRun.at ? new Date(resolvedLastRun.at).getTime() : 0;
+            if (!resolvedLastRun.at || (latestTimeMs > existingTimeMs + 60000 && (postedCnt > 0 || failedCnt > 0))) {
+              resolvedLastRun = {
+                at: latestTimeMs > 0 ? new Date(latestTimeMs).toISOString() : new Date().toISOString(),
+                status: postedCnt > 0 ? "completed" : "failed",
+                posted: postedCnt,
+                failed: failedCnt,
+              };
+            }
+          }
+        }
+      } catch (_) {}
+    }
     let dailyPostLimit = typeof p.dailyPostLimit === "number" && p.dailyPostLimit > 0 ? p.dailyPostLimit : 300;
     if (dailyPostLimit === 500) dailyPostLimit = 300;
     const cmcInfo = extractCmcProfileInfo(p.stateJson);
     const hasCookies = sessionHasValidCookies(p.stateJson);
     const loginStatus = !hasCookies
       ? "expired"
-      : p.loginStatus === "expired" || lastRun.status === "skipped_expired"
+      : p.loginStatus === "expired" || resolvedLastRun.status === "skipped_expired"
         ? "expired"
         : "logged_in";
     return {
@@ -98,7 +137,7 @@ export function normalizeProfilesWithSchedule(profiles: any[]): any[] {
       loginStatus,
       dailyPostLimit,
       schedule,
-      lastRun,
+      lastRun: resolvedLastRun,
       ...(cmcInfo.cmcUsername ? { cmcUsername: cmcInfo.cmcUsername } : {}),
       ...(cmcInfo.cmcNickname ? { cmcNickname: cmcInfo.cmcNickname } : {}),
       ...(cmcInfo.communityProfileUrl ? { communityProfileUrl: cmcInfo.communityProfileUrl } : {}),

@@ -71,17 +71,22 @@ export const CustomSelect: React.FC<{
       if (menuRef.current && e.target && menuRef.current.contains(e.target as Node)) {
         return;
       }
-      updatePosition();
+      setOpen(false);
     };
+    const handleBlur = () => setOpen(false);
     document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside, { passive: true });
     document.addEventListener("keydown", handleKey);
     window.addEventListener("scroll", handleScrollOrResize, true);
     window.addEventListener("resize", handleScrollOrResize);
+    window.addEventListener("blur", handleBlur);
     return () => {
       document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
       document.removeEventListener("keydown", handleKey);
       window.removeEventListener("scroll", handleScrollOrResize, true);
       window.removeEventListener("resize", handleScrollOrResize);
+      window.removeEventListener("blur", handleBlur);
     };
   }, [open, options.length, menuMinWidth]);
 

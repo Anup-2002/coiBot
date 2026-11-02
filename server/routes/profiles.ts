@@ -228,7 +228,9 @@ app.post("/api/save-profile", async (req, res) => {
       ? req.body.proxy.trim() 
       : (existingIndex >= 0 ? (profiles[existingIndex].proxy || "") : "");
 
+    const existingProf = existingIndex >= 0 ? profiles[existingIndex] : {};
     const profileData = {
+      ...existingProf,
       id: profileId,
       name,
       stateJson: normalizeStateJson(stateJson),

@@ -670,6 +670,22 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
       st.botStatus = "Idle";
     }
     st.currentCoinName = "N/A";
+    if (!isSchedulerCall && activeId && (runPosted > 0 || runFailed > 0)) {
+      try {
+        const profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
+        const idx = profiles.findIndex(p => p.id === activeId);
+        if (idx !== -1) {
+          profiles[idx].lastRun = {
+            at: new Date().toISOString(),
+            status: stopReason,
+            posted: runPosted,
+            failed: runFailed,
+          };
+          profiles[idx].updatedAt = new Date().toISOString();
+          fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        }
+      } catch (_) {}
+    }
     logWithPrefix("info", "Posting engine has fully halted and settled.");
   }
 
