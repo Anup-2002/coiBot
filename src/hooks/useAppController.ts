@@ -139,7 +139,7 @@ export function useAppController() {
   });
 
   const [adminSection, setAdminSection] = useState<"security" | "telegram" | "retention">("security");
-  const [guideStep, setGuideStep] = useState<"all" | "getting-started" | "accounts" | "scheduler" | "images" | "troubleshooting">("all");
+  const [guideStep, setGuideStep] = useState<"all" | "getting-started" | "accounts" | "scheduler" | "images" | "troubleshooting">("getting-started");
 
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
   const [telegramToken, setTelegramToken] = useState<string>("");
