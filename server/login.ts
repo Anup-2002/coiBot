@@ -2,7 +2,7 @@ import { fs, path } from "./config.ts";
 import { st } from "./state.ts";
 import { addLog } from "./logger.ts";
 import { saveSessionStateCloudIfChanged } from "./files.ts";
-import { getActiveProfileId, sessionHasValidCookies, autoSyncSessionToProfiles } from "./profiles.ts";
+import { getActiveProfileId, sessionHasValidCookies, autoSyncSessionToProfiles, normalizeStateJson } from "./profiles.ts";
 import { saveSessionStateCloud } from "../src/storage.ts";
 import { withTimeout, PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, fillInputResiliently, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails, hasRealAuthCookies, isEditorPostButtonRequiringLogin } from "./browser.ts";
 
@@ -667,11 +667,25 @@ export async function executeStartLogin(email: string, password: string): Promis
           }
         } catch (_) {}
 
-        // 3. Check for 6-digit verification code / OTP challenge
+        // 3. Check for 6-digit verification code / OTP challenge (including 6 segmented 1-digit inputs)
         const hasOtpField = await page.evaluate(() => {
           const inp = document.querySelector('input[placeholder*="code" i], input[placeholder*="verification" i], input[maxlength="6"], [data-test*="otp" i], [data-test*="verification" i]');
+          const segmented = document.querySelectorAll('input[maxlength="1"], input[data-index]');
+          let visibleSegmented = 0;
+          segmented.forEach((el) => {
+            if ((el as HTMLElement).offsetParent !== null) visibleSegmented++;
+          });
           const bodyText = (document.body.innerText || "").toLowerCase();
-          return !!inp || bodyText.includes("verification code") || bodyText.includes("6-digit") || bodyText.includes("check your email");
+          return (
+            !!inp ||
+            visibleSegmented >= 4 ||
+            bodyText.includes("verification code") ||
+            bodyText.includes("security verification") ||
+            bodyText.includes("email verification") ||
+            bodyText.includes("6-digit") ||
+            bodyText.includes("check your email") ||
+            bodyText.includes("enter the code")
+          );
         }).catch(() => false);
 
         if (hasOtpField) {
@@ -679,16 +693,22 @@ export async function executeStartLogin(email: string, password: string): Promis
           break;
         }
 
-        // 4. Strict authentication check: requires avatar OR verified user session
+        // 4. Strict authentication check: MUST have real CoinMarketCap auth cookies (Authorization / u-prod / cmc_user_session)
+        // AND the login password field must no longer be visible in an open dialog.
+        // Never rely on generic [class*="avatar" i] alone because CoinMarketCap's homepage contains public avatar elements even when logged out.
         const currentCookies = await context.cookies().catch(() => []);
         const hasAuthCookies = hasRealAuthCookies(currentCookies);
 
-        const hasAvatar = await page.evaluate(() => {
-          return document.querySelector('[data-test="header-avatar"], .user-avatar, img[alt*="avatar" i], [class*="avatar" i], a[href*="/account/"], [class*="user-icon" i]') !== null;
+        const isPasswordModalStillOpen = await page.evaluate(() => {
+          const passInputs = document.querySelectorAll('div[role="dialog"] input[type="password"], [class*="modal" i] input[type="password"], input[type="password"]');
+          for (let i = 0; i < passInputs.length; i++) {
+            if ((passInputs[i] as HTMLElement).offsetParent !== null) return true;
+          }
+          return false;
         }).catch(() => false);
 
-        // Only declare early success if genuine user avatar is present, or verified JWT auth cookie with settled state (p >= 4)
-        if (hasAvatar || (hasAuthCookies && p >= 4)) {
+        // Only declare early success if genuine auth cookies exist AND login modal has closed with settled state (p >= 4)
+        if (hasAuthCookies && !isPasswordModalStillOpen && p >= 4) {
           isSuccessEarly = true;
           break;
         }
@@ -711,10 +731,14 @@ export async function executeStartLogin(email: string, password: string): Promis
         addLog("success", `Saved login cookies session to ${st.AUTH_STATE_FILE}`);
 
         try {
-          const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+          const rawCookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+          const cookiesStr = normalizeStateJson(rawCookiesStr);
+          if (cookiesStr !== rawCookiesStr) {
+            fs.writeFileSync(st.AUTH_STATE_FILE, cookiesStr, "utf-8");
+          }
+          await autoSyncSessionToProfiles(cookiesStr, email);
           const activeId = getActiveProfileId();
           await saveSessionStateCloud(cookiesStr, activeId || undefined);
-          await autoSyncSessionToProfiles(cookiesStr, email);
         } catch (e) {
           console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
         }
@@ -795,16 +819,20 @@ export async function executeStartLogin(email: string, password: string): Promis
       const secondaryEditor = await locateAndPrepareCommentEditor(page).catch(() => null);
       const editorRequiresLogin = await isEditorPostButtonRequiringLogin(page);
 
-      if (!editorRequiresLogin && (secondaryAvatar || (hasSecondaryAuth && secondaryEditor))) {
+      if (!editorRequiresLogin && hasSecondaryAuth && (secondaryAvatar || secondaryEditor)) {
         addLog("success", "Successfully authenticated and verified community access!");
         await context.storageState({ path: st.AUTH_STATE_FILE });
         addLog("success", `Saved login cookies session to ${st.AUTH_STATE_FILE}`);
 
         try {
-          const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+          const rawCookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+          const cookiesStr = normalizeStateJson(rawCookiesStr);
+          if (cookiesStr !== rawCookiesStr) {
+            fs.writeFileSync(st.AUTH_STATE_FILE, cookiesStr, "utf-8");
+          }
+          await autoSyncSessionToProfiles(cookiesStr, email);
           const activeId = getActiveProfileId();
           await saveSessionStateCloud(cookiesStr, activeId || undefined);
-          await autoSyncSessionToProfiles(cookiesStr, email);
         } catch (e) {
           console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
         }
@@ -996,10 +1024,14 @@ export async function executeSubmitOtp(otp: string): Promise<{ status: "success"
       
       // Sync successfully saved session to Cloud and Auto-Update Profiles
       try {
-        const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+        const rawCookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
+        const cookiesStr = normalizeStateJson(rawCookiesStr);
+        if (cookiesStr !== rawCookiesStr) {
+          fs.writeFileSync(st.AUTH_STATE_FILE, cookiesStr, "utf-8");
+        }
+        await autoSyncSessionToProfiles(cookiesStr, email);
         const activeId = getActiveProfileId();
         await saveSessionStateCloud(cookiesStr, activeId || undefined);
-        autoSyncSessionToProfiles(cookiesStr, email);
       } catch (e) {
         console.error("Failed to save session cookies to Firestore cloud or update profiles:", (e as Error).message);
       }

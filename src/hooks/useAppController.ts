@@ -1434,8 +1434,17 @@ export function useAppController() {
         body: JSON.stringify({ id })
       });
       if (res.ok) {
-        fetchProfiles();
-        fetchSessionDetails();
+        if (activeProfileIdRef.current === id) {
+          activeProfileIdRef.current = "";
+        }
+        await Promise.all([
+          fetchProfiles(),
+          fetchSessionDetails(),
+          fetchStats(),
+          fetchCoins(""),
+          fetchMessages(""),
+          fetchResults(""),
+        ]);
         showToast("Account profile deleted successfully.", "success");
       } else {
         const data = await parseResponseJson(res, { error: "Failed to delete profile." });
@@ -1703,6 +1712,7 @@ export function useAppController() {
       return;
     }
     setLoginStep("authenticating");
+    setStatus("Authenticating");
     setLoginStatusMessage("Initializing secure browser, navigating to CoinMarketCap and entering credentials...");
     try {
       const res = await apiFetch(resolveUrl("/api/start-login"), {
@@ -1731,6 +1741,7 @@ export function useAppController() {
       return;
     }
     setLoginStep("authenticating");
+    setStatus("Verifying Code");
     setLoginStatusMessage("Submitting 6-digit code and verifying active session, please wait...");
     try {
       const res = await apiFetch(resolveUrl("/api/submit-otp"), {

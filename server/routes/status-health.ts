@@ -123,7 +123,14 @@ app.get("/api/health", (req, res) => {
 // 4. Status endpoint
 app.get("/api/status", async (req, res) => {
   const queryProfileId = (req.query.profileId as string)?.trim();
-  const activeId = queryProfileId || getActiveProfileId();
+  const serverActiveId = getActiveProfileId();
+  let activeId = serverActiveId;
+  if (!activeId && queryProfileId) {
+    const existingProfiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
+    if (existingProfiles.some(p => p.id === queryProfileId)) {
+      activeId = queryProfileId;
+    }
+  }
   const sessionExists = isProfileSessionActive(activeId);
 
   if (!activeId || !sessionExists) {

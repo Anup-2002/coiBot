@@ -530,12 +530,13 @@ export function extractFingerprintDetails(stateFilePath: string) {
 export function hasRealAuthCookies(cookies: any[]): boolean {
   if (!Array.isArray(cookies) || cookies.length === 0) return false;
   return cookies.some((c: any) => {
-    const n = (c.name || "").trim().toLowerCase();
-    const v = (c.value || "").trim();
-    // Genuine JWT token or Bearer authorization header cookie
-    if (n === "authorization" && (v.startsWith("Bearer ") || v.startsWith("eyJ") || v.length > 30)) return true;
-    if (n === "cmc_user_session" && v.length > 15) return true;
-    if ((n === "token" || n === "access_token" || n === "auth_token") && (v.startsWith("eyJ") || v.length > 40)) return true;
+    const n = (c.name || "").trim();
+    const nLower = n.toLowerCase();
+    const v = typeof c.value === "string" ? c.value.trim() : "";
+    // Must match genuine CoinMarketCap session cookies accepted by sessionHasValidCookies
+    if (nLower === "authorization" && (v.startsWith("Bearer") || v.startsWith("eyJ") || v.length > 20)) return true;
+    if (nLower === "u-prod" && v.length > 20) return true;
+    if (nLower === "cmc_user_session" && v.length > 10) return true;
     return false;
   });
 }

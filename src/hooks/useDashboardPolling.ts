@@ -115,6 +115,20 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
     };
   }, [currentView, status, isContinuousLoopActive]);
 
+  // Poll status every 1.5s during interactive login/OTP on ANY page so the Account Modal updates in real time
+  useEffect(() => {
+    if (status !== "Authenticating" && status !== "Verifying Code") return;
+    let isMounted = true;
+    const interval = setInterval(() => {
+      if (!isMounted) return;
+      fetchStats();
+    }, 1500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [status]);
+
   // Logs-specific polling (polled only while /logs is open)
   useEffect(() => {
     if (currentView !== "logs") return;
@@ -274,9 +288,7 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
         const list = data.profiles || [];
         setProfilesList(prev => areProfilesEqual(prev, list) ? prev : list);
         const active = list.find((p: any) => p.isActive);
-        if (active) {
-          activeProfileIdRef.current = active.id;
-        }
+        activeProfileIdRef.current = active ? active.id : "";
         setActiveProfile(prev => {
           if (prev && active && prev.id === active.id && prev.name === active.name && prev.stateJson === active.stateJson && prev.isActive === active.isActive && prev.loginStatus === active.loginStatus) {
             return prev;
@@ -380,6 +392,12 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
           setIsStartingPost(false);
         }
 
+        if (data.activeProfileId !== undefined && (data.activeProfileId || "") !== (activeProfileIdRef.current || "")) {
+          activeProfileIdRef.current = data.activeProfileId || "";
+          fetchProfiles();
+          fetchSessionDetails();
+        }
+
         if (data.loginState) {
           const step = data.loginState.status === "requires_otp" ? "otp_required" : data.loginState.status;
           setLoginStep(prev => {
@@ -387,8 +405,15 @@ export function useDashboardPolling(status: any, setStatus: any, setRunMode: any
             if (prev === "idle") {
               return "idle";
             }
+            if (step === "success" && prev !== "success") {
+              fetchProfiles();
+              fetchSessionDetails();
+              fetchCoins(data.activeProfileId || "");
+              fetchMessages(data.activeProfileId || "");
+              fetchResults(data.activeProfileId || "");
+            }
             if (step === "authenticating") return "authenticating";
-            if (step === "requires_otp") return "otp_required";
+            if (step === "otp_required") return "otp_required";
             if (step === "success") return "success";
             if (step === "failed") return "failed";
             return prev;
