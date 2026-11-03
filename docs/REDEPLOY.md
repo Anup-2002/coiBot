@@ -4,10 +4,32 @@ This guide gives you the exact step-by-step commands to redeploy latest updates 
 
 ---
 
-## ⚡ Quick Redeploy (Daily Routine — Zero Extra Disk Bloat)
+## 🔑 0. Command to Enter `cmcbot` User (From `ssm-user` / `ubuntu`)
 
-First switch to `cmcbot` (`sudo -u cmcbot -i`), then paste this block to redeploy cleanly with zero leftover files or port conflicts:
+```bash
+sudo -u cmcbot -i
+```
 
+---
+
+## ⚡ Quick Redeploy (Works From ANY User — Even Before Typing `sudo -u cmcbot -i`)
+
+Paste this single block directly into your terminal (works whether you are in `ssm-user` or already in `cmcbot`):
+
+```bash
+sudo -u cmcbot -i bash -c '
+  cd /home/cmcbot/cmc-bot &&
+  git fetch origin &&
+  git reset --hard origin/main &&
+  rm -rf dist /home/cmcbot/.npm/_cacache /home/cmcbot/.npm/_logs &&
+  npm run build &&
+  PORT=3000 pm2 restart cmc-bot --update-env &&
+  pm2 save &&
+  pm2 logs cmc-bot --nostream --lines 20
+'
+```
+
+*(Or if you already ran `sudo -u cmcbot -i`, you can also run:)*
 ```bash
 cd /home/cmcbot/cmc-bot && \
 git fetch origin && \
@@ -207,11 +229,13 @@ If bot logs report `Session expired / missing cookies`:
 - **Previous Live Production Commit on `ip-172-31-10-96`:** `925fdf7` (*build: remove system dependency installation step*, also saved in `~/previous_deploy_commit.txt`)
 - **Rollback Command (run as `cmcbot`):**
 ```bash
-cd /home/cmcbot/cmc-bot
-git reset --hard 925fdf7
-npm run build
-pm2 restart cmc-bot --update-env
-pm2 save
+sudo -u cmcbot -i bash -c '
+  cd /home/cmcbot/cmc-bot &&
+  git reset --hard 925fdf7 &&
+  npm run build &&
+  PORT=3000 pm2 restart cmc-bot --update-env &&
+  pm2 save
+'
 ```
 
 ---
