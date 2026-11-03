@@ -100,7 +100,7 @@ export function renderLogsPage(
                   })
                 }
                 disabled={isPending.clear}
-                className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500 cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-pointer"
                 title="Clear activity logs"
                 aria-label="Clear activity logs"
               >
@@ -114,7 +114,7 @@ export function renderLogsPage(
                 placeholder="Filter logs by keyword..."
                 value={logSearchQuery}
                 onChange={(e) => setLogSearchQuery(e.target.value)}
-                className="flex-1 min-w-[160px] bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-emerald-500 placeholder-slate-500 font-mono"
+                className="flex-1 min-w-[160px] bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 placeholder-slate-500 font-mono"
               />
 
               {filteredLogs.length > 10 && (
@@ -162,7 +162,7 @@ export function renderLogsPage(
                     terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
                   }
                 }}
-                className={`px-3 py-1.5 text-xs sm:text-sm font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-sm font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
                   autoScroll
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
                     : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
@@ -195,10 +195,10 @@ export function renderLogsPage(
           {/* Terminal console */}
           <div
             ref={terminalContainerRef}
-            className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-xs space-y-1.5 leading-relaxed shadow-inner"
+            className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-xs sm:text-sm space-y-1.5 leading-relaxed shadow-inner"
           >
             {filteredLogs.length === 0 ? (
-              <div className="text-slate-600 italic text-center pt-12">No activity messages matching filter.</div>
+              <div className="text-slate-400 italic text-center pt-12">No activity messages matching filter.</div>
             ) : (
               filteredLogs.slice(-100).map((log: any, index: number) => {
                 let colorClass = "text-slate-300";
@@ -209,7 +209,7 @@ export function renderLogsPage(
 
                 return (
                   <div key={index} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
-                    <span className="text-slate-600 flex-shrink-0 select-none">[{log.timestamp}]</span>
+                    <span className="text-slate-400 flex-shrink-0 select-none">[{log.timestamp}]</span>
                     <span className={colorClass}>{log.message}</span>
                   </div>
                 );
@@ -227,7 +227,7 @@ export function renderLogsPage(
                 <Clock className="h-4 w-4" />
               </span>
               <h2 className="font-bold text-white tracking-tight">Scheduler Execution Log</h2>
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+              <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
                 {schedulerLogs.length} events
               </span>
             </div>
@@ -237,7 +237,7 @@ export function renderLogsPage(
                 placeholder="Filter scheduler logs..."
                 value={schedulerLogQuery}
                 onChange={(e) => setSchedulerLogQuery(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-500 font-mono flex-1 sm:w-48 min-w-[140px]"
+                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-500 font-mono flex-1 sm:w-48 min-w-[140px]"
               />
               {schedulerLogs.length > 10 && (
                 <div className="inline-flex items-center rounded-xl border border-slate-800 bg-slate-950 p-0.5">
@@ -272,7 +272,7 @@ export function renderLogsPage(
               <a
                 href="/api/scheduler/logs/download"
                 download="scheduler_execution.log"
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Download className="h-3.5 w-3.5" />
                 <span>Download Scheduler Logs</span>
@@ -282,10 +282,10 @@ export function renderLogsPage(
 
           <div
             id="scheduler-log-scroll-box"
-            className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-xs space-y-1.5 leading-relaxed shadow-inner"
+            className="bg-slate-950 rounded-xl border border-slate-800 p-4 h-[460px] overflow-y-auto font-mono text-xs sm:text-sm space-y-1.5 leading-relaxed shadow-inner"
           >
             {schedulerLogs.length === 0 ? (
-              <div className="text-slate-600 italic text-center pt-12">No scheduler logs recorded yet.</div>
+              <div className="text-slate-400 italic text-center pt-12">No scheduler logs recorded yet.</div>
             ) : (
               schedulerLogs
                 .filter((l: any) => !schedulerLogQuery || l.message.toLowerCase().includes(schedulerLogQuery.toLowerCase()))
@@ -295,8 +295,8 @@ export function renderLogsPage(
                   const isSucc = l.level === "success";
                   return (
                     <div key={idx} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
-                      <span className="text-slate-600 flex-shrink-0 select-none">[{l.timestamp}]</span>
-                      <span className={`text-[10px] uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
+                      <span className="text-slate-400 flex-shrink-0 select-none">[{l.timestamp}]</span>
+                      <span className={`text-xs uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
                         isErr ? "bg-rose-500/20 text-rose-300" : isWarn ? "bg-amber-500/20 text-amber-300" : isSucc ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
                       }`}>{l.level}</span>
                       <span className={isErr ? "text-rose-400" : isWarn ? "text-amber-400" : isSucc ? "text-emerald-400" : "text-slate-300"}>{l.message}</span>

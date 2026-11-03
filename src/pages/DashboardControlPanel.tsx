@@ -81,7 +81,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               </div>
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/25 text-indigo-200 border border-indigo-400/40 text-[11px] font-mono font-bold uppercase tracking-wider shrink-0">
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/25 text-indigo-200 border border-indigo-400/40 text-xs font-mono font-bold uppercase tracking-wider shrink-0">
                     Main Feature
                   </span>
                   <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
@@ -101,7 +101,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         : "Standby"}
                   </span>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-300">
+                <p className="text-sm text-slate-300">
                   Automatically fetches live trending coins, splits them evenly across your active accounts ({(schedulerData?.accounts || []).filter(a => a.schedule?.enabled).length || profilesList.length || 0} active), and posts in sequence every {Math.round((schedulerData?.intervalMinutes || 360) / 60)} hours ({schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} cycles today).
                 </p>
               </div>
@@ -145,7 +145,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     <h2 className="font-bold text-white text-base tracking-tight truncate">
                       Control Center
                     </h2>
-                    <p className="text-xs text-slate-400 truncate">Automated CoinMarketCap Commenting</p>
+                    <p className="text-xs sm:text-sm text-slate-300 truncate">Automated CoinMarketCap Commenting</p>
                   </div>
                 </div>
 
@@ -228,7 +228,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                   disabled={isPending.clear || isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning}
                   className={`text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] px-2.5 py-1 rounded-lg border shrink-0 ${
                     (isBusy || isPostingActive || isContinuousLoopActive || isSchedulerRunning)
-                      ? "bg-slate-900 text-slate-500 border-slate-800 opacity-50 cursor-not-allowed"
+                      ? "bg-slate-900 text-slate-400 border-slate-800 opacity-50 cursor-not-allowed"
                       : "text-red-400/90 hover:text-red-300 bg-slate-900 hover:bg-red-500/10 border-slate-800 hover:border-red-500/20 cursor-pointer"
                   } disabled:opacity-40 disabled:cursor-not-allowed`}
                   id="btn-clear-stats"
@@ -281,15 +281,15 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       <CheckCircle className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition leading-tight">
+                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-emerald-300 transition leading-tight">
                         1. Check Login
                       </h3>
-                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                      <p className="text-sm text-slate-300 leading-tight mt-1">
                         Verify account session
                       </p>
                     </div>
                   </div>
-                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                  <span className={`text-xs font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
                     isPending.login || status === "Authenticating"
                       ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
                       : sessionExists
@@ -324,15 +324,15 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       <Search className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition leading-tight">
+                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-blue-300 transition leading-tight">
                         2. Fetch Coins
                       </h3>
-                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                      <p className="text-sm text-slate-300 leading-tight mt-1">
                         Get live trending coins
                       </p>
                     </div>
                   </div>
-                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                  <span className={`text-xs font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
                     isPending.fetch || status === "Fetching"
                       ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
                       : totalCoins > 0
@@ -369,15 +369,15 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                       <FileText className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition leading-tight">
+                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-purple-300 transition leading-tight">
                         3. Write Comments
                       </h3>
-                      <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                      <p className="text-sm text-slate-300 leading-tight mt-1">
                         Generate AI commentary
                       </p>
                     </div>
                   </div>
-                  <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                  <span className={`text-xs font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
                     isPending.generate || status === "Generating"
                       ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
                       : generatedCount > 0
@@ -415,20 +415,20 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         )}
                       </span>
                       <div className="min-w-0">
-                        <h3 className="text-sm font-bold text-white leading-tight">
+                        <h3 className="text-sm sm:text-base font-bold text-white leading-tight">
                           {(isStoppingPost || status === "Stopping") ? "Stopping..." : "4. Stop Posting"}
                         </h3>
-                        <p className="text-[11px] text-rose-300/80 leading-tight mt-1">
+                        <p className="text-sm text-rose-300/90 leading-tight mt-1">
                           {(isStoppingPost || status === "Stopping") ? "Finishing current coin..." : "Halt active sequence"}
                         </p>
                       </div>
                     </div>
                     {(isStoppingPost || status === "Stopping" || isPending.post) ? (
-                      <span className="text-[11px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded-full font-bold border border-amber-500/30 flex items-center gap-1 shrink-0 whitespace-nowrap">
+                      <span className="text-xs font-mono uppercase bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded-full font-bold border border-amber-500/30 flex items-center gap-1 shrink-0 whitespace-nowrap">
                         <RefreshCw className="h-3 w-3 animate-spin" /> Stopping
                       </span>
                     ) : (
-                      <span className="text-[11px] font-mono uppercase bg-rose-500/20 px-2.5 py-1 rounded-full font-bold border border-rose-500/30 shrink-0 whitespace-nowrap">
+                      <span className="text-xs font-mono uppercase bg-rose-500/20 px-2.5 py-1 rounded-full font-bold border border-rose-500/30 shrink-0 whitespace-nowrap">
                         Posting
                       </span>
                     )}
@@ -464,15 +464,15 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         )}
                       </span>
                       <div className="min-w-0">
-                        <h3 className="text-sm font-bold text-white group-hover:text-emerald-300 transition leading-tight">
+                        <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-emerald-300 transition leading-tight">
                           {isStartingPost ? "Starting..." : "4. Start Posting"}
                         </h3>
-                        <p className="text-[11px] text-slate-400 leading-tight mt-1">
+                        <p className="text-sm text-slate-300 leading-tight mt-1">
                           Post comments to CMC
                         </p>
                       </div>
                     </div>
-                    <span className={`text-[11px] font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
+                    <span className={`text-xs font-mono px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap inline-flex items-center gap-1 shrink-0 ${
                       totalCoins > 0 && generatedCount > 0
                         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                         : "bg-slate-800 text-slate-400 border-slate-700"
@@ -497,7 +497,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
                     <div className="truncate">
                       <span className="font-bold text-sm block text-amber-200">Market Data Over 2 Days Old</span>
-                      <span className="text-[11px] text-amber-400/80 block truncate">
+                      <span className="text-xs text-amber-400/80 block truncate">
                         Refresh trending coins and comments before posting.
                       </span>
                     </div>
@@ -561,17 +561,17 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                       isContinuousLoopActive ? "bg-emerald-400 animate-ping" : "bg-slate-500"
                     }`} />
-                    <span className="text-xs sm:text-sm font-bold text-slate-200 group-hover:text-white transition">
+                    <span className="text-sm font-bold text-slate-200 group-hover:text-white transition">
                       Auto-Repeat Mode
                     </span>
-                    <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                    <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded border ${
                       isContinuousLoopActive
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                         : "bg-slate-900 text-slate-400 border-slate-800"
                     }`}>
                       {isContinuousLoopActive ? `ACTIVE • ${continuousInterval}m` : `OFF • ${continuousInterval}m`}
                     </span>
-                    <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+                    <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${expanded ? "rotate-180 text-emerald-400" : ""}`} />
                     </span>
                   </button>
@@ -608,7 +608,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 }
               >
                 <div className="flex flex-col gap-2 pt-2 border-t border-slate-800/80">
-                  <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-400 font-medium">
                       {isContinuousLoopActive
                         ? "Wait timer locked while active (Stop Repeat to change):"
@@ -624,7 +624,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                             setContinuousInterval(preset);
                             saveIntervalToServer(preset);
                           }}
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                          className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all ${
                             continuousInterval === preset
                               ? "bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/20"
                               : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800/80"
@@ -660,7 +660,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         setContinuousInterval(val);
                         saveIntervalToServer(val);
                       }}
-                      className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-[10px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-12 bg-slate-900 border border-slate-800/80 rounded-lg px-1.5 py-0.5 text-center text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500/50 shadow-inner disabled:opacity-40 disabled:cursor-not-allowed"
                       id="num-interval"
                     />
                   </div>
@@ -684,17 +684,17 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     <span className={`p-1.5 rounded-lg border shrink-0 ${imageUploadEnabled ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" : "bg-slate-900 text-slate-400 border-slate-800"}`}>
                       <ImageIcon className="h-3.5 w-3.5" />
                     </span>
-                    <span className="text-xs sm:text-sm font-bold text-slate-200 group-hover:text-white transition">
+                    <span className="text-sm font-bold text-slate-200 group-hover:text-white transition">
                       Marketing Images
                     </span>
-                    <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                    <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded border ${
                       imageUploadEnabled
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                         : "bg-slate-900 text-slate-400 border-slate-800"
                     }`}>
                       {imageUploadEnabled ? `ACTIVE • ${marketingImages.length}` : `PAUSED • ${marketingImages.length}`}
                     </span>
-                    <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+                    <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${expanded ? "rotate-180 text-indigo-400" : ""}`} />
                     </span>
                   </button>
@@ -767,7 +767,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     </span>
                     <div>
                       <h2 className="font-bold text-white text-base tracking-tight">Progress</h2>
-                      <p className="text-xs text-slate-400">Live Batch Metrics</p>
+                      <p className="text-xs sm:text-sm text-slate-300">Live Batch Metrics</p>
                     </div>
                   </div>
 
@@ -794,7 +794,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                 {/* CURRENT COIN SPOTLIGHT CARD */}
                 <div className="spotlight-asset-card min-h-[84px] p-4 bg-slate-950/80 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-between shadow-inner">
                   <div className="space-y-1 min-w-0 pr-3">
-                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block font-bold">
+                    <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block font-bold">
                       Current Coin &amp; Status
                     </span>
                     <div className="text-lg font-black text-white font-mono tracking-tight flex items-center gap-2 flex-wrap">
@@ -833,7 +833,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-slate-400 font-mono block truncate">
+                    <span className="text-xs sm:text-sm text-slate-300 font-mono block truncate">
                       {status === "Stopping" || isStoppingPost
                         ? "Finishing current coin before stopping..."
                         : isStartingPost
@@ -854,27 +854,27 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                     <div className="text-3xl font-black font-mono tabular-nums text-emerald-400 tracking-tight">
                       {batchPercent}%
                     </div>
-                    <span className="text-[11px] text-slate-400 font-mono uppercase font-semibold">Done</span>
+                    <span className="text-xs text-slate-400 font-mono uppercase font-semibold">Done</span>
                   </div>
                 </div>
 
                 {/* CLEAN SYMMETRIC 2x2 (4-CARD) KPI GRID */}
                 <div className="grid grid-cols-2 gap-2.5 items-stretch">
                   <div className="kpi-stat-box p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                    <span className="text-xs font-mono text-slate-400 uppercase font-semibold">Total Coins</span>
+                    <span className="text-xs font-mono text-slate-300 uppercase font-bold">Total Coins</span>
                     <div className="text-xl font-black text-slate-100 font-mono tabular-nums mt-1">{totalCoins}</div>
                   </div>
 
                   <div className="kpi-stat-box p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                    <span className="text-xs font-mono text-slate-400 uppercase font-semibold">AI Ready</span>
+                    <span className="text-xs font-mono text-slate-300 uppercase font-bold">AI Ready</span>
                     <div className="text-xl font-black text-purple-400 font-mono tabular-nums mt-1">{generatedCount}</div>
                   </div>
 
                   <div className="kpi-stat-box p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-mono text-slate-400 uppercase font-semibold">Posted</span>
+                      <span className="text-xs font-mono text-slate-300 uppercase font-bold">Posted</span>
                       {displayFailedCount > 0 && (
-                        <span className="text-[10px] font-mono text-rose-400 font-bold">
+                        <span className="text-xs font-mono text-rose-400 font-bold">
                           {displayFailedCount} Failed
                         </span>
                       )}
@@ -883,18 +883,18 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                   </div>
 
                   <div className="kpi-stat-box p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-                    <span className="text-xs font-mono text-slate-400 uppercase font-semibold">Remaining</span>
+                    <span className="text-xs font-mono text-slate-300 uppercase font-bold">Remaining</span>
                     <div className="text-xl font-black text-amber-400 font-mono tabular-nums mt-1">{remainingBatch}</div>
                   </div>
                 </div>
 
                 {totalCoins > 0 && generatedCount > 0 && totalCoins !== generatedCount && (
-                  <div className="p-2.5 bg-indigo-950/40 border border-indigo-800/40 rounded-xl flex items-center justify-between text-[11px] font-mono text-indigo-300">
+                  <div className="p-2.5 bg-indigo-950/40 border border-indigo-800/40 rounded-xl flex items-center justify-between text-xs font-mono text-indigo-300">
                     <span>Queue has {generatedCount} comments vs {totalCoins} coins.</span>
                     <button
                       onClick={() => setShowConfirmGenerateModal(true)}
                       disabled={isPending.generate || isBusy}
-                      className="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 text-[10px] font-bold transition cursor-pointer"
+                      className="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 text-xs font-bold transition cursor-pointer"
                     >
                       Sync Comments
                     </button>
@@ -912,7 +912,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
               {/* BOTTOM PROGRESS BAR & CLEAN FOOTER */}
               <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
                 <div className="space-y-1.5">
-                  <div className="flex justify-between items-center text-xs font-mono">
+                  <div className="flex justify-between items-center text-sm font-mono">
                     <span className="text-slate-400">Batch Progress</span>
                     <span className="text-emerald-400 font-bold">
                       {clampedProgress} / {activeBatchTotal} {generatedCount > 0 && generatedCount !== totalCoins ? "comments" : "coins"}
@@ -927,7 +927,7 @@ export function renderDashboardControlPanel(status: string, navigateTo: any, isB
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center text-xs font-mono text-slate-400 pt-0.5">
+                <div className="flex justify-between items-center text-sm font-mono text-slate-300 pt-0.5">
                   <span>
                     Success Rate:{" "}
                     <strong className="text-slate-200 font-semibold">

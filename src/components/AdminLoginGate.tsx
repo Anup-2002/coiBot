@@ -36,11 +36,11 @@ export function renderAdminLoginGate(adminPasswordInput: any, setAdminPasswordIn
                     <div>
                       <div className="text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
                         <span>24-Hour Scheduler is ACTIVE</span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase">
                           {adminSchedulerStatus.cycleRunning ? "Cycle Running" : (adminSchedulerStatus.postingRunning ? "Posting" : "Scheduled 24/7")}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-300 mt-0.5">
+                      <p className="text-xs text-slate-300 mt-0.5">
                         {adminSchedulerStatus.nextCycleAt
                           ? `Running 24/7 background cycles. Next automatic cycle: ${new Date(adminSchedulerStatus.nextCycleAt).toLocaleTimeString()}`
                           : "Continuous background bot processes are active 24/7."}
@@ -48,7 +48,7 @@ export function renderAdminLoginGate(adminPasswordInput: any, setAdminPasswordIn
                     </div>
                   </div>
                 </div>
-                <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[10px] text-slate-400">
+                <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-xs text-slate-400">
                   <span className="flex items-center gap-1">
                     <Shield className="h-3 w-3 text-emerald-400" />
                     Automatic scheduler runs 24/7 until stopped
@@ -62,7 +62,7 @@ export function renderAdminLoginGate(adminPasswordInput: any, setAdminPasswordIn
                   <span className="w-2 h-2 rounded-full bg-slate-500" />
                   <span>24-Hr Scheduler: <strong className="text-slate-300">IDLE / STANDBY</strong></span>
                 </div>
-                <span className="text-[10px] font-mono text-slate-500">Log in to activate</span>
+                <span className="text-xs font-mono text-slate-400">Log in to activate</span>
               </div>
             )}
           </div>
@@ -136,12 +136,12 @@ export function renderAdminLoginGate(adminPasswordInput: any, setAdminPasswordIn
               </button>
             </form>
 
-            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center text-sm text-slate-500">
+            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center text-sm text-slate-400">
               Authorized operators only. Contact your organization administrator for access credentials or a direct team link.
             </div>
           </div>
 
-          <div className="text-center mt-6 text-sm text-slate-500 font-mono">
+          <div className="text-center mt-6 text-sm text-slate-400 font-mono">
             CoinMarketCap Marketing Portal
           </div>
         </div>

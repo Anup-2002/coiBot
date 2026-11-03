@@ -22,7 +22,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                 <h1 className="text-sm sm:text-lg font-bold tracking-tight text-white group-hover:text-emerald-300 transition flex items-center gap-2 whitespace-nowrap">
                   CoinMarketCap Commenting Hub
                 </h1>
-                <p className="text-[11px] text-slate-400 hidden sm:block whitespace-nowrap">Automated Community Commenting and Growth Driver</p>
+                <p className="text-xs text-slate-400 hidden sm:block whitespace-nowrap">Automated Community Commenting and Growth Driver</p>
               </div>
             </div>
           </div>
@@ -33,7 +33,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
             <button
               type="button"
               onClick={() => navigateTo("dashboard")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-bold transition duration-200 cursor-pointer shrink-0 whitespace-nowrap ${
                 currentView === "dashboard"
                   ? "bg-emerald-600/30 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/30 shadow-sm"
                   : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
@@ -61,7 +61,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                   setLoginTab("credentials");
                   setShowSessionModal(true);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold transition duration-200 cursor-pointer whitespace-nowrap ${
                   activeProfile || sessionExists
                     ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                     : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
@@ -89,7 +89,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
                   </span>
                 )}
                 {profilesList.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold">
+                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-bold">
                     {profilesList.length}
                   </span>
                 )}
@@ -143,7 +143,7 @@ export function renderHeaderNavbar(isContinuousLoopActive: any, healthData: any,
             >
               <Clock className={`h-4 w-4 shrink-0 ${schedulerData?.cycleRunning ? "text-emerald-400 animate-spin" : "text-indigo-300"}`} />
               <span>Scheduler</span>
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+              <span className={`px-1.5 py-0.5 rounded text-xs font-mono font-bold uppercase ${
                 schedulerData?.cycleRunning
                   ? "bg-emerald-400 text-slate-950 animate-pulse"
                   : schedulerData?.enabled

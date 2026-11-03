@@ -79,7 +79,7 @@ export function renderHealthPage(
                 {isOverallHealthy ? "HEALTHY • Everything is working" : "ACTION NEEDED • Needs attention"}
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+            <p className="text-sm text-slate-400 mt-0.5">
               {isOverallHealthy
                 ? "All core services, browser automation, cloud database connections, and active accounts are ready."
                 : "One or more system checks require attention. Review the status cards below."}
@@ -92,7 +92,7 @@ export function renderHealthPage(
           <button
             type="button"
             onClick={toggleNotifications}
-            className={`px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap ${
+            className={`px-3.5 py-2 rounded-xl border text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm whitespace-nowrap ${
               notificationsEnabled
                 ? "bg-emerald-500/15 border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/25"
                 : "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
@@ -115,7 +115,7 @@ export function renderHealthPage(
             type="button"
             onClick={() => checkSystemHealth(true)}
             disabled={isCheckingSystem}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50 whitespace-nowrap shrink-0"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50 whitespace-nowrap shrink-0"
             title="Refresh system health checks"
           >
             <RefreshCw
@@ -145,7 +145,7 @@ export function renderHealthPage(
                 ONLINE
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed">
               {healthData?.checks?.server?.message ||
                 "Bot server is online and handling automation requests."}
             </p>
@@ -192,7 +192,7 @@ export function renderHealthPage(
                 </span>
               )}
             </div>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed">
               {healthData?.checks?.openai?.message ||
                 "Writes crypto comments automatically for each trending coin."}
             </p>
@@ -240,7 +240,7 @@ export function renderHealthPage(
                 </span>
               )}
             </div>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed">
               {healthData?.checks?.cmc?.message ||
                 "Automated CoinMarketCap browser and trending coin feed are ready."}
             </p>
@@ -279,7 +279,7 @@ export function renderHealthPage(
                 {storageInfo.isMongoConnected ? "CLOUD SYNCED" : "CONNECTED"}
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed">
               {healthData?.checks?.database?.message ||
                 "Accounts, coins, comments, and scheduler progress are saved in the cloud."}
             </p>

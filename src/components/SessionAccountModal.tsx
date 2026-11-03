@@ -20,7 +20,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   <h3 className="font-bold text-white text-base tracking-tight">
                     CoinMarketCap Accounts
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-300 mt-0.5">
                     Sign in, import cookies, or switch between saved accounts
                   </p>
                 </div>
@@ -47,7 +47,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                     setLoginTab("credentials");
                   }}
                   disabled={isContinuousLoopActive}
-                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                  className={`py-2 px-3 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "credentials"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
@@ -55,7 +55,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                 >
                   <Key className="h-3.5 w-3.5 shrink-0" />
                   <span>Email Login</span>
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-300 font-mono uppercase">
+                  <span className="px-1.5 py-0.5 text-xs rounded bg-emerald-500/20 text-emerald-300 font-mono uppercase">
                     Best
                   </span>
                 </button>
@@ -63,7 +63,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   type="button"
                   onClick={() => setLoginTab("cookies")}
                   disabled={isContinuousLoopActive}
-                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                  className={`py-2 px-3 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "cookies"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
@@ -81,7 +81,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                     }
                   }}
                   disabled={isContinuousLoopActive}
-                  className={`py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                  className={`py-2 px-3 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     loginTab === "profiles"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
                       : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent"
@@ -89,7 +89,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                 >
                   <Users className="h-3.5 w-3.5 shrink-0" />
                   <span>Saved Accounts</span>
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 font-mono">
+                  <span className="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-300 font-mono">
                     {profilesList.length}
                   </span>
                 </button>
@@ -107,7 +107,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                         <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 mt-0.5">
                           <Shield className="h-4 w-4" />
                         </span>
-                        <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
+                        <p className="text-slate-300 text-sm leading-relaxed">
                           Sign in with your CoinMarketCap email and password. The bot will log in and save your account session automatically.
                         </p>
                       </div>
@@ -146,7 +146,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                       </div>
 
                       <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800/80">
-                        <span className="text-xs text-slate-400">
+                        <span className="text-sm text-slate-300">
                           Already have accounts saved?{" "}
                           <button
                             type="button"
@@ -188,9 +188,9 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                       </div>
                       <div className="space-y-1.5 max-w-sm">
                         <h4 className="font-bold text-white text-base">Processing CoinMarketCap Authentication...</h4>
-                        <p className="text-[11px] text-slate-400 leading-relaxed">{loginStatusMessage}</p>
+                        <p className="text-xs text-slate-400 leading-relaxed">{loginStatusMessage}</p>
                       </div>
-                      <div className="w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 text-[10px] text-slate-400 space-y-1.5 text-left font-mono">
+                      <div className="w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 text-xs text-slate-400 space-y-1.5 text-left font-mono">
                         <div className="flex items-center gap-2 text-emerald-400 font-semibold">
                           <CheckCircle className="h-3 w-3" /> Secure CoinMarketCap browser opened
                         </div>
@@ -213,13 +213,13 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
 
                   {loginStep === "otp_required" && (
                     <div className="space-y-4">
-                      <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl space-y-1.5 text-[11px] leading-relaxed">
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl space-y-1.5 text-xs leading-relaxed">
                         <span className="font-bold text-white flex items-center gap-1">✉️ Action Required: Verification Code</span>
                         <p>{loginStatusMessage}</p>
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] uppercase text-slate-400 font-mono tracking-widest font-bold">6-Digit Email Code (OTP)</label>
+                        <label className="text-xs uppercase text-slate-400 font-mono tracking-widest font-bold">6-Digit Email Code (OTP)</label>
                         <input
                           type="text"
                           value={otpCode}
@@ -254,7 +254,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                       </div>
                       <div className="space-y-1">
                         <h4 className="font-bold text-white text-base">Authentication Succeeded!</h4>
-                        <p className="text-[11px] text-slate-300 max-w-sm">{loginStatusMessage || "Your CoinMarketCap session has been captured and validated successfully."}</p>
+                        <p className="text-sm text-slate-200 max-w-sm">{loginStatusMessage || "Your CoinMarketCap session has been captured and validated successfully."}</p>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full pt-1">
                         <button
@@ -297,13 +297,13 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                         <AlertTriangle className="h-10 w-10 text-rose-400" />
                         <div className="space-y-1">
                           <h4 className="font-bold text-white text-base">Login Attempt Notice</h4>
-                          <p className="text-[11px] text-slate-300 leading-relaxed max-w-sm">{loginStatusMessage}</p>
+                          <p className="text-xs text-slate-300 leading-relaxed max-w-sm">{loginStatusMessage}</p>
                         </div>
                       </div>
 
                       {/* Immediate Session Verification in case cookies saved in background */}
                       <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-2 text-center shadow-inner">
-                        <p className="text-[11px] text-slate-400">
+                        <p className="text-sm text-slate-300">
                           Did your account log in anyway or does your browser have active cookies?
                         </p>
                         <button
@@ -358,7 +358,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
 
               {loginTab === "cookies" && (
                 <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-5 space-y-4 text-sm text-slate-300 shadow-inner">
-                  <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5 text-xs leading-relaxed text-slate-400">
+                  <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5 text-sm leading-relaxed text-slate-300">
                     <span className="font-bold text-white block">How to import cookies manually:</span>
                     1. Sign in to CoinMarketCap in Chrome.<br />
                     2. Use a browser cookie extension (such as "EditThisCookie") to copy your cookies as JSON.<br />
@@ -367,7 +367,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Account Label (Optional)</label>
+                      <label className="text-xs uppercase text-slate-300 font-mono font-bold">Account Label (Optional)</label>
                       <input
                         type="text"
                         value={newProfileName}
@@ -378,7 +378,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Daily Post Limit</label>
+                      <label className="text-xs uppercase text-slate-300 font-mono font-bold">Daily Post Limit</label>
                       <input
                         type="number"
                         min={1}
@@ -390,7 +390,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] uppercase text-slate-300 font-mono font-bold">Proxy (Optional)</label>
+                      <label className="text-xs uppercase text-slate-300 font-mono font-bold">Proxy (Optional)</label>
                       <input
                         type="text"
                         value={newProfileProxy}
@@ -403,7 +403,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] uppercase text-slate-300 font-mono tracking-wider font-bold">Paste exported login cookies</label>
+                    <label className="text-xs uppercase text-slate-300 font-mono tracking-wider font-bold">Paste exported login cookies</label>
                     <textarea
                       rows={5}
                       value={sessionJson}
@@ -426,7 +426,7 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                   )}
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-                    <p className="text-xs text-slate-400">
+                    <p className="text-sm text-slate-300">
                       Save up to 5 CoinMarketCap account profiles and swap between them seamlessly.
                     </p>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -473,51 +473,51 @@ export function renderSessionAccountModal(isContinuousLoopActive: any, switching
                           >
                             <div className="space-y-1.5 pr-2 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-white text-sm truncate">{p.name}</span>
+                                <span className="font-bold text-white text-base truncate">{p.name}</span>
                                 {p.communityProfileUrl && (
                                   <a
                                     href={p.communityProfileUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] px-2 py-0.5 rounded font-mono font-bold inline-flex items-center gap-1 transition whitespace-nowrap"
+                                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs px-2 py-0.5 rounded font-mono font-bold inline-flex items-center gap-1 transition whitespace-nowrap"
                                     title={`Open CoinMarketCap Community Profile (${p.cmcUsername}) to verify posted comments`}
                                   >
                                     @{p.cmcUsername} <ExternalLink className="h-2.5 w-2.5 shrink-0" />
                                   </a>
                                 )}
                                 {p.isActive && (
-                                  <span className="bg-emerald-500/15 text-emerald-400 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
+                                  <span className="bg-emerald-500/15 text-emerald-400 text-xs uppercase px-2 py-0.5 rounded font-mono font-bold">
                                     Active
                                   </span>
                                 )}
-                                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold">
+                                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs uppercase px-2 py-0.5 rounded font-mono font-bold">
                                   Limit: {p.dailyPostLimit || 300}/day
                                 </span>
                                 {p.proxy && (
-                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[11px] px-2 py-0.5 rounded font-mono font-bold truncate max-w-[160px] inline-flex items-center gap-1" title={`Proxy: ${p.proxy}`}>
+                                  <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs px-2 py-0.5 rounded font-mono font-bold truncate max-w-[160px] inline-flex items-center gap-1" title={`Proxy: ${p.proxy}`}>
                                     <Globe className="h-3 w-3 shrink-0" />
                                     <span className="truncate">{p.proxy.replace(/^https?:\/\//, "")}</span>
                                   </span>
                                 )}
                                 {p.loginStatus === "logged_in" ? (
-                                  <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-green-500/10 text-green-400 border border-green-500/20 text-xs uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
                                     Logged In
                                   </span>
                                 ) : p.loginStatus === "expired" ? (
-                                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
                                     Logged Out
                                   </span>
                                 ) : (
-                                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs uppercase px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
                                     <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                                     Unverified
                                   </span>
                                 )}
                               </div>
                               <div className="flex items-center gap-3 pt-0.5 flex-wrap">
-                                <span className="text-xs text-slate-400">
+                                <span className="text-sm text-slate-300">
                                   Saved: {new Date(p.updatedAt).toLocaleString()}
                                 </span>
                                 {editingLimitProfileId === p.id ? (

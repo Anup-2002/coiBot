@@ -83,7 +83,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                             : "Standby"}
                     </span>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                  <p className="text-sm text-slate-400 mt-0.5">
                     Fetches trending coins, splits them across your {enabledAccsCount} active account{enabledAccsCount === 1 ? "" : "s"}, and posts sequentially on schedule.
                   </p>
                 </div>
@@ -102,7 +102,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                         ? "Click to disarm automatic 24/7 rotation (unlocks cycle settings)"
                         : "Click to arm automatic 24/7 multi-account rotation"
                   }
-                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm whitespace-nowrap ${
+                  className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm whitespace-nowrap ${
                     schedulerData?.enabled
                       ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20"
                       : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20"
@@ -126,7 +126,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     setLogsTab("scheduler");
                     navigateTo("logs");
                   }}
-                  className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
+                  className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm whitespace-nowrap shrink-0"
                   title="View Scheduler Execution Logs"
                 >
                   <TerminalIcon className="h-4 w-4 text-indigo-400 shrink-0" />
@@ -141,7 +141,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
                 <div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cycle State</span>
+                    <span className="text-xs sm:text-sm font-bold text-slate-300 uppercase tracking-wider">Cycle State</span>
                     <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 whitespace-nowrap shrink-0">
                       {schedulerData?.dailyCycleCount || 0}/{schedulerData?.maxCyclesPerDay || 4} Today
                     </span>
@@ -167,7 +167,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     </span>
                   </div>
                 </div>
-                <div className="text-xs text-slate-400 truncate pt-1">
+                <div className="text-sm text-slate-300 truncate pt-1">
                   {schedulerData?.cycleRunning ? (
                     <>Current: <span className="font-semibold text-emerald-300">
                       {(() => {
@@ -179,7 +179,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                   ) : schedulerData?.nextCycleAt ? (
                     <>Next Run: <span className="font-mono font-semibold text-emerald-400">{new Date(schedulerData.nextCycleAt).toLocaleTimeString()}</span></>
                   ) : (
-                    <>Next Run: <span className="text-slate-500">Enable Sequential Mode to schedule</span></>
+                    <>Next Run: <span className="text-slate-400">Enable Sequential Mode to schedule</span></>
                   )}
                 </div>
               </div>
@@ -187,7 +187,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               {/* 2. Cycle Window (Locked when Sequential Mode is ON or Running) */}
               <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <span className="text-xs sm:text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
                     {isSettingsLocked && <Lock className="h-3 w-3 text-amber-400 shrink-0" />}
                     <span>Cycle Window</span>
                   </span>
@@ -246,7 +246,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     Save
                   </button>
                 </div>
-                <div className="text-[11px] text-slate-400 truncate">
+                <div className="text-xs text-slate-300 truncate">
                   {isSettingsLocked
                     ? "Locked while active — turn Sequential Mode OFF to edit"
                     : `Rest gap = ${schedulerData?.intervalMinutes || 360}m slot minus runtime (min 15m)`}
@@ -256,7 +256,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               {/* 3. Target Coins / Cycle (Locked when Sequential Mode is ON or Running) */}
               <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 space-y-2 flex flex-col justify-between min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <span className="text-xs sm:text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
                     {isSettingsLocked && <Lock className="h-3 w-3 text-amber-400 shrink-0" />}
                     <span>Target Coins / Cycle</span>
                   </span>
@@ -288,7 +288,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     </button>
                   ))}
                 </div>
-                <div className="text-[11px] text-slate-400 truncate">
+                <div className="text-xs text-slate-300 truncate">
                   {isSettingsLocked
                     ? "Locked while active — turn Sequential Mode OFF to edit"
                     : (() => {
@@ -303,11 +303,11 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               {/* 4. Cycle Execution Controls */}
               <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between gap-2 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <span className="text-xs sm:text-sm font-bold text-slate-300 uppercase tracking-wider">
                     Execution Controls
                   </span>
                   {schedulerData?.cycleRunning && (
-                    <span className="text-[11px] font-mono font-bold text-emerald-400 flex items-center gap-1 whitespace-nowrap shrink-0">
+                    <span className="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1 whitespace-nowrap shrink-0">
                       <RefreshCw className="h-3 w-3 animate-spin" /> Running
                     </span>
                   )}
@@ -318,7 +318,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     disabled={isSchedulerActionPending || schedulerData?.cycleRunning || isBusy}
                     onClick={schedulerData?.savedPosition ? handleResumeScheduler : handleRunSchedulerNow}
                     title={isBusy ? "Cannot start scheduler cycle: another process is currently running." : (schedulerData?.savedPosition ? "Resume sequential cycle from saved position" : "Start sequential cycle immediately")}
-                    className="flex-1 min-w-[125px] px-3 py-2 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    className="flex-1 min-w-[125px] px-3 py-2 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     {isSchedulerActionPending && !schedulerData?.cycleRunning ? (
                       <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -337,7 +337,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     type="button"
                     disabled={isSchedulerActionPending || !schedulerData?.cycleRunning}
                     onClick={handlePauseScheduler}
-                    className="px-2.5 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    className="px-2.5 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Pause className="h-3.5 w-3.5 shrink-0" />
                     <span>Pause</span>
@@ -346,13 +346,13 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     type="button"
                     disabled={isSchedulerActionPending || (!schedulerData?.cycleRunning && !schedulerData?.enabled && !schedulerData?.savedPosition)}
                     onClick={handleStopScheduler}
-                    className="px-2.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-xs sm:text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    className="px-2.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-xl shadow transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Square className="h-3.5 w-3.5 shrink-0" />
                     <span>Stop</span>
                   </button>
                 </div>
-                <div className="text-[11px] text-slate-400 text-center">
+                <div className="text-xs text-slate-300 text-center">
                   1-click start • Live state updates every 3s
                 </div>
               </div>
@@ -379,10 +379,10 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                   }`}>
                     <ImageIcon className="h-4 w-4" />
                   </span>
-                  <span className="text-xs sm:text-sm font-bold text-slate-200 group-hover:text-white transition">
+                  <span className="text-sm font-bold text-slate-200 group-hover:text-white transition">
                     Scheduled Cycle Images
                   </span>
-                  <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border ${
+                  <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded border ${
                     imageUploadEnabled
                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                       : "bg-slate-900 text-slate-400 border-slate-800"
@@ -391,7 +391,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                       ? `ACTIVE • ${marketingImages.length} (${imageSelectionMode === "cycle" ? "Sequential" : "Random"})`
                       : `PAUSED • Text-Only (${marketingImages.length})`}
                   </span>
-                  <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+                  <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 group-hover:text-slate-200 font-semibold px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800">
                     <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${expanded ? "rotate-180 text-indigo-400" : ""}`} />
                   </span>
                 </button>
@@ -413,7 +413,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
               }
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-slate-800/80">
-                <p className="text-xs text-slate-400">
+                <p className="text-sm text-slate-300">
                   Attaches 1 marketing graphic per comment across all scheduled account turns when enabled.
                 </p>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -469,7 +469,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                         <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${expanded ? "rotate-180 text-indigo-400" : ""}`} />
                       </button>
                     </h4>
-                    <span className="text-xs text-slate-400 block mt-0.5">
+                    <span className="text-sm text-slate-300 block mt-0.5">
                       Accounts run strictly in order (#1 → #2 → #3). Check <strong className="text-emerald-400">Active in Cycle</strong> on accounts you want in the rotation.
                     </span>
                   </div>
@@ -483,7 +483,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                     setLoginTab("credentials");
                     setShowSessionModal(true);
                   }}
-                  className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition cursor-pointer shrink-0"
+                  className="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-sm font-bold flex items-center gap-2 transition cursor-pointer shrink-0"
                   title="Add or manage CoinMarketCap accounts"
                 >
                   <Users className="h-4 w-4 text-indigo-400" />
@@ -491,7 +491,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                 </button>
               }
             >
-              <div className="mt-3 p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl text-xs text-slate-300 leading-relaxed">
+              <div className="mt-3 p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl text-sm text-slate-200 leading-relaxed">
                 <strong className="text-white">Active vs. Standby Backup Accounts:</strong> Accounts marked <span className="text-emerald-400 font-semibold font-mono">Active in Cycle</span> split each batch of trending coins evenly and post one after another. Unchecked accounts stay on <span className="text-amber-300 font-semibold font-mono">Standby / Backup</span> with their saved sessions ready to enable anytime in one click.
               </div>
             </SchedulerCollapsible>
@@ -499,7 +499,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[11px] border-b border-slate-800">
+                  <tr className="bg-slate-900/80 text-slate-300 uppercase tracking-wider text-xs font-bold border-b border-slate-800">
                     <th className="py-3 px-4 font-semibold text-center w-24">Order</th>
                     <th className="py-3 px-4 font-semibold">Account</th>
                     <th className="py-3 px-4 font-semibold min-w-[180px]">Cycle Role</th>
@@ -512,7 +512,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                 <tbody className="divide-y divide-slate-800/60 font-medium">
                   {(!schedulerData?.accounts || schedulerData.accounts.length === 0) ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500">
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
                         <div className="flex flex-col items-center gap-2.5">
                           <span className="italic">No profiles found. Add or import an account profile to start scheduling.</span>
                           <button
@@ -559,7 +559,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                               <div className="flex items-center justify-center gap-1.5">
                                 <div
                                   title={isSchedulerRunning ? "Reordering is locked while scheduler is running" : "Drag row to reorder"}
-                                  className={`p-1 rounded transition ${isSchedulerRunning ? 'cursor-not-allowed opacity-30 text-slate-600' : 'cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+                                  className={`p-1 rounded transition ${isSchedulerRunning ? 'cursor-not-allowed opacity-30 text-slate-400' : 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-400 hover:bg-slate-800'}`}
                                 >
                                   <GripVertical className="h-4 w-4" />
                                 </div>
@@ -609,7 +609,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                                 <span className="font-bold text-white text-sm flex items-center gap-1.5 flex-wrap">
                                   {acc.name}
                                   {isCurrent && (
-                                    <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-[9px] font-bold rounded animate-pulse">
+                                    <span className="px-1.5 py-0.2 bg-indigo-500 text-slate-950 text-xs font-bold rounded animate-pulse">
                                       RUNNING NOW
                                     </span>
                                   )}
@@ -716,7 +716,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                                       }}
                                       className="w-12 bg-transparent text-xs text-white text-center focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
                                     />
-                                    <span className="text-[10px] text-slate-400">hrs</span>
+                                    <span className="text-xs text-slate-400">hrs</span>
                                   </div>
                                 )}
                               </div>
@@ -726,11 +726,11 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                             <td className="py-3 px-4">
                               <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-slate-300 font-mono text-[11px]">
+                                  <span className="text-slate-200 font-mono text-xs sm:text-sm">
                                     {acc.lastRun.at ? new Date(acc.lastRun.at).toLocaleString() : "Never run"}
                                   </span>
                                   {acc.lastRun.status && (
-                                    <span className={`px-1.5 py-0.5 text-[9px] rounded font-semibold uppercase ${
+                                    <span className={`px-1.5 py-0.5 text-xs rounded font-semibold uppercase ${
                                       acc.lastRun.status === "completed"
                                         ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                                         : acc.lastRun.status === "skipped_not_due"
@@ -761,9 +761,9 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                             </td>
 
                             {/* Next due */}
-                            <td className="py-3 px-4 font-mono text-[11px]">
+                            <td className="py-3 px-4 font-mono text-xs sm:text-sm">
                               {acc.schedule.enabled === false ? (
-                                <span className="text-slate-500 italic">Standby</span>
+                                <span className="text-slate-400 italic">Standby</span>
                               ) : acc.schedule.useForNow ? (
                                 <span className="text-emerald-400 font-bold flex items-center gap-1">
                                   <CheckCircle className="h-3 w-3" />
@@ -776,7 +776,7 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                               ) : acc.nextDueAt ? (
                                 <div className="flex flex-col">
                                   <span className="text-slate-300">{new Date(acc.nextDueAt).toLocaleString()}</span>
-                                  <span className="text-[10px] text-slate-500">
+                                  <span className="text-xs text-slate-400">
                                     {new Date(acc.nextDueAt).getTime() <= Date.now() ? "Due now" : "Upcoming"}
                                   </span>
                                 </div>
@@ -788,17 +788,17 @@ export function renderSchedulerPage(schedulerData: any, toggleNotifications: any
                             {/* Session */}
                             <td className="py-3 px-4 text-center">
                               {acc.hasValidSession ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                   <CheckCircle className="h-3 w-3" />
                                   Valid
                                 </span>
                               ) : (acc.loginStatus === "expired" || acc.lastRun?.status === "skipped_expired") ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                   <AlertTriangle className="h-3 w-3" />
                                   Expired
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                   <AlertTriangle className="h-3 w-3" />
                                   Missing
                                 </span>

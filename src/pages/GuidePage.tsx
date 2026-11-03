@@ -64,7 +64,7 @@ export function renderGuidePage(
 
   const renderWizardNav = (tipIcon: React.ReactNode, tipText: React.ReactNode) => (
     <div className="pt-3.5 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div className="text-xs sm:text-sm text-slate-400 flex items-center gap-2">
+      <div className="text-sm text-slate-400 flex items-center gap-2">
         {tipIcon}
         <span>{tipText}</span>
       </div>
@@ -110,11 +110,11 @@ export function renderGuidePage(
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg font-bold text-white">Beginner & Operating Guide</h1>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold uppercase">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-bold uppercase">
                   Interactive Playbook
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-400">
+              <p className="text-sm text-slate-400">
                 Follow the 3 quick actions below or step through the 5 operating topics
               </p>
             </div>
@@ -142,13 +142,13 @@ export function renderGuidePage(
           {/* Step 1 */}
           <div className="bg-slate-950/80 border border-slate-800/90 hover:border-indigo-500/40 rounded-xl p-3.5 flex items-center justify-between gap-3 transition">
             <div className="min-w-0">
-              <span className="text-[10px] font-mono font-bold uppercase text-indigo-400 block">
+              <span className="text-xs font-mono font-bold uppercase text-indigo-400 block">
                 Step 1 • Connect
               </span>
-              <div className="text-sm font-bold text-white truncate">
+              <div className="text-sm sm:text-base font-bold text-white truncate">
                 Add CoinMarketCap Account
               </div>
-              <div className="text-xs text-slate-400 truncate">
+              <div className="text-xs sm:text-sm text-slate-300 truncate">
                 Sign in with email/password or cookies
               </div>
             </div>
@@ -159,7 +159,7 @@ export function renderGuidePage(
                 setLoginTab("credentials");
                 setShowSessionModal(true);
               }}
-              className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl text-xs sm:text-sm font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <Users className="h-3.5 w-3.5" />
               <span>Add Account</span>
@@ -169,13 +169,13 @@ export function renderGuidePage(
           {/* Step 2 */}
           <div className="bg-slate-950/80 border border-slate-800/90 hover:border-blue-500/40 rounded-xl p-3.5 flex items-center justify-between gap-3 transition">
             <div className="min-w-0">
-              <span className="text-[10px] font-mono font-bold uppercase text-blue-400 block">
+              <span className="text-xs font-mono font-bold uppercase text-blue-400 block">
                 Step 2 • Prepare Queue
               </span>
-              <div className="text-sm font-bold text-white truncate">
+              <div className="text-sm sm:text-base font-bold text-white truncate">
                 Fetch Coins & Write AI
               </div>
-              <div className="text-xs text-slate-400 truncate">
+              <div className="text-xs sm:text-sm text-slate-300 truncate">
                 Scrape trending coins & generate comments
               </div>
             </div>
@@ -189,7 +189,7 @@ export function renderGuidePage(
                     ?.scrollIntoView({ behavior: "smooth" });
                 }, 120);
               }}
-              className="px-3 py-2 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-3 py-2 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs sm:text-sm font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <Play className="h-3.5 w-3.5" />
               <span>Control Center</span>
@@ -199,20 +199,20 @@ export function renderGuidePage(
           {/* Step 3 */}
           <div className="bg-slate-950/80 border border-slate-800/90 hover:border-emerald-500/40 rounded-xl p-3.5 flex items-center justify-between gap-3 transition">
             <div className="min-w-0">
-              <span className="text-[10px] font-mono font-bold uppercase text-emerald-400 block">
+              <span className="text-xs font-mono font-bold uppercase text-emerald-400 block">
                 Step 3 • Automate 24/7
               </span>
-              <div className="text-sm font-bold text-white truncate">
+              <div className="text-sm sm:text-base font-bold text-white truncate">
                 Post or Rotate Accounts
               </div>
-              <div className="text-xs text-slate-400 truncate">
+              <div className="text-xs sm:text-sm text-slate-300 truncate">
                 Run manual batch or 24/7 multi-account cycle
               </div>
             </div>
             <button
               type="button"
               onClick={() => navigateTo("scheduler")}
-              className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-slate-950 border border-emerald-500/30 rounded-xl text-xs sm:text-sm font-bold transition inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <Clock className="h-3.5 w-3.5" />
               <span>24/7 Scheduler</span>
@@ -244,9 +244,9 @@ export function renderGuidePage(
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Icon className={`h-4 w-4 shrink-0 ${item.color}`} />
-                  <span className="text-xs font-bold truncate">{item.label}</span>
+                  <span className="text-xs sm:text-sm font-bold truncate">{item.label}</span>
                 </div>
-                <span className="hidden xl:inline-block px-1.5 py-0.5 rounded bg-slate-900 text-[10px] font-mono text-slate-400 shrink-0">
+                <span className="hidden xl:inline-block px-1.5 py-0.5 rounded bg-slate-900 text-xs font-mono text-slate-400 shrink-0">
                   {item.badge}
                 </span>
               </button>
@@ -267,7 +267,7 @@ export function renderGuidePage(
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">1. Getting started</h2>
-                  <p className="text-xs sm:text-sm text-slate-400">
+                  <p className="text-sm text-slate-400">
                     Quick readiness checklist before launching your first campaign
                   </p>
                 </div>
@@ -275,7 +275,7 @@ export function renderGuidePage(
               <button
                 type="button"
                 onClick={() => navigateTo("health")}
-                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-blue-400 border border-slate-800 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-blue-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <Activity className="h-4 w-4" />
                 <span>Check Health</span>
@@ -292,7 +292,7 @@ export function renderGuidePage(
               ].map((bullet, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
+                  className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
                 >
                   <span className="w-5 h-5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
                     {idx + 1}
@@ -322,7 +322,7 @@ export function renderGuidePage(
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">2. Adding an account</h2>
-                  <p className="text-xs sm:text-sm text-slate-400">
+                  <p className="text-sm text-slate-400">
                     Add, switch, or isolate your CoinMarketCap accounts with proxies
                   </p>
                 </div>
@@ -334,7 +334,7 @@ export function renderGuidePage(
                   setLoginTab("credentials");
                   setShowSessionModal(true);
                 }}
-                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <Users className="h-4 w-4" />
                 <span>Manage Accounts</span>
@@ -351,7 +351,7 @@ export function renderGuidePage(
               ].map((bullet, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
+                  className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
                 >
                   <span className="w-5 h-5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
                     {idx + 1}
@@ -382,7 +382,7 @@ export function renderGuidePage(
                   <h2 className="text-base font-bold text-white">
                     3. Running the scheduler (start, pause, stop, resume)
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-400">
+                  <p className="text-sm text-slate-400">
                     Automatic account rotation, saved progress, and live controls
                   </p>
                 </div>
@@ -390,7 +390,7 @@ export function renderGuidePage(
               <button
                 type="button"
                 onClick={() => navigateTo("scheduler")}
-                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-cyan-400 border border-slate-800 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-cyan-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <Clock className="h-4 w-4" />
                 <span>Open Scheduler</span>
@@ -408,7 +408,7 @@ export function renderGuidePage(
               ].map((bullet, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
+                  className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
                 >
                   <span className="w-5 h-5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
                     {idx + 1}
@@ -438,7 +438,7 @@ export function renderGuidePage(
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">4. Images</h2>
-                  <p className="text-xs sm:text-sm text-slate-400">
+                  <p className="text-sm text-slate-400">
                     Attaching promotional graphics and charts to your comments
                   </p>
                 </div>
@@ -448,7 +448,7 @@ export function renderGuidePage(
                   type="button"
                   onClick={() => imageFileInputRef.current?.click()}
                   disabled={isUploadingImages}
-                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   title="Upload images from your computer"
                 >
                   <Upload className="h-3.5 w-3.5" />
@@ -465,7 +465,7 @@ export function renderGuidePage(
                         ?.scrollIntoView({ behavior: "smooth" });
                     }, 120);
                   }}
-                  className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                  className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <ImageIcon className="h-3.5 w-3.5" />
                   <span>Image Library ({marketingImages.length})</span>
@@ -482,7 +482,7 @@ export function renderGuidePage(
               ].map((bullet, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
+                  className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
                 >
                   <span className="w-5 h-5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
                     {idx + 1}
@@ -511,7 +511,7 @@ export function renderGuidePage(
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">5. If something goes wrong</h2>
-                  <p className="text-xs sm:text-sm text-slate-400">
+                  <p className="text-sm text-slate-400">
                     Quick fixes if an account signs out or a post fails
                   </p>
                 </div>
@@ -519,7 +519,7 @@ export function renderGuidePage(
               <button
                 type="button"
                 onClick={() => navigateTo("logs")}
-                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <TerminalIcon className="h-4 w-4" />
                 <span>View Logs</span>
@@ -536,7 +536,7 @@ export function renderGuidePage(
               ].map((bullet, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
+                  className="flex items-start gap-3 text-sm text-slate-200 bg-slate-950/60 p-3 rounded-xl border border-slate-800/70"
                 >
                   <span className="w-5 h-5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
                     {idx + 1}

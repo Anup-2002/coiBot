@@ -169,7 +169,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
                     }`}
                   >
                     <div className="font-bold text-base">4 Days (Lean & Fast)</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Recommended for high-frequency bots running continuous cycles.</div>
+                    <div className="text-xs text-slate-400 mt-1">Recommended for high-frequency bots running continuous cycles.</div>
                   </button>
 
                   <button
@@ -182,7 +182,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
                     }`}
                   >
                     <div className="font-bold text-base">7 Days (Standard)</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Preserves one full week of posting data before archiving.</div>
+                    <div className="text-xs text-slate-400 mt-1">Preserves one full week of posting data before archiving.</div>
                   </button>
                 </div>
               </div>
@@ -190,9 +190,9 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-slate-200">Auto-Archive Completed Batches</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">ENABLED</span>
+                  <span className="text-xs font-bold px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">ENABLED</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-sm text-slate-300 leading-relaxed">
                   When all comments in a cycle batch (e.g. 70+ posts) are completely posted, the active queue resets automatically so the next cycle starts fresh with zero blockage or slowdown.
                 </p>
               </div>
@@ -242,7 +242,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
               </div>
               <button
                 onClick={() => setConfirmSwitchProfile(null)}
-                className="text-slate-500 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition"
+                className="text-slate-400 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition"
                 title="Close dialog"
                 aria-label="Close dialog"
               >
@@ -253,12 +253,12 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
             {/* Profile comparison card */}
             <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between gap-3 text-sm">
               <div className="flex-1">
-                <span className="text-[10px] text-slate-500 font-mono uppercase block font-semibold">Current Active Account</span>
+                <span className="text-xs text-slate-400 font-mono uppercase block font-semibold">Current Active Account</span>
                 <span className="font-bold text-slate-300 truncate block">{activeProfile?.name || "Default Session"}</span>
               </div>
               <div className="flex-shrink-0 text-emerald-400 px-2 font-mono font-bold text-base">➔</div>
               <div className="flex-1 text-right">
-                <span className="text-[10px] text-emerald-500 font-mono uppercase block font-semibold">Target Account</span>
+                <span className="text-xs text-emerald-500 font-mono uppercase block font-semibold">Target Account</span>
                 <span className="font-bold text-emerald-400 truncate block">{confirmSwitchProfile.name}</span>
               </div>
             </div>
@@ -266,7 +266,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
             {/* Detailed Explanation of what happens */}
             <div className="space-y-2.5 text-sm text-slate-300">
               <div className="font-semibold text-slate-200 text-sm">Here is what will happen when you switch:</div>
-              <ul className="space-y-2 text-[11px] text-slate-400">
+              <ul className="space-y-2 text-sm text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 flex-shrink-0"></span>
                   <span><strong className="text-slate-200">Active Account Session:</strong> Your active login session will switch to <strong>{confirmSwitchProfile.name}</strong>. All posts and actions will use this account.</span>
@@ -354,7 +354,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
               </div>
               <button
                 onClick={() => setShowStaleWarningModal(false)}
-                className="text-slate-500 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                className="text-slate-400 hover:text-slate-300 p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
                 title="Close dialog"
                 aria-label="Close dialog"
               >
@@ -365,20 +365,20 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
             {/* Age summary cards */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Coins Fetched</div>
+                <div className="text-xs text-slate-400 font-mono uppercase font-bold">Coins Fetched</div>
                 <div className="text-base font-bold text-amber-400 mt-0.5">
                   {formatTimeAgo(coinsFetchedAt).text}
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
                   {formatTimeAgo(coinsFetchedAt).full}
                 </div>
               </div>
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <div className="text-[10px] text-slate-500 font-mono uppercase font-bold">Comments Generated</div>
+                <div className="text-xs text-slate-400 font-mono uppercase font-bold">Comments Generated</div>
                 <div className="text-base font-bold text-amber-400 mt-0.5">
                   {formatTimeAgo(commentsGeneratedAt).text}
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
                   {formatTimeAgo(commentsGeneratedAt).full}
                 </div>
               </div>
@@ -389,7 +389,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
               <p className="font-semibold text-slate-200">
                 Why we recommend fetching fresh market data:
               </p>
-              <ul className="space-y-1.5 text-[11px] text-slate-400 list-disc list-inside">
+              <ul className="space-y-1.5 text-sm text-slate-300 list-disc list-inside">
                 <li>Crypto prices, percentage gains, and trends shift dramatically in 48 hours.</li>
                 <li>Posting comments quoting outdated prices can appear robotic or incorrect to community members.</li>
                 <li>Fetching fresh coins ensures your account posts timely, accurate commentary with relevant AI insights.</li>
@@ -470,7 +470,7 @@ export function renderModalsLayer(coinsFetchedAt: any, commentsGeneratedAt: any,
           <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
             <button
               onClick={toggleNotifications}
-              className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-[11px] text-slate-300 hover:text-white font-semibold flex items-center gap-1 transition cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs text-slate-300 hover:text-white font-semibold flex items-center gap-1 transition cursor-pointer"
               title="Mute toast notifications (re-enable anytime from the Alerts: ON/OFF button)"
             >
               <BellOff className="h-3 w-3 text-amber-400" />

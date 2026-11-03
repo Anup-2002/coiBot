@@ -123,11 +123,11 @@ export const CustomSelect: React.FC<{
             setOpen(false);
           }
         }}
-        className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : `gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm ${hoverBorderClass} ${open ? activeRingClass : ""}`} text-xs sm:text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+        className={`inline-flex items-center justify-between ${iconOnly ? "gap-0 px-2 py-1.5" : `gap-2 bg-slate-900 border border-slate-700/90 rounded-xl px-2.5 py-1 shadow-sm ${hoverBorderClass} ${open ? activeRingClass : ""}`} text-sm font-bold transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
       >
         {!iconOnly && <span className="truncate">{selectedOption ? selectedOption.label : String(value)}</span>}
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 ${
+          className={`h-3.5 w-3.5 shrink-0 text-slate-300 transition-transform duration-150 ${
             open ? "rotate-180 text-white" : ""
           }`}
         />
@@ -161,7 +161,7 @@ export const CustomSelect: React.FC<{
                     onChange(String(opt.value));
                   }
                 }}
-                className={`w-full text-left px-2.5 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-between gap-2 transition cursor-pointer ${
+                className={`w-full text-left px-2.5 py-2 rounded-lg text-sm font-semibold flex items-center justify-between gap-2 transition cursor-pointer ${
                   isSelected
                     ? accent === "emerald"
                       ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
@@ -172,7 +172,7 @@ export const CustomSelect: React.FC<{
                 <span className="truncate">{opt.label}</span>
                 <span className="flex items-center gap-1.5 shrink-0">
                   {opt.badge && (
-                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-xs font-mono text-slate-200">
                       {opt.badge}
                     </span>
                   )}

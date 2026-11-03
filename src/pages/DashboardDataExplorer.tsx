@@ -26,7 +26,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                     {isExpanded ? "Expanded" : "Minimized"}
                   </span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs sm:text-sm text-slate-300">
                   {coinsList.length} Coins &bull; {messagesList.length} Comments &bull; {submissionCount} Submissions &bull; {marketingImages.length} Images
                 </p>
               </div>
@@ -73,7 +73,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             <button
               type="button"
               onClick={() => setActiveTab(activeTab === "coins" ? "" : "coins")}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
                 activeTab === "coins" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -82,7 +82,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             <button
               type="button"
               onClick={() => setActiveTab(activeTab === "comments" ? "" : "comments")}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
                 activeTab === "comments" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -91,7 +91,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             <button
               type="button"
               onClick={() => setActiveTab(activeTab === "results" ? "" : "results")}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
                 activeTab === "results" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -100,7 +100,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             <button
               type="button"
               onClick={() => setActiveTab(activeTab === "reports" ? "" : "reports")}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all cursor-pointer ${
                 activeTab === "reports" ? "bg-slate-800 text-white shadow border border-slate-700" : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -109,13 +109,13 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
             <button
               type="button"
               onClick={() => setActiveTab(activeTab === "images" ? "" : "images")}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === "images" ? "bg-indigo-600/50 text-white border border-indigo-500/50 shadow" : "text-slate-400 hover:text-slate-200"
               }`}
             >
               <ImageIcon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
               <span>5. Image Library ({marketingImages.length})</span>
-              <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+              <span className={`px-1.5 py-0.2 text-xs font-bold rounded ${imageUploadEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
                 {imageUploadEnabled ? 'ON' : 'OFF'}
               </span>
             </button>
@@ -133,7 +133,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                       Showing {coinsList.length} trending assets for the active profile
                     </span>
                     {coinsList.length > 0 && (
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-semibold ${
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-mono font-semibold ${
                         coinsFetchedAt
                           ? (formatTimeAgo(coinsFetchedAt).isVeryStale
                               ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
@@ -171,8 +171,8 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <tr>
                           <td colSpan={9} className="py-12 px-4 text-center text-slate-400">
                             <div className="space-y-3 max-w-md mx-auto">
-                              <p className="text-slate-500 font-medium">No trending coins found in storage for this profile.</p>
-                              <p className="text-[11px] text-slate-400">
+                              <p className="text-slate-400 font-medium">No trending coins found in storage for this profile.</p>
+                              <p className="text-xs sm:text-sm text-slate-300">
                                 If you recently switched profiles, the browser data might not have synchronized yet. Click <strong>"Refresh Coins"</strong> above, or trigger <strong>"Get trending coins"</strong> in the Control Center to populate.
                               </p>
                               <button
@@ -194,7 +194,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                             </td>
                             <td className="py-3.5 px-4 border-r border-slate-800/80">
                               <div className="font-bold text-white leading-none">{coin.name}</div>
-                              <span className="text-[10px] font-mono text-slate-500 tracking-wide uppercase">{coin.symbol}</span>
+                              <span className="text-xs font-mono text-slate-400 tracking-wide uppercase">{coin.symbol}</span>
                             </td>
                             <td className="py-3.5 px-4 font-mono font-medium text-slate-200 border-r border-slate-800/80">
                               ${coin.price >= 1 ? coin.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : coin.price.toFixed(6)}
@@ -248,7 +248,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                       Showing {messagesList.length} AI-generated comments for the active profile
                     </span>
                     {messagesList.length > 0 && (
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-semibold ${
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-mono font-semibold ${
                         commentsGeneratedAt
                           ? (formatTimeAgo(commentsGeneratedAt).isVeryStale
                               ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
@@ -268,7 +268,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
 
                 {messagesList.length === 0 ? (
                   <div className="p-12 bg-slate-950/60 border border-slate-800 rounded-2xl text-center text-slate-400 space-y-3">
-                    <div className="text-slate-500 font-medium">No generated comments found in storage for this profile.</div>
+                    <div className="text-slate-400 font-medium">No generated comments found in storage for this profile.</div>
                     <div className="text-sm text-slate-400 max-w-md mx-auto">
                       Comments must be generated before they can be posted. Click <strong className="text-emerald-400">"Refresh Data"</strong> above, or trigger <strong className="text-purple-400">"Write comments"</strong> in the Control Center.
                     </div>
@@ -297,21 +297,21 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         {messagesList.map((item, index) => (
                           <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
                             <td className="py-3.5 px-4 font-mono border-r border-slate-800/80">
-                              <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 font-bold">
+                              <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 font-bold">
                                 #{index + 1}
                               </span>
                             </td>
                             <td className="py-3.5 px-4 font-bold text-white border-r border-slate-800/80">
                               <div className="leading-none">{item.name}</div>
-                              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{item.symbol}</span>
+                              <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">{item.symbol}</span>
                             </td>
                             <td className="py-3.5 px-4 border-r border-slate-800/80">
                               {item.sentiment === "bearish" ? (
-                                <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider font-bold">
+                                <span className="px-2 py-0.5 rounded text-xs bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider font-bold">
                                   Bearish
                                 </span>
                               ) : (
-                                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider font-bold">
+                                <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider font-bold">
                                   Bullish
                                 </span>
                               )}
@@ -384,7 +384,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                           All History ({profileResults.length})
                         </button>
                       </div>
-                      <span className="hidden sm:inline-block text-[11px] font-mono text-slate-400 ml-2">
+                      <span className="hidden sm:inline-block text-xs font-mono text-slate-400 ml-2">
                         {submissionsViewMode === "current_batch" 
                           ? `${pendingItems.length} pending in current cycle`
                           : `Total lifetime submissions log`}
@@ -432,7 +432,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                   <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2.5 text-blue-300">
                       <span className="p-1 bg-blue-500/20 rounded-md text-blue-400 font-bold whitespace-nowrap">⚡ AUTO-CLEANUP</span>
-                      <p className="text-[11px] leading-relaxed">
+                      <p className="text-xs leading-relaxed">
                         Old completed runs are automatically archived after {retentionDays} days to keep your queue fast and clean.
                       </p>
                     </div>
@@ -457,7 +457,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                           profileResults.length === 0 ? (
                             <tr>
                               <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
-                                <p className="text-slate-500 font-medium">No historical submission records found.</p>
+                                <p className="text-slate-400 font-medium">No historical submission records found.</p>
                               </td>
                             </tr>
                           ) : (
@@ -468,15 +468,15 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                 </td>
                                 <td className="py-3 px-4 border-r border-slate-800/80">
                                   <div className="font-bold text-white leading-snug">{histItem.name}</div>
-                                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mt-0.5">{histItem.symbol}</span>
+                                  <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block mt-0.5">{histItem.symbol}</span>
                                 </td>
                                 <td className="py-3 px-4 font-bold border-r border-slate-800/80 whitespace-nowrap">
                                   {(histItem.sentiment || "bullish") === "bearish" ? (
-                                    <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                                    <span className="px-2 py-0.5 rounded text-xs bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
                                       Bearish
                                     </span>
                                   ) : (
-                                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                                    <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
                                       Bullish
                                     </span>
                                   )}
@@ -500,11 +500,11 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-3 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={histItem.message}>
+                                <td className="py-3 px-4 text-slate-200 font-mono text-xs sm:text-sm max-w-xs truncate border-r border-slate-800/80" title={histItem.message}>
                                   {histItem.message}
                                 </td>
                                 <td className="py-3 px-4 text-center border-r border-slate-800/80">
-                                  <span className="text-slate-600 font-mono text-[11px]">—</span>
+                                  <span className="text-slate-400 font-mono text-xs">—</span>
                                 </td>
                                 <td className="py-3 px-4 text-right whitespace-nowrap">
                                   <div className="inline-flex items-center justify-end gap-1.5">
@@ -539,8 +539,8 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                             <tr>
                               <td colSpan={7} className="py-12 px-4 text-center text-slate-400">
                                 <div className="space-y-3 max-w-md mx-auto">
-                                  <p className="text-slate-500 font-medium">No generated comments loaded for the current cycle.</p>
-                                  <p className="text-[11px] text-slate-400">
+                                  <p className="text-slate-400 font-medium">No generated comments loaded for the current cycle.</p>
+                                  <p className="text-xs sm:text-sm text-slate-300">
                                     Click <strong>"Refresh"</strong> above, or trigger <strong>"Write comments"</strong> in the Control Center to populate the queue.
                                   </p>
                                   <button
@@ -567,15 +567,15 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                   </td>
                                   <td className="py-3.5 px-4 border-r border-slate-800/80">
                                     <div className="font-bold text-white leading-snug">{msgItem.name}</div>
-                                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mt-0.5">{msgItem.symbol}</span>
+                                    <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block mt-0.5">{msgItem.symbol}</span>
                                   </td>
                                   <td className="py-3.5 px-4 font-bold border-r border-slate-800/80 whitespace-nowrap">
                                     {(item?.sentiment || msgItem.sentiment || "bullish") === "bearish" ? (
-                                      <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                                      <span className="px-2 py-0.5 rounded text-xs bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
                                         Bearish
                                       </span>
                                     ) : (
-                                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                                      <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
                                         Bullish
                                       </span>
                                     )}
@@ -585,12 +585,12 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                       isPostingActive ? (
                                         <span className="text-cyan-400 inline-flex items-center gap-1.5 font-medium font-mono whitespace-nowrap">
                                           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
-                                          In Queue {seqStr && <span className="text-[10px] text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
+                                          In Queue {seqStr && <span className="text-xs text-cyan-300 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800 font-bold ml-1">{seqStr}</span>}
                                         </span>
                                       ) : (
                                         <span className="text-slate-400 inline-flex items-center gap-1.5 font-medium font-mono whitespace-nowrap">
                                           <span className="w-1.5 h-1.5 rounded-full bg-slate-600 shrink-0"></span>
-                                          Pending Run {seqStr && <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
+                                          Pending Run {seqStr && <span className="text-xs text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 font-bold ml-1">{seqStr}</span>}
                                         </span>
                                       )
                                     ) : item.status === "skipped" ? (
@@ -615,7 +615,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                       </span>
                                     )}
                                   </td>
-                                  <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] max-w-xs truncate border-r border-slate-800/80" title={item ? item.message : msgItem.message}>
+                                  <td className="py-3.5 px-4 text-slate-200 font-mono text-xs sm:text-sm max-w-xs truncate border-r border-slate-800/80" title={item ? item.message : msgItem.message}>
                                     {item ? (
                                       item.message === "Post button text is Log In" ? (
                                         <span className="text-rose-400 font-semibold">Post button said "Log In" (Cookies not logged in)</span>
@@ -634,7 +634,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                         <button
                                           onClick={() => handleRetrySingle(msgItem.symbol)}
                                           disabled={individualLoading[msgItem.symbol] !== null || isBusy}
-                                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-emerald-500/25 transition flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
+                                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold font-mono text-xs tracking-wide border border-emerald-500/25 transition flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-400 cursor-pointer"
                                           title="Automatically post this comment on CoinMarketCap"
                                         >
                                           {individualLoading[msgItem.symbol] === "retry" ? (
@@ -649,7 +649,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           onClick={() => handleCopyAndOpenCMC(msgItem.url, msgItem.message, msgItem.symbol)}
-                                          className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-slate-950 font-bold font-mono text-[10px] tracking-wide border border-blue-500/25 transition flex items-center gap-1 cursor-pointer"
+                                          className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-slate-950 font-bold font-mono text-xs tracking-wide border border-blue-500/25 transition flex items-center gap-1 cursor-pointer"
                                           title="Copies comment to clipboard and opens CoinMarketCap to post manually"
                                         >
                                           <ExternalLink className="h-2.5 w-2.5" />
@@ -657,7 +657,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                                         </a>
                                       </div>
                                     ) : (
-                                      <span className="text-slate-600 font-mono text-[11px]">—</span>
+                                      <span className="text-slate-400 font-mono text-xs">—</span>
                                     )}
                                   </td>
 
@@ -716,7 +716,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <FileText className="h-5 w-5" />
                       </div>
                       <h3 className="font-bold text-white text-base">Trending Coins CSV</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                      <p className="text-sm text-slate-300 leading-relaxed">
                         Complete log report containing details of the top trending assets, dynamic live price changes, ranks, and coin URLs.
                       </p>
                     </div>
@@ -735,7 +735,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <FileText className="h-5 w-5" />
                       </div>
                       <h3 className="font-bold text-white text-base">Generated Comments CSV</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                      <p className="text-sm text-slate-300 leading-relaxed">
                         Complete list of AI-generated comments ready to post on CoinMarketCap.
                       </p>
                     </div>
@@ -754,7 +754,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <FileText className="h-5 w-5" />
                       </div>
                       <h3 className="font-bold text-white text-base">Post Submissions CSV</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                      <p className="text-sm text-slate-300 leading-relaxed">
                         Active cycle and recent execution logs representing each individual automated browser posting session.
                       </p>
                     </div>
@@ -773,7 +773,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <FileText className="h-5 w-5" />
                       </div>
                       <h3 className="font-bold text-white text-base">Overall Report CSV</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                      <p className="text-sm text-slate-300 leading-relaxed">
                         High-level summary representing overall run health, conversion rates, counts, and bot execution parameters.
                       </p>
                     </div>
@@ -792,7 +792,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         <Archive className="h-5 w-5 text-indigo-400" />
                       </div>
                       <h3 className="font-bold text-white text-base">Archived Logs CSV</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                      <p className="text-sm text-slate-300 leading-relaxed">
                         Lifetime historical records of older pruned batches (&gt;{retentionDays}d), safely preserved for audit compliance.
                       </p>
                     </div>
@@ -816,7 +816,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                       <h4 className="font-bold text-white text-sm uppercase tracking-wider text-center">Submission Success Rate</h4>
                       
                       {results.length === 0 ? (
-                        <div className="py-12 text-center text-sm text-slate-500 italic">
+                        <div className="py-12 text-center text-sm text-slate-400 italic">
                           No submissions executed yet to compute analytics.
                         </div>
                       ) : (
@@ -850,19 +850,19 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                               <span className="text-2xl font-extrabold text-white">
                                 {Math.round((results.filter(r => r.status === "success").length / (results.filter(r => r.status !== "skipped").length || 1)) * 100)}%
                               </span>
-                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Success</span>
+                              <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Success</span>
                             </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4 w-full text-center">
                             <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
-                              <div className="text-[10px] text-slate-400 font-medium">Successful</div>
+                              <div className="text-xs text-slate-400 font-medium">Successful</div>
                               <div className="text-base font-bold text-emerald-400 font-mono">
                                 {results.filter(r => r.status === "success").length} / {results.filter(r => r.status !== "skipped").length}
                               </div>
                             </div>
                             <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/40">
-                              <div className="text-[10px] text-slate-400 font-medium">Failed / Skipped</div>
+                              <div className="text-xs text-slate-400 font-medium">Failed / Skipped</div>
                               <div className="text-base font-bold text-rose-400 font-mono">
                                 {results.filter(r => r.status !== "success" && r.status !== "skipped").length} F / {results.filter(r => r.status === "skipped").length} S
                               </div>
@@ -926,7 +926,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                         </div>
                       </div>
 
-                      <div className="bg-slate-900/30 p-3 rounded-xl border border-slate-800/40 text-[11px] text-slate-400 mt-4 leading-relaxed">
+                      <div className="bg-slate-900/30 p-3 rounded-xl border border-slate-800/40 text-sm text-slate-300 mt-4 leading-relaxed">
                         <span className="font-bold text-slate-200">System Insight:</span> Real-time sentiment categorization uses your generated AI comments database. Keep your CoinMarketCap account signed in for the highest posting success rate.
                       </div>
                     </div>

@@ -32,7 +32,7 @@ export default function App() {
       />
       {headerNode}
       {pageNode}
-      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-sm text-slate-500">
+      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-sm text-slate-400">
         <p className="tracking-wide">CoinMarketCap Automated Community Bot Control Panel © 2026. All rights reserved.</p>
       </footer>
       <SmartScrollNavigator />

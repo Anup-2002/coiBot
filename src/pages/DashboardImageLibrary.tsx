@@ -50,7 +50,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <span className="text-xs font-mono uppercase font-bold text-emerald-400">Step 1 • Local Files</span>
-                    <h4 className="text-sm font-bold text-white">Upload Images from Computer</h4>
+                    <h4 className="text-base font-bold text-white">Upload Images from Computer</h4>
                     <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-slate-200 pt-0.5">
                       <input
                         type="checkbox"
@@ -76,7 +76,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <span className="text-xs font-mono uppercase font-bold text-teal-400">Step 2 • Cloud Sync</span>
-                    <h4 className="text-sm font-bold text-white">Import from Google Drive or Web Link</h4>
+                    <h4 className="text-base font-bold text-white">Import from Google Drive or Web Link</h4>
                     <p className="text-xs text-slate-400">
                       Fetch daily chart packs directly from a shared Drive folder or image link.
                     </p>
@@ -95,7 +95,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
               {/* ROTATION & RETENTION SETTINGS */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Rotation Policy</span>
+                  <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Rotation Policy</span>
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={() => handleSetImageMode("cycle")}
@@ -120,7 +120,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                       Random Shuffle
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                     {imageSelectionMode === "cycle"
                       ? "Rotates through images 1 ➔ 2 ➔ 3 so consecutive comments never duplicate graphics."
                       : "Picks a random graphic from library for each coin submission."}
@@ -128,17 +128,17 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                 </div>
 
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Single Image Constraint</span>
+                  <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Single Image Constraint</span>
                   <div className="text-base font-bold text-emerald-400 font-mono pt-1">Strictly 1 Image / Post</div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                     Enforces CoinMarketCap's community standard: exactly 1 graphic attached per comment.
                   </p>
                 </div>
 
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Daily Auto-Prune Policy</span>
-                    <label className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer">
+                    <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Daily Auto-Prune Policy</span>
+                    <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={autoPruneEnabled}
@@ -168,14 +168,14 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                       <button
                         onClick={() => handleManualPruneNow(autoPruneLimit)}
                         disabled={isPruningImages}
-                        className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 rounded-lg text-[11px] font-bold transition cursor-pointer shrink-0"
+                        className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 rounded-lg text-xs font-bold transition cursor-pointer shrink-0"
                         title="Prune excess older images right now"
                       >
                         Prune Now
                       </button>
                     )}
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                     {autoPruneEnabled
                       ? `When daily images arrive, graphics older than the ${autoPruneLimit} newest are automatically deleted.`
                       : "Maintains all graphics until manually batch-deleted or replaced."}
@@ -245,7 +245,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                     </button>
                     {/* Search Input */}
                     <div className="relative">
-                      <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                      <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                       <input
                         type="text"
                         value={imageSearchQuery}
@@ -262,7 +262,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                             setImageSearchQuery("");
                             setImagePage(1);
                           }}
-                          className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 text-sm cursor-pointer" title="Clear filter" aria-label="Clear filter">
+                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-300 text-sm cursor-pointer" title="Clear filter" aria-label="Clear filter">
                           <X className="h-3.5 w-3.5" />
                         </button>
                       )}
@@ -319,7 +319,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
 
                 {/* Sub-bar: showing pagination info */}
                 {filteredMarketingImages.length > 0 && (
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-900 pt-2.5">
+                  <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-900 pt-2.5">
                     <span>
                       Showing {Math.min((currentPageClamped - 1) * imagePageSize + 1, filteredMarketingImages.length)} -{" "}
                       {Math.min(currentPageClamped * imagePageSize, filteredMarketingImages.length)} of{" "}
@@ -331,7 +331,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                         <button
                           onClick={() => setImagePage((p) => Math.max(1, p - 1))}
                           disabled={currentPageClamped <= 1}
-                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-[10px] flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-xs flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
                         >
                           <ChevronLeft className="h-3 w-3" />
                           Prev
@@ -342,7 +342,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                         <button
                           onClick={() => setImagePage((p) => Math.min(totalImagePages, p + 1))}
                           disabled={currentPageClamped >= totalImagePages}
-                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-[10px] flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 rounded border border-slate-800 text-slate-300 text-xs flex items-center gap-0.5 cursor-pointer disabled:cursor-not-allowed"
                         >
                           Next
                           <ChevronRight className="h-3 w-3" />
@@ -363,7 +363,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                     >
                       <Upload className="h-10 w-10 text-indigo-400 mx-auto" />
                       <p className="text-base text-slate-300 font-semibold">No images currently in library</p>
-                      <p className="text-sm text-slate-500 max-w-md mx-auto">
+                      <p className="text-sm text-slate-400 max-w-md mx-auto">
                         Click here to upload your 5 SpikeSignals infographics (PNG/JPG). In the future, daily images from an S3 bucket or API can be dropped here as well.
                       </p>
                     </div>
@@ -412,14 +412,14 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                                 className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900/90 text-indigo-600 focus:ring-0 cursor-pointer shadow"
                               />
                               {isNext && (
-                                <span className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                                <span className="bg-indigo-600 text-white text-xs font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
                                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                                   NEXT
                                 </span>
                               )}
                             </div>
 
-                            <div className="absolute top-1.5 right-1.5 bg-slate-950/80 backdrop-blur-sm text-slate-300 text-[9px] font-mono px-1.5 py-0.5 rounded border border-slate-800">
+                            <div className="absolute top-1.5 right-1.5 bg-slate-950/80 backdrop-blur-sm text-slate-300 text-xs font-mono px-1.5 py-0.5 rounded border border-slate-800">
                               #{overallIndex + 1}
                             </div>
 
@@ -453,15 +453,15 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                           {/* Compact File Info */}
                           <div className="p-2 border-t border-slate-900 bg-slate-950/90">
                             <h5
-                              className="font-medium text-white text-[11px] truncate cursor-pointer hover:text-indigo-300"
+                              className="font-medium text-white text-xs truncate cursor-pointer hover:text-indigo-300"
                               title={img.filename}
                               onClick={() => setPreviewModalImage(img)}
                             >
                               {img.filename}
                             </h5>
-                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mt-0.5">
+                            <div className="flex items-center justify-between text-xs text-slate-400 font-mono mt-0.5">
                               <span>{(img.sizeBytes / 1024).toFixed(0)} KB</span>
-                              <span className="text-[9px] text-slate-600">
+                              <span className="text-xs text-slate-400">
                                 {img.updatedAt ? new Date(img.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
                               </span>
                             </div>
@@ -475,7 +475,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                   <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-900/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                        <thead className="bg-slate-900/80 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                           <tr>
                             <th className="py-2.5 px-3 w-16 text-center">
                               <input
@@ -519,7 +519,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                                 className="hover:bg-slate-900/50 transition cursor-pointer"
                                 onClick={() => setPreviewModalImage(img)}
                               >
-                                <td className="py-2 px-3 text-center text-slate-500 font-mono text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                <td className="py-2 px-3 text-center text-slate-400 font-mono text-xs" onClick={(e) => e.stopPropagation()}>
                                   <div className="flex items-center justify-center gap-1.5">
                                     <input
                                       type="checkbox"
@@ -545,20 +545,20 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                                     {img.filename}
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 text-slate-400 text-[11px]">
+                                <td className="py-2 px-3 text-slate-400 text-xs">
                                   {(img.sizeBytes / 1024).toFixed(1)} KB
                                 </td>
-                                <td className="py-2 px-3 text-slate-500 text-[11px]">
+                                <td className="py-2 px-3 text-slate-400 text-xs">
                                   {img.updatedAt ? new Date(img.updatedAt).toLocaleDateString() : "—"}
                                 </td>
                                 <td className="py-2 px-3">
                                   {isNext ? (
-                                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold inline-flex items-center gap-1">
+                                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold inline-flex items-center gap-1">
                                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
                                       NEXT IN LINE
                                     </span>
                                   ) : (
-                                    <span className="text-[10px] text-slate-600">In pool</span>
+                                    <span className="text-xs text-slate-400">In pool</span>
                                   )}
                                 </td>
                                 <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
@@ -573,7 +573,7 @@ export function renderDashboardImageLibrary(isBusy: any, isPostingActive: any, i
                                     </button>
                                     <button
                                       onClick={() => handleDeleteMarketingImage(img.filename)}
-                                      className="p-1 hover:text-red-400 text-slate-500 transition cursor-pointer"
+                                      className="p-1 hover:text-red-400 text-slate-400 transition cursor-pointer"
                                       title="Delete"
                                       aria-label="Delete"
                                     >
@@ -703,7 +703,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                           rows={5}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
                         />
-                        <p className="text-[11px] text-slate-500 mt-1">
+                        <p className="text-xs text-slate-400 mt-1">
                           Tip: For Google Drive folders, ensure the folder sharing link is set to "Anyone with the link can view".
                         </p>
                       </div>
@@ -779,7 +779,7 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
                         <h4 className="text-sm font-bold text-white truncate font-mono">
                           {previewModalImage.filename}
                         </h4>
-                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                        <span className="text-xs text-slate-400 font-mono shrink-0">
                           ({(previewModalImage.sizeBytes / 1024).toFixed(1)} KB)
                         </span>
                       </div>
@@ -835,11 +835,11 @@ https://my-bucket.s3.amazonaws.com/promo2.jpg`}
 
                     {/* Modal Bottom Actions Bar */}
                     <div className="p-3.5 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between gap-3 text-sm">
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                      <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
                         <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold">
                           #{marketingImages.findIndex((m) => m.filename === previewModalImage.filename) + 1} of {marketingImages.length}
                         </span>
-                        <span className="hidden sm:inline text-slate-500">
+                        <span className="hidden sm:inline text-slate-400">
                           (Use ← / → keys to flip, Esc to close)
                         </span>
                       </div>

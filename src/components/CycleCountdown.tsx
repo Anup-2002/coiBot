@@ -30,7 +30,7 @@ export const CycleCountdown = React.memo(function CycleCountdown({ nextCycleStar
     <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2.5 shadow-sm">
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
-        <span className="text-[11px] text-emerald-400 font-bold">Cooldown Active</span>
+        <span className="text-xs text-emerald-400 font-bold">Cooldown Active</span>
       </div>
       <span className="font-mono text-sm text-slate-300">
         Next cycle in: <strong className="text-emerald-400 font-bold">{mins}m {secs}s</strong>
