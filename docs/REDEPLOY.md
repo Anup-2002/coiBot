@@ -210,3 +210,28 @@ npm run build
 pm2 restart cmc-bot --update-env
 pm2 save
 ```
+
+---
+
+## 📊 Server Resource Usage & Project Isolation (`ip-172-31-10-96`)
+
+`cmc-bot` runs strictly under the isolated Linux user `cmcbot` inside `/home/cmcbot/cmc-bot` on port `3000` (`127.0.0.1:3000` -> `cmc-tunnel`). It does not touch any other user, folder, or port on the server.
+
+### 1. Overall Server vs. `cmcbot` Footprint
+| Resource | Server Total | Used by `cmcbot` | Free / Available | Impact on Other Projects |
+| :--- | :--- | :--- | :--- | :--- |
+| **RAM** | `3.8 GB` | **`~248 MB` (`6.4%`)** | **`2.6 GB` Available** | **None** (PM2 `1G` safety cap) |
+| **CPU (Idle)** | `100%` | **`0.0% – 2.5%`** | **`~97.5%` Free** | **None** |
+| **Disk (`/dev/root`)** | `77.0 GB` | **`3.3 GB` (`4.2%`)** | **`42.0 GB` Free (`54%`)** | **None** |
+| **Port** | All ports | **`3000` only** | All other ports free | **Zero port conflicts** |
+
+### 2. Process & Disk Breakdown (`/home/cmcbot`)
+| Component / Path | RAM / Disk Used | Notes |
+| :--- | :--- | :--- |
+| **`cmc-bot`** (`node dist/server.cjs`) | `165.5 MB` RAM | Single PM2 fork instance (no duplicates) |
+| **`cmc-tunnel`** (`cloudflared`) | `34.7 MB` RAM | Forwards to `http://127.0.0.1:3000` |
+| **`PM2 God Daemon`** (`cmcbot`) | `47.2 MB` RAM | Manages `cmc-bot` and `cmc-tunnel` |
+| `/home/cmcbot/.cache/ms-playwright` | `~2.8 GB` Disk | Chromium browser binary cache |
+| `/home/cmcbot/cmc-bot/node_modules` | `442 MB` Disk | Node.js dependencies |
+| `/home/cmcbot/cmc-bot/dist` + `output` + `public` | `~7.8 MB` Disk | Production bundle, cached data & images |
+
