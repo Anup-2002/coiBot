@@ -196,3 +196,17 @@ If bot logs report `Session expired / missing cookies`:
 1. Open the web UI in your browser via your Cloudflare tunnel URL.
 2. Go to the **Profiles** tab.
 3. Verify your active account is marked as `Active` and has valid cookies imported.
+
+---
+
+## ⏪ Emergency Rollback to Previous Production Deploy (`925fdf7`)
+
+- **Previous Live Production Commit on `ip-172-31-10-96`:** `925fdf7` (*build: remove system dependency installation step*, also saved in `~/previous_deploy_commit.txt`)
+- **Rollback Command (run as `cmcbot`):**
+```bash
+cd /home/cmcbot/cmc-bot
+git reset --hard 925fdf7
+npm run build
+pm2 restart cmc-bot --update-env
+pm2 save
+```
