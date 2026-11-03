@@ -4,16 +4,19 @@ This guide gives you the exact step-by-step commands to redeploy latest updates 
 
 ---
 
-## ⚡ Quick Redeploy (Daily Routine)
+## ⚡ Quick Redeploy (Daily Routine — Zero Extra Disk Bloat)
 
-Whenever you make updates or push new code, run these 4 commands inside your server terminal:
+First switch to `cmcbot` (`sudo -u cmcbot -i`), then paste this block to redeploy cleanly with zero leftover files or port conflicts:
 
 ```bash
-cd /home/cmcbot/cmc-bot
-git pull
-npm run build
-pm2 restart cmc-bot --update-env
-pm2 logs cmc-bot --lines 30
+cd /home/cmcbot/cmc-bot && \
+git fetch origin && \
+git reset --hard origin/main && \
+rm -rf dist /home/cmcbot/.npm/_cacache /home/cmcbot/.npm/_logs && \
+npm run build && \
+PORT=3000 pm2 restart cmc-bot --update-env && \
+pm2 save && \
+pm2 logs cmc-bot --nostream --lines 20
 ```
 
 ---
