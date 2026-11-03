@@ -17,7 +17,6 @@ export const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.
 if (!isTestEnv) {
   const preservedEnv: Record<string, string | undefined> = {};
   for (const key of [
-    "PORT",
     "NODE_ENV",
     "DISABLE_CLOUD_SYNC",
     "DISABLE_FIREBASE",

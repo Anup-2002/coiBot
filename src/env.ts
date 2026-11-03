@@ -1,9 +1,8 @@
 import dotenv from "dotenv";
 
-// Preserve explicit CLI/PM2 environment overrides before loading .env
+// Preserve explicit test/runtime overrides before loading .env (let .env PORT win in production)
 const preservedEnv: Record<string, string | undefined> = {};
 for (const key of [
-  "PORT",
   "NODE_ENV",
   "DISABLE_CLOUD_SYNC",
   "DISABLE_FIREBASE",

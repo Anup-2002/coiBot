@@ -21,7 +21,7 @@ module.exports = {
       time: true, // Prepends timestamps to all PM2 log lines
       env: {
         NODE_ENV: 'production',
-        PORT: process.env.PORT || 3005,
+        PORT: process.env.PORT || 3000,
       },
       out_file: path.join(__dirname, 'logs', 'pm2-out.log'),
       error_file: path.join(__dirname, 'logs', 'pm2-err.log'),
