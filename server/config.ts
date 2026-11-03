@@ -155,6 +155,7 @@ export interface BotProgressData {
 
 export interface LogEntry {
   timestamp: string;
+  createdAt?: number;
   level: "info" | "success" | "warning" | "error";
   message: string;
   profileId?: string | null;

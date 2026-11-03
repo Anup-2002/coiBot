@@ -1,7 +1,7 @@
 import React from "react";
 import { Play, Database, Clock, RefreshCw, ChevronRight, ChevronDown, ChevronUp, ExternalLink, Image as ImageIcon, CheckCircle, FileText, AlertTriangle, RotateCcw, Download, Archive } from "lucide-react";
 import { PostResult } from "../types";
-import { resolveUrl, formatTimeAgo } from "../utils/ui-helpers";
+import { resolveUrl, formatTimeAgo, formatLocalTime } from "../utils/ui-helpers";
 
 export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isPostingActive: any, isSchedulerRunning: any, imageUploadEnabled: any, marketingImages: any, setActiveTab: any, activeProfile: any, coinsList: any, messagesList: any, isRefreshingData: any, handleManualRefresh: any, activeTab: any, isContinuousLoopActive: any, showToast: any, coinsFetchedAt: any, commentsGeneratedAt: any, activeProfileIdRef: any, results: any, setSubmissionsViewMode: any, submissionsViewMode: any, setShowRetentionSettingsModal: any, setShowResetQueueConfirm: any, isResettingDailyQueue: any, handleRetrySingle: any, individualLoading: any, handleCopyAndOpenCMC: any, imageLibraryNode: any) {
   const isExpanded = Boolean(activeTab);
@@ -464,7 +464,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                             [...profileResults].reverse().map((histItem, hIdx) => (
                               <tr key={hIdx} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
                                 <td className="py-3 px-4 font-mono text-slate-400 border-r border-slate-800/80 whitespace-nowrap">
-                                  {histItem.timestamp || "N/A"}
+                                  {formatLocalTime(histItem.createdAt, histItem.timestamp)}
                                 </td>
                                 <td className="py-3 px-4 border-r border-slate-800/80">
                                   <div className="font-bold text-white leading-snug">{histItem.name}</div>
@@ -563,7 +563,7 @@ export function renderDashboardDataExplorer(retentionDays: any, isBusy: any, isP
                               return (
                                 <tr key={index} className="hover:bg-slate-800/40 transition-colors even:bg-slate-900/30 odd:bg-slate-950/40">
                                   <td className="py-3.5 px-4 font-mono text-slate-400 border-r border-slate-800/80">
-                                    {item ? (item.timestamp || "N/A") : "Pending"}
+                                    {item ? formatLocalTime(item.createdAt, item.timestamp) : "Pending"}
                                   </td>
                                   <td className="py-3.5 px-4 border-r border-slate-800/80">
                                     <div className="font-bold text-white leading-snug">{msgItem.name}</div>

@@ -23,3 +23,8 @@ for (const [key, val] of Object.entries(preservedEnv)) {
     process.env[key] = val;
   }
 }
+
+// Default server timezone to IST (Asia/Kolkata) so EC2 server timestamps match local operator clock
+if (!process.env.TZ) {
+  process.env.TZ = "Asia/Kolkata";
+}

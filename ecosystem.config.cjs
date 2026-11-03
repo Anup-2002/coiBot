@@ -22,6 +22,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: process.env.PORT || 3000,
+        TZ: process.env.TZ || 'Asia/Kolkata',
       },
       out_file: path.join(__dirname, 'logs', 'pm2-out.log'),
       error_file: path.join(__dirname, 'logs', 'pm2-err.log'),

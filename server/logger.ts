@@ -47,9 +47,10 @@ export function addLog(level: "info" | "success" | "warning" | "error", message:
   if (st.logs.length > 0 && st.logs[st.logs.length - 1].message === message) {
     return;
   }
-  const timestamp = new Date().toLocaleTimeString();
+  const now = Date.now();
+  const timestamp = new Date(now).toLocaleTimeString();
   const targetProfileId = profileId !== undefined ? profileId : getActiveProfileId();
-  const entry: LogEntry = { timestamp, level, message, profileId: targetProfileId };
+  const entry: LogEntry = { timestamp, createdAt: now, level, message, profileId: targetProfileId };
   st.logs.push(entry);
   if (!isTestEnv) {
     console.log(`[${level.toUpperCase()}] ${message}`);

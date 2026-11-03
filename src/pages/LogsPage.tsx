@@ -9,6 +9,7 @@ import {
   Download,
 } from "lucide-react";
 import { CustomSelect } from "../components/CustomSelect";
+import { formatLocalTime } from "../utils/ui-helpers";
 
 export function renderLogsPage(
   logsTab: any,
@@ -209,7 +210,7 @@ export function renderLogsPage(
 
                 return (
                   <div key={index} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
-                    <span className="text-slate-400 flex-shrink-0 select-none">[{log.timestamp}]</span>
+                    <span className="text-slate-400 flex-shrink-0 select-none">[{formatLocalTime(log.createdAt, log.timestamp)}]</span>
                     <span className={colorClass}>{log.message}</span>
                   </div>
                 );
@@ -295,7 +296,7 @@ export function renderLogsPage(
                   const isSucc = l.level === "success";
                   return (
                     <div key={idx} className="flex gap-2 items-start hover:bg-slate-900/40 p-0.5 rounded transition">
-                      <span className="text-slate-400 flex-shrink-0 select-none">[{l.timestamp}]</span>
+                      <span className="text-slate-400 flex-shrink-0 select-none">[{formatLocalTime(l.createdAt, l.timestamp)}]</span>
                       <span className={`text-xs uppercase font-bold shrink-0 px-1 py-0.2 rounded ${
                         isErr ? "bg-rose-500/20 text-rose-300" : isWarn ? "bg-amber-500/20 text-amber-300" : isSucc ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
                       }`}>{l.level}</span>

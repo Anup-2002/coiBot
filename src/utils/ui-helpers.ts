@@ -125,3 +125,32 @@ export function formatTimeAgo(timestamp: number | null | undefined): { text: str
   return { text: `${days}d ${remHours}h ago`, full, isStale: true, isVeryStale: true, isExpired2Days, hasTimestamp: true };
 }
 
+
+// Format epoch ms or ISO timestamp in the viewer's local browser timezone so EC2 UTC never mismatches laptop clock
+export function formatLocalTime(createdAt?: number | string | null, fallbackTimestamp?: string): string {
+  if (createdAt !== undefined && createdAt !== null) {
+    const ms = typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+    if (!isNaN(ms) && ms > 0) {
+      return new Date(ms).toLocaleTimeString();
+    }
+  }
+  if (fallbackTimestamp && /^\d{4}-\d{2}-\d{2}T/.test(fallbackTimestamp)) {
+    const ms = new Date(fallbackTimestamp).getTime();
+    if (!isNaN(ms)) return new Date(ms).toLocaleTimeString();
+  }
+  return fallbackTimestamp || "N/A";
+}
+
+export function formatLocalDateTime(createdAt?: number | string | null, fallbackTimestamp?: string): string {
+  if (createdAt !== undefined && createdAt !== null) {
+    const ms = typeof createdAt === "number" ? createdAt : new Date(createdAt).getTime();
+    if (!isNaN(ms) && ms > 0) {
+      return new Date(ms).toLocaleTimeString();
+    }
+  }
+  if (fallbackTimestamp && /^\d{4}-\d{2}-\d{2}T/.test(fallbackTimestamp)) {
+    const ms = new Date(fallbackTimestamp).getTime();
+    if (!isNaN(ms)) return new Date(ms).toLocaleTimeString();
+  }
+  return fallbackTimestamp || "N/A";
+}

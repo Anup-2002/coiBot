@@ -40,6 +40,7 @@ export interface PostResult {
 
 export interface LogEntry {
   timestamp: string;
+  createdAt?: number;
   level: "info" | "success" | "warning" | "error";
   message: string;
 }
