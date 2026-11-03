@@ -4,6 +4,7 @@ import { getLocalBotSettings } from "./settings.ts";
 export function escapeTelegramHtml(str: string): string {
   if (!str) return "";
   return String(str)
+    .replace(/<\/?(?:b|i|u|s|strong|em|code|pre|br\s*\/?)>/gi, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

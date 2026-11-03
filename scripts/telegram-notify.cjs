@@ -42,6 +42,7 @@ function getCredentials() {
 function escapeHtml(str) {
   if (!str) return "";
   return String(str)
+    .replace(/<\/?(?:b|i|u|s|strong|em|code|pre|br\s*\/?)>/gi, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

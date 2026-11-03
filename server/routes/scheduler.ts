@@ -573,7 +573,7 @@ app.post("/api/telegram/test", async (req, res) => {
 
     const alertRes = await sendTelegramAlert(
       "CoinMarketCap Emergency Alert System Connected!",
-      "🚨 <b>Emergency-Only Alert Mode Active</b>\n\nYour alert bot @anup_cms_alert_bot is linked and calibrated.\n\n⚠️ <b>You will ONLY receive notifications when manual action is required:</b>\n• 🛑 <b>All Accounts Session Out:</b> When all accounts in the 24-part background cycle fail authentication, halting automation\n• 💥 <b>Background Cycle Stalled:</b> Background runner encountered a critical crash\n• ⛔ <b>Posting Loop Aborted:</b> Active session expired or persistent captcha block\n• 🛠️ <b>Build & Deployment Failures:</b> EC2 server compilation errors\n\n🔇 <i>Routine cycle completions, single standby account failovers, and healthy runs run silently with zero spam. Maximum 6 emergency alerts/hr with 20-min deduplication.</i>",
+      "🚨 Emergency-Only Alert Mode Active\n\nYour alert bot @anup_cms_alert_bot is linked and calibrated.\n\n⚠️ You will ONLY receive notifications when manual action is required:\n• 🛑 All Accounts Session Out: When all accounts in the 24-part background cycle fail authentication, halting automation\n• 💥 Background Cycle Stalled: Background runner encountered a critical crash\n• ⛔ Posting Loop Aborted: Active session expired or persistent captcha block\n• 🛠️ Build & Deployment Failures: EC2 server compilation errors\n\n🔇 Routine cycle completions, single standby account failovers, and healthy runs run silently with zero spam. Maximum 6 emergency alerts/hr with 20-min deduplication.",
       "success",
       "manual_test",
       true
