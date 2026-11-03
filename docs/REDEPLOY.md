@@ -23,7 +23,7 @@ sudo -u cmcbot -i bash -c '
   git reset --hard origin/main &&
   rm -rf dist /home/cmcbot/.npm/_cacache /home/cmcbot/.npm/_logs &&
   npm run build &&
-  PORT=3000 pm2 restart cmc-bot --update-env &&
+  TZ=Asia/Kolkata PORT=3000 pm2 restart cmc-bot --update-env &&
   pm2 save &&
   pm2 logs cmc-bot --nostream --lines 20
 '
@@ -36,7 +36,7 @@ git fetch origin && \
 git reset --hard origin/main && \
 rm -rf dist /home/cmcbot/.npm/_cacache /home/cmcbot/.npm/_logs && \
 npm run build && \
-PORT=3000 pm2 restart cmc-bot --update-env && \
+TZ=Asia/Kolkata PORT=3000 pm2 restart cmc-bot --update-env && \
 pm2 save && \
 pm2 logs cmc-bot --nostream --lines 20
 ```
@@ -233,7 +233,7 @@ sudo -u cmcbot -i bash -c '
   cd /home/cmcbot/cmc-bot &&
   git reset --hard 925fdf7 &&
   npm run build &&
-  PORT=3000 pm2 restart cmc-bot --update-env &&
+  TZ=Asia/Kolkata PORT=3000 pm2 restart cmc-bot --update-env &&
   pm2 save
 '
 ```
