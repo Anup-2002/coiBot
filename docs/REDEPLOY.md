@@ -225,7 +225,8 @@ pm2 save
 | :--- | :--- | :--- | :--- | :--- |
 | **RAM** | `3.8 GB` | **`~248 MB` (`6.4%`)** | **`2.6 GB` Available** | **None** (PM2 `1G` safety cap) |
 | **CPU (Idle)** | `100%` | **`0.0% – 2.5%`** | **`~97.5%` Free** | **None** |
-| **Disk (`/dev/root`)** | `77.0 GB` | **`3.3 GB` (`4.2%`)** | **`42.0 GB` Free (`54%`)** | **None** |
+| **Disk (`/dev/root`)** | `77.0 GB` | **`1.4 GB` (`1.8%`)** *(cleaned from `3.3 GB`)* | **`~43.9 GB` Free (`57%`)** | **None** |
+| **Peak RAM (1 Chromium Active)** | `3.8 GB` | **`~455 – 535 MB` (`12% – 13.8%`)** | **`> 2.15 GB` Free** | **None** (`PlaywrightLock` max 1 browser) |
 | **Port** | All ports | **`3000` only** | All other ports free | **Zero port conflicts** |
 
 ### 2. Process & Disk Breakdown (`/home/cmcbot`)
@@ -234,7 +235,7 @@ pm2 save
 | **`cmc-bot`** (`node dist/server.cjs`) | `165.5 MB` RAM | Single PM2 fork instance (no duplicates) |
 | **`cmc-tunnel`** (`cloudflared`) | `34.7 MB` RAM | Forwards to `http://127.0.0.1:3000` |
 | **`PM2 God Daemon`** (`cmcbot`) | `47.2 MB` RAM | Manages `cmc-bot` and `cmc-tunnel` |
-| `/home/cmcbot/.cache/ms-playwright` | `~2.8 GB` Disk | Chromium browser binary cache |
+| `/home/cmcbot/.cache/ms-playwright` | `~900 MB` Disk | Active Chromium `1248` binary cache (`1.9 GB` `.npm` & old browser caches cleaned) |
 | `/home/cmcbot/cmc-bot/node_modules` | `442 MB` Disk | Node.js dependencies |
 | `/home/cmcbot/cmc-bot/dist` + `output` + `public` | `~7.8 MB` Disk | Production bundle, cached data & images |
 
