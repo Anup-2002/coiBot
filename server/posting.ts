@@ -112,19 +112,20 @@ export async function runRealPostingInternal(url: string, message: string, senti
         return { status: "expired", message: "Session expired: Redirected to login page" };
       }
 
-      const title = await page.title().catch(() => "");
-      const hasCfTitle = title.includes("Cloudflare") || title.includes("Just a moment");
-      const hasCfSelectors = await page.$('#challenge-running, #challenge-stage, .cf-turnstile').catch(() => null);
-      
-      if (hasCfTitle || hasCfSelectors) {
-        addLog("error", "CRITICAL: Cloudflare Turnstile human challenge detected on posting page!");
-        return { status: "captcha", message: "Cloudflare Turnstile captcha block" };
-      }
-
       const loginBtn = await page.$('button:has-text("Log In"), button:has-text("Sign Up")');
-      if (loginBtn && await loginBtn.isVisible()) {
+      if (loginBtn && await loginBtn.isVisible().catch(() => false)) {
         addLog("error", "Session expired or logged out. Found active 'Log In' or 'Sign Up' buttons.");
         return { status: "expired", message: "Not logged in - Session expired" };
+      }
+
+      const title = await page.title().catch(() => "");
+      const hasCfTitle = title.includes("Just a moment") || title.includes("Attention Required") || title.includes("Cloudflare");
+      const cfStage = await page.$('#challenge-running, #challenge-stage').catch(() => null);
+      const hasVisibleCfStage = cfStage ? await cfStage.isVisible().catch(() => false) : false;
+      
+      if (hasCfTitle || hasVisibleCfStage) {
+        addLog("error", "CRITICAL: Cloudflare Turnstile human challenge detected on posting page!");
+        return { status: "captcha", message: "Cloudflare Turnstile captcha block" };
       }
 
       addLog("error", "Could not locate the post comment editor input box on the page.");
@@ -572,7 +573,7 @@ export async function runRealPostingInternal(url: string, message: string, senti
       } else if (lowerApiErr.includes("ban") || lowerApiErr.includes("suspend") || lowerApiErr.includes("restrict") || lowerApiErr.includes("block")) {
         isAccountRestricted = true;
         accountRestrictedMsg = postApiErrorMsg;
-      } else if (lowerApiErr.includes("captcha") || lowerApiErr.includes("verify") || lowerApiErr.includes("security")) {
+      } else if (lowerApiErr.includes("captcha") || lowerApiErr.includes("turnstile") || lowerApiErr.includes("human verification")) {
         hasCaptchaChallenge = true;
       } else {
         isModerationFlagged = true;
@@ -581,7 +582,7 @@ export async function runRealPostingInternal(url: string, message: string, senti
     }
 
     try {
-      const cfOrCaptcha = await page.$('#challenge-running, #challenge-stage, .cf-turnstile, iframe[src*="captcha" i], iframe[src*="turnstile" i], [class*="geetest" i], [class*="baxia" i]').catch(() => null);
+      const cfOrCaptcha = await page.$('#challenge-running, #challenge-stage, [class*="geetest" i], [class*="baxia" i]').catch(() => null);
       if (cfOrCaptcha && await cfOrCaptcha.isVisible().catch(() => false)) {
         hasCaptchaChallenge = true;
       }

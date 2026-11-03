@@ -243,48 +243,45 @@ export function synchronizeSessionsAndProfilesOnStartup() {
     const hasValidLocalSession = sessionExists && sessionHasValidCookies(sessionContent);
     const activeProfile = profiles.find(p => p.isActive);
 
-    if (hasValidLocalSession) {
-      if (activeProfile) {
-        if (activeProfile.stateJson !== sessionContent) {
-          activeProfile.stateJson = sessionContent;
-          activeProfile.updatedAt = new Date().toISOString();
-          fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error syncing profiles on startup sync:", err.message));
-          addLog("success", `[SYNC] Synchronized active profile "${activeProfile.name}" with auth/state.json cookies.`);
-        }
-      } else {
-        const name = "Imported Session";
-        const profileId = `profile-${Date.now()}`;
-        const newProfile = {
-          id: profileId,
-          name,
-          stateJson: sessionContent,
-          isActive: true,
-          updatedAt: new Date().toISOString()
-        };
-        profiles.push(newProfile);
-        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-        saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving new profile on startup sync:", err.message));
-        addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
+    if (activeProfile && sessionHasValidCookies(activeProfile.stateJson)) {
+      // Active profile in profiles.json is the authoritative source of truth; sync it down to auth/state.json
+      const normalizedActive = normalizeStateJson(activeProfile.stateJson);
+      if (sessionContent !== normalizedActive) {
+        fs.writeFileSync(st.AUTH_STATE_FILE, normalizedActive, "utf-8");
+        addLog("success", `[SYNC] Synchronized auth/state.json with active profile "${activeProfile.name}".`);
       }
+    } else if (activeProfile && hasValidLocalSession) {
+      activeProfile.stateJson = sessionContent;
+      activeProfile.updatedAt = new Date().toISOString();
+      fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+      saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error syncing profiles on startup sync:", err.message));
+      addLog("success", `[SYNC] Restored active profile "${activeProfile.name}" cookies from auth/state.json.`);
+    } else if (profiles.length === 0 && hasValidLocalSession) {
+      const name = "Imported Session";
+      const profileId = `profile-${Date.now()}`;
+      const newProfile = {
+        id: profileId,
+        name,
+        stateJson: sessionContent,
+        isActive: true,
+        updatedAt: new Date().toISOString()
+      };
+      profiles.push(newProfile);
+      fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+      saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving new profile on startup sync:", err.message));
+      addLog("success", `[SYNC] Created and activated a new profile "${name}" for the existing active session.`);
     } else {
-      if (activeProfile && sessionHasValidCookies(activeProfile.stateJson)) {
-        fs.writeFileSync(st.AUTH_STATE_FILE, activeProfile.stateJson, "utf-8");
-        saveSessionStateCloud(activeProfile.stateJson, activeProfile.id).catch(err => console.error("[FIREBASE] Error saving session to cloud on startup sync:", err.message));
-        addLog("success", `[SYNC] Restored auth/state.json session state from active profile "${activeProfile.name}".`);
-      } else {
-        let changed = false;
-        profiles = profiles.map(p => {
-          if (p.isActive && !sessionHasValidCookies(p.stateJson)) {
-            changed = true;
-            return { ...p, isActive: false };
-          }
-          return p;
-        });
-        if (changed) {
-          fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
-          saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving profiles on startup sync:", err.message));
+      let changed = false;
+      profiles = profiles.map(p => {
+        if (p.isActive && !sessionHasValidCookies(p.stateJson)) {
+          changed = true;
+          return { ...p, isActive: false };
         }
+        return p;
+      });
+      if (changed) {
+        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+        saveProfilesCloud(profiles).catch(err => console.error("[FIREBASE] Error saving profiles on startup sync:", err.message));
       }
     }
   } catch (err) {

@@ -413,54 +413,22 @@ export async function autoSyncSessionToProfiles(stateJson: string, email?: strin
 
 export async function ensureValidActiveProfile(preferredEmail?: string): Promise<any | null> {
   try {
-    let profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
+    const profiles = readJsonFile<any[]>(st.PROFILES_FILE, []);
     if (!Array.isArray(profiles) || profiles.length === 0) return null;
 
-    const cleanEmail = preferredEmail ? preferredEmail.trim().toLowerCase() : "";
-    let targetIdx = -1;
+    // Strictly respect the user's currently active profile; NEVER silently activate an unselected account
+    const activeProfile = profiles.find(p => p.isActive && sessionHasValidCookies(p.stateJson));
+    if (!activeProfile) return null;
 
-    // 1. Prefer matching email if it has valid session cookies
-    if (cleanEmail) {
-      targetIdx = profiles.findIndex(
-        p => String(p.name || "").trim().toLowerCase() === cleanEmail && sessionHasValidCookies(p.stateJson)
-      );
+    if (preferredEmail && String(activeProfile.name || "").trim().toLowerCase() !== preferredEmail.trim().toLowerCase()) {
+      return null;
     }
 
-    // 2. Otherwise check if currently active profile already has valid session cookies
-    if (targetIdx === -1) {
-      targetIdx = profiles.findIndex(p => p.isActive && sessionHasValidCookies(p.stateJson));
-    }
-
-    // 3. Otherwise pick the most recently updated profile that has valid session cookies
-    if (targetIdx === -1) {
-      let bestTime = -1;
-      for (let i = 0; i < profiles.length; i++) {
-        if (sessionHasValidCookies(profiles[i].stateJson)) {
-          const t = profiles[i].updatedAt ? new Date(profiles[i].updatedAt).getTime() : 0;
-          if (t >= bestTime) {
-            bestTime = t;
-            targetIdx = i;
-          }
-        }
-      }
-    }
-
-    if (targetIdx === -1) return null;
-
-    profiles = profiles.map((p, idx) => ({
-      ...p,
-      isActive: idx === targetIdx,
-      ...(idx === targetIdx ? { loginStatus: "logged_in" } : {}),
-    }));
-
-    const chosen = profiles[targetIdx];
-    const normalized = normalizeStateJson(chosen.stateJson);
-    chosen.stateJson = normalized;
+    const normalized = normalizeStateJson(activeProfile.stateJson);
+    activeProfile.stateJson = normalized;
     fs.writeFileSync(st.AUTH_STATE_FILE, normalized, "utf-8");
-    fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
     updateActiveProfilePaths();
-    await saveProfilesCloudIfChanged(profiles).catch(() => {});
-    return chosen;
+    return activeProfile;
   } catch (_) {
     return null;
   }

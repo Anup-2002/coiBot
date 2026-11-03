@@ -123,16 +123,6 @@ export async function checkLoginRealInternal(): Promise<{ status: "success" | "e
     // (such as mobile menus, footers, promo links, or slow-loading profile headers).
     if (!editor) {
       await saveDebugScreenshot(page, "editor_failed");
-      
-      // Let's check for specific Cloudflare captcha elements first
-      const title = await page.title().catch(() => "");
-      const hasCfTitle = title.includes("Cloudflare") || title.includes("Just a moment");
-      const hasCfSelectors = await page.$('#challenge-running, #challenge-stage, .cf-turnstile').catch(() => null);
-      
-      if (hasCfTitle || hasCfSelectors) {
-        addLog("error", "CRITICAL: Cloudflare Turnstile human challenge detected on page!");
-        return { status: "captcha", message: "Cloudflare Turnstile captcha block" };
-      }
 
       if (isHeaderLoginVisible) {
         addLog("error", "Login validation failed: Comment editor is missing and active 'Log In' button is visible in the page header.");
@@ -141,9 +131,20 @@ export async function checkLoginRealInternal(): Promise<{ status: "success" | "e
 
       // Check if button text indicates "Log In" is required
       const loginBtn = await page.$('button:has-text("Log In"), button:has-text("Sign Up")');
-      if (loginBtn) {
+      if (loginBtn && await loginBtn.isVisible().catch(() => false)) {
         addLog("error", "Login validation failed: Session expired or invalid cookies. Detected Log In button.");
         return { status: "expired", message: "Logged out (Log In button found)" };
+      }
+
+      // Check for actual blocking Cloudflare interstitial page (ignore hidden .cf-turnstile nodes in CMC's normal DOM)
+      const title = await page.title().catch(() => "");
+      const hasCfTitle = title.includes("Just a moment") || title.includes("Attention Required") || title.includes("Cloudflare");
+      const cfStage = await page.$('#challenge-running, #challenge-stage').catch(() => null);
+      const hasVisibleCfStage = cfStage ? await cfStage.isVisible().catch(() => false) : false;
+
+      if (hasCfTitle || hasVisibleCfStage) {
+        addLog("error", "CRITICAL: Cloudflare Turnstile human challenge page detected!");
+        return { status: "captcha", message: "Cloudflare Turnstile captcha block" };
       }
 
       addLog("error", "Login validation failed: Could not locate the comment editor input box.");
@@ -626,16 +627,31 @@ export async function executeStartLogin(email: string, password: string): Promis
       for (let p = 0; p < 50; p++) {
         await page.waitForTimeout(500);
 
-        // 1. Immediate check for Cloudflare Turnstile / Captcha
-        const hasCaptcha = await page.evaluate(() => {
-          return document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile, iframe[src*="challenges.cloudflare"]') !== null;
+        // 1. Check for full-page Cloudflare interstitial or attempt auto-click on embedded Turnstile widget without aborting login poll
+        const isFullPageCfBlock = await page.evaluate(() => {
+          const t = document.title || "";
+          if (t.includes("Just a moment") || t.includes("Attention Required")) return true;
+          const stage = document.querySelector('#challenge-running, #challenge-stage') as HTMLElement | null;
+          return Boolean(stage && stage.offsetParent !== null);
         }).catch(() => false);
-        if (hasCaptcha) {
-          addLog("error", "Cloudflare Turnstile challenge detected during credentials submission.");
-          st.activeLoginSession = { browser, context, page, email };
+        if (isFullPageCfBlock) {
+          addLog("error", "Cloudflare full-page interstitial challenge detected during credentials submission.");
+          await browser.close().catch(() => {});
+          st.activeLoginBrowser = null;
           st.loginState = { status: "captcha", message: "Cloudflare Turnstile verification challenge detected." };
           return { status: "captcha", message: "Cloudflare Turnstile challenge detected." };
         }
+        // If CoinMarketCap's login modal has an embedded Turnstile frame, attempt a gentle click on its checkbox and keep polling
+        try {
+          for (const frame of page.frames()) {
+            if (frame.url().includes("challenges.cloudflare")) {
+              const cb = await frame.$('input[type="checkbox"], .cb-lb, #challenge-stage').catch(() => null);
+              if (cb) {
+                await cb.click({ timeout: 400 }).catch(() => {});
+              }
+            }
+          }
+        } catch (_) {}
 
         // 2. Immediate check for visible error messages on every poll iteration (instant failure feedback)
         try {
@@ -732,13 +748,6 @@ export async function executeStartLogin(email: string, password: string): Promis
       if (detectedError) {
         await browser.close().catch(() => {});
         st.activeLoginBrowser = null;
-        const fallback = await ensureValidActiveProfile(email);
-        if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
-          addLog("success", `Restored existing active session for "${fallback.name}" after login notice.`);
-          st.loginState = { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
-          st.botStatus = "Idle";
-          return { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
-        }
         st.loginState = { status: "failed", message: `Login failed: ${detectedError}` };
         st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${detectedError}` };
@@ -817,13 +826,6 @@ export async function executeStartLogin(email: string, password: string): Promis
       if (modalErrorMessage) {
         await browser.close().catch(() => {});
         st.activeLoginBrowser = null;
-        const fallback = await ensureValidActiveProfile(email);
-        if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
-          addLog("success", `Restored existing active session for "${fallback.name}" after login notice.`);
-          st.loginState = { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
-          st.botStatus = "Idle";
-          return { status: "success", message: `Existing valid session for "${fallback.name}" is active and ready!` };
-        }
         st.loginState = { status: "failed", message: `Login failed: ${modalErrorMessage}` };
         st.botStatus = "Idle";
         return { status: "failed", message: `Login failed: ${modalErrorMessage}` };
@@ -876,16 +878,6 @@ export async function executeStartLogin(email: string, password: string): Promis
       await browser.close().catch(() => {});
       st.activeLoginBrowser = null;
 
-      // Fallback: if this account already has valid saved cookies in profiles.json, activate & use them;
-      // otherwise ensure any existing valid account remains active so the bot is never left with Active profile: None
-      const fallback = await ensureValidActiveProfile(email);
-      if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
-        addLog("success", `Restored existing active session for "${fallback.name}" from saved profile.`);
-        st.loginState = { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
-        st.botStatus = "Idle";
-        return { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
-      }
-
       const finalMsg = modalErrorMessage 
         ? `Login failed: ${modalErrorMessage}` 
         : (editorRequiresLogin ? "Login incomplete: CoinMarketCap still prompts to Log In on the community page. Please verify your credentials or check for an email verification code." : "Credentials submitted, but CoinMarketCap did not establish an active session. Please check your email and password, or paste your state.json cookies directly.");
@@ -906,13 +898,6 @@ export async function executeStartLogin(email: string, password: string): Promis
       return { status: "failed", message: "Login session cancelled." };
     }
     addLog("error", `Exception in interactive login flow: ${errMsg}`);
-    const fallback = await ensureValidActiveProfile(email);
-    if (fallback && String(fallback.name || "").trim().toLowerCase() === email.trim().toLowerCase()) {
-      addLog("success", `Restored existing active session for "${fallback.name}" from saved profile.`);
-      st.loginState = { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
-      st.botStatus = "Idle";
-      return { status: "success", message: `Account "${fallback.name}" is already authenticated and active!` };
-    }
     st.loginState = { status: "failed", message: errMsg };
     return { status: "failed", message: errMsg };
   }
@@ -1132,5 +1117,4 @@ export async function executeCancelLogin(): Promise<void> {
     await st.activeLoginSession.browser.close().catch(() => {});
     st.activeLoginSession = null;
   }
-  await ensureValidActiveProfile().catch(() => {});
 }

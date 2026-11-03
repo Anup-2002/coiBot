@@ -331,9 +331,9 @@ export async function runScheduledCycle(): Promise<void> {
       await writeJsonFile(schedulerPartitionsFile, savedPartitions);
       addLog("info", `[SCHEDULER] Partitioned ${messages.length} coins across ${numAccs} accounts: ${partitionSummary.join(" | ")}`);
 
-      // Standby reserve pool for automatic single-hop failover
+      // Standby reserve pool for automatic single-hop failover (STRICTLY only enabled accounts; never touch disabled/unchecked accounts)
       standbyPool = profiles.filter(
-        p => !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
+        p => p.schedule?.enabled === true && !dueAccounts.some(d => d.id === p.id) && p.stateJson && sessionHasValidCookies(p.stateJson)
       );
       if (standbyPool.length > 0) {
         addLog("info", `[SCHEDULER] Standby reserve pool ready: ${standbyPool.map(s => s.name).join(", ")} held in reserve.`);
@@ -576,6 +576,7 @@ export async function runScheduledCycle(): Promise<void> {
         scheduleNextCycle: false,
         disableLoopOnFailures: false,
         accountLogPrefix: `[${account.name}] `,
+        skipSessionCheck: true,
       });
 
       totalCyclePosted += summary.posted;

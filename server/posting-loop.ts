@@ -133,6 +133,7 @@ export interface PostingLoopOptions {
   scheduleNextCycle?: boolean;
   disableLoopOnFailures?: boolean;
   accountLogPrefix?: string;
+  skipSessionCheck?: boolean;
 }
 
 export interface PostingLoopSummary {
@@ -185,32 +186,36 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
   let stopReason: PostingLoopSummary["stopReason"] = "completed";
 
   try {
-    st.currentCoinName = "Verifying Session...";
-    logWithPrefix("info", "Always verifying active session status before posting...");
-    try {
-      const loginCheck = await checkLoginReal();
-      if (loginCheck.status !== "success") {
-        const haltReason = loginCheck.status === "expired" ? "skipped_expired" : loginCheck.status === "captcha" ? "stopped_captcha" : "failed";
-        logWithPrefix("error", `[SESSION HALT] Automated session check failed: ${loginCheck.status} (${loginCheck.message}). Halting posting sequence to protect account.`);
+    if (options.skipSessionCheck) {
+      logWithPrefix("info", "Session already verified by scheduler pre-check — proceeding directly to posting queue.");
+    } else {
+      st.currentCoinName = "Verifying Session...";
+      logWithPrefix("info", "Always verifying active session status before posting...");
+      try {
+        const loginCheck = await checkLoginReal();
+        if (loginCheck.status !== "success") {
+          const haltReason = loginCheck.status === "expired" ? "skipped_expired" : loginCheck.status === "captcha" ? "stopped_captcha" : "failed";
+          logWithPrefix("error", `[SESSION HALT] Automated session check failed: ${loginCheck.status} (${loginCheck.message}). Halting posting sequence to protect account.`);
+          st.isPostingRunning = false;
+          if (!isSchedulerCall) st.isSinglePostingRunning = false;
+          st.botStatus = "Idle";
+          st.currentCoinName = "N/A";
+          if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
+            cancelNextAutomationCycle();
+            logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to unauthenticated / ${loginCheck.status} session.`);
+          }
+          return { posted: 0, failed: 0, stopReason: haltReason };
+        } else {
+          logWithPrefix("success", "[SESSION SUCCESS] Session verified as ACTIVE!");
+        }
+      } catch (err) {
+        logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
         st.isPostingRunning = false;
         if (!isSchedulerCall) st.isSinglePostingRunning = false;
         st.botStatus = "Idle";
         st.currentCoinName = "N/A";
-        if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
-          cancelNextAutomationCycle();
-          logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to unauthenticated / ${loginCheck.status} session.`);
-        }
-        return { posted: 0, failed: 0, stopReason: haltReason };
-      } else {
-        logWithPrefix("success", "[SESSION SUCCESS] Session verified as ACTIVE!");
+        return { posted: 0, failed: 0, stopReason: "failed" };
       }
-    } catch (err) {
-      logWithPrefix("error", `[SESSION ERROR] Failed to run automated session check: ${(err as Error).message}`);
-      st.isPostingRunning = false;
-      if (!isSchedulerCall) st.isSinglePostingRunning = false;
-      st.botStatus = "Idle";
-      st.currentCoinName = "N/A";
-      return { posted: 0, failed: 0, stopReason: "failed" };
     }
 
     if (isHaltRequested()) {
