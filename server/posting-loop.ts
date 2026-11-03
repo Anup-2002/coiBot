@@ -453,10 +453,34 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
         // [ANTI-BAN SAFEGUARD] Organic Trader Simulation: Every 6 posts, take a natural browsing/reading pause (60-90s)
+        // AND recycle the shared Chromium browser instance so TLS session tickets and memory state are completely fresh!
         if (runPosted > 0 && runPosted % 6 === 0) {
           const breakSec = 60 + Math.floor(Math.random() * 35);
-          logWithPrefix("info", `[ANTI-BAN SAFEGUARD] Organic Trader Simulation: Taking a ${breakSec}s browsing/reading pause after batch of 6 posts to break automated patterns and protect account...`);
+          logWithPrefix("info", `[ANTI-BAN SAFEGUARD] Organic Trader Simulation: Taking a ${breakSec}s browsing/reading pause after batch of 6 posts and recycling browser instance to protect account...`);
+          if (sharedBrowser) {
+            await sharedBrowser.close().catch(() => {});
+            sharedBrowser = null;
+            st.activePostingBrowser = null;
+          }
           await interruptibleSleep(breakSec * 1000);
+          if (st.isPostingRunning && !isHaltRequested()) {
+            try {
+              sharedBrowser = await launchBrowserResilient({
+                headless: true,
+                args: [
+                  "--no-sandbox",
+                  "--disable-setuid-sandbox",
+                  "--disable-dev-shm-usage",
+                  "--disable-gpu",
+                  "--disable-blink-features=AutomationControlled",
+                ]
+              });
+              st.activePostingBrowser = sharedBrowser;
+            } catch (_) {
+              sharedBrowser = null;
+              st.activePostingBrowser = null;
+            }
+          }
         }
       } else if (outcome === "skipped") {
         logWithPrefix("warning", `SKIPPED: Skipped posting for ${item.symbol} (${messageText}).`);
@@ -525,13 +549,13 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
         st.currentPostingIndex++;
         saveBotProgress({ next_index: st.currentPostingIndex, daily_post_count: dailyPostCount, last_post_date: todayStr });
 
-        if (outcome === "expired" || outcome === "captcha") {
-          stopReason = outcome === "expired" ? "skipped_expired" : "stopped_captcha";
-          logWithPrefix("error", `CRITICAL: Automated posting halted immediately because account session is ${outcome.toUpperCase()} (${messageText}). Stopping run to protect account.`);
+        if (outcome === "expired") {
+          stopReason = "skipped_expired";
+          logWithPrefix("error", `CRITICAL: Automated posting halted immediately because account session is EXPIRED (${messageText}). Stopping run to protect account.`);
           if (!isSchedulerCall) {
             sendTelegramAlert(
               "CRITICAL: Posting Halted - Session Out",
-              `⚠️ Active account session encountered ${outcome.toUpperCase()} (${messageText}). Automated posting has stopped.\n\n👉 ACTION REQUIRED: Please log in again in the Profiles tab to restore posting.`,
+              `⚠️ Active account session encountered EXPIRED (${messageText}). Automated posting has stopped.\n\n👉 ACTION REQUIRED: Please log in again in the Profiles tab to restore posting.`,
               "error",
               "single_session_out"
             ).catch(() => {});
@@ -541,14 +565,45 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
           st.botStatus = "Idle";
           if (st.isContinuousLoopActive && disableLoopOnFailures && !isSchedulerCall) {
             cancelNextAutomationCycle();
-            logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to ${outcome} session state. Re-authenticate account to resume.`);
+            logWithPrefix("error", `[AUTOMATION] Continuous automation loop disabled due to expired session state. Re-authenticate account to resume.`);
           }
           break;
         }
 
+        // If a single coin hits a transient captcha challenge, DO NOT kill the entire account on the 1st occurrence!
+        // Recycle the browser instance, cool down for 90s, and only halt with stopped_captcha if 3 consecutive coins fail!
+        if (outcome === "captcha" && consecutiveFailures < 3) {
+          logWithPrefix("warning", `[CAPTCHA RECOVERY] Transient captcha/security challenge on ${item.symbol} (${consecutiveFailures}/3 consecutive). Recycling browser and cooling down 90s before next coin...`);
+          if (sharedBrowser) {
+            await sharedBrowser.close().catch(() => {});
+            sharedBrowser = null;
+            st.activePostingBrowser = null;
+          }
+          await interruptibleSleep(90000);
+          if (st.isPostingRunning && !isHaltRequested()) {
+            try {
+              sharedBrowser = await launchBrowserResilient({
+                headless: true,
+                args: [
+                  "--no-sandbox",
+                  "--disable-setuid-sandbox",
+                  "--disable-dev-shm-usage",
+                  "--disable-gpu",
+                  "--disable-blink-features=AutomationControlled",
+                ]
+              });
+              st.activePostingBrowser = sharedBrowser;
+            } catch (_) {
+              sharedBrowser = null;
+              st.activePostingBrowser = null;
+            }
+          }
+          continue;
+        }
+
         if (consecutiveFailures >= 3) {
-          stopReason = "failed";
-          logWithPrefix("error", "CRITICAL: Automated posting paused due to 3 consecutive failures. Please verify your CoinMarketCap login session and cookies.");
+          stopReason = outcome === "captcha" ? "stopped_captcha" : "failed";
+          logWithPrefix("error", `CRITICAL: Automated posting paused due to 3 consecutive failures (last status: ${outcome}).`);
           if (!isSchedulerCall) {
             sendTelegramAlert(
               "CRITICAL: Continuous Posting Paused (3 Failures)",

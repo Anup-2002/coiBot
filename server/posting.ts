@@ -1,8 +1,7 @@
 import { fs } from "./config.ts";
 import { st } from "./state.ts";
 import { addLog } from "./logger.ts";
-import { saveSessionStateCloudIfChanged } from "./files.ts";
-import { getActiveProfileId, autoSyncSessionToProfiles, extractCmcProfileInfo } from "./profiles.ts";
+import { extractCmcProfileInfo } from "./profiles.ts";
 import { getLocalBotSettings, getNextSingleMarketingImage } from "./settings.ts";
 import { PlaywrightLock, launchBrowserResilient, saveDebugScreenshot, clickResiliently, typeWithHumanRhythm, locateAndPrepareCommentEditor, setupPageResourceBlocking, extractFingerprintDetails } from "./browser.ts";
 import { sanitizeCommentForAntiSpam } from "../src/utils/formatters.ts";
@@ -93,11 +92,24 @@ export async function runRealPostingInternal(url: string, message: string, senti
     // Wait for the page to settle
     await page.waitForTimeout(2000);
 
-    // Fast Cloudflare challenge check right after page settles
-    const initialTitle = await page.title().catch(() => "");
+    // If Cloudflare shows a transient "Just a moment" interstitial, wait up to 6s and attempt to click Turnstile before failing
+    let initialTitle = await page.title().catch(() => "");
     if (initialTitle.includes("Cloudflare") || initialTitle.includes("Just a moment") || initialTitle.includes("Attention Required")) {
-      addLog("error", "CRITICAL: Cloudflare challenge detected upon loading coin page!");
-      return { status: "captcha", message: "Cloudflare Turnstile challenge block" };
+      addLog("warning", "Cloudflare interstitial detected upon loading coin page — waiting 5s for challenge to auto-resolve...");
+      try {
+        for (const frame of page.frames()) {
+          if (frame.url().includes("challenges.cloudflare")) {
+            const cb = await frame.$('input[type="checkbox"], .cb-lb, #challenge-stage').catch(() => null);
+            if (cb) await cb.click({ timeout: 500 }).catch(() => {});
+          }
+        }
+      } catch (_) {}
+      await page.waitForTimeout(5000);
+      initialTitle = await page.title().catch(() => "");
+      if (initialTitle.includes("Cloudflare") || initialTitle.includes("Just a moment") || initialTitle.includes("Attention Required")) {
+        addLog("error", "CRITICAL: Cloudflare challenge persisted upon loading coin page!");
+        return { status: "captcha", message: "Cloudflare Turnstile challenge block" };
+      }
     }
     
     // Scan page for the comment editor
@@ -619,30 +631,6 @@ export async function runRealPostingInternal(url: string, message: string, senti
       }
     } catch (_) {}
 
-    if (hasCaptchaChallenge) {
-      addLog("error", "CRITICAL: Captcha / security verification popup detected after clicking Post!");
-      await saveDebugScreenshot(page, "post_submission_captcha");
-      return { status: "captcha", message: "Captcha verification required on post submission" };
-    }
-
-    if (isAccountRestricted) {
-      addLog("error", `CRITICAL: CoinMarketCap account restriction detected: "${accountRestrictedMsg.slice(0, 100)}". Halting posting to protect account.`);
-      await saveDebugScreenshot(page, "account_restricted_submission");
-      return { status: "expired", message: `Account restricted: ${accountRestrictedMsg.slice(0, 100)}` };
-    }
-
-    if (isRateLimited) {
-      addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
-      await saveDebugScreenshot(page, "rate_limited_submission");
-      return { status: "retry", message: `Rate limited on submission (${rateLimitMsg.slice(0, 60)})` };
-    }
-
-    if (isModerationFlagged) {
-      addLog("warning", `CoinMarketCap content moderation filter flagged comment: "${moderationMsg.slice(0, 80)}"`);
-      await saveDebugScreenshot(page, "moderation_flagged_submission");
-      return { status: "failed", message: `Moderation filter triggered: ${moderationMsg.slice(0, 80)}` };
-    }
-
     // Check if comment now appears in the published community feed (STRICTLY EXCLUDING the comment editor input box!)
     // Also extract any direct /community/post/<id> permalink if rendered in the feed item
     const feedMatchResult = await page.evaluate((snip: string) => {
@@ -675,32 +663,54 @@ export async function runRealPostingInternal(url: string, message: string, senti
       createdPostUrl = feedMatchResult.postHref;
     }
 
-    // 1. If the comment text is still sitting inside the editor box, CoinMarketCap did not accept the submission.
-    if (editorStillUnposted) {
-      addLog("warning", `Submission failed: Comment text remained inside the editor after clicking Post (CoinMarketCap rejected or rate-limited the submission).`);
-      await saveDebugScreenshot(page, "unverified_post_editor_not_cleared");
-      return {
-        status: "retry",
-        message: "Submission not accepted by CoinMarketCap (comment remained in editor)"
-      };
-    }
+    const commitConfirmed = !editorStillUnposted && (postApiSucceeded || postedInFeedAfterClick);
 
-    // 2. If a POST API call was observed and returned an error or non-zero status code, reject it.
-    if (postApiObserved && !postApiSucceeded) {
-      addLog("warning", `Submission API returned error (${postApiErrorMsg || "unconfirmed response"}).`);
-      await saveDebugScreenshot(page, "unverified_post_api_response");
-      return {
-        status: "failed",
-        message: postApiErrorMsg || "CoinMarketCap API rejected post submission"
-      };
-    }
-
-    // 3. Require both editor cleared (!editorStillUnposted) AND either:
-    //    (a) Explicit CMC comment-creation POST API success (postApiSucceeded), OR
-    //    (b) Comment snippet rendered in the live community feed outside the editor (postedInFeedAfterClick)
-    const commitConfirmed = postApiSucceeded || postedInFeedAfterClick;
-
+    // Only evaluate error/captcha flags if the post was NOT already confirmed as published!
     if (!commitConfirmed) {
+      if (isAccountRestricted) {
+        addLog("error", `CRITICAL: CoinMarketCap account restriction detected: "${accountRestrictedMsg.slice(0, 100)}". Halting posting to protect account.`);
+        await saveDebugScreenshot(page, "account_restricted_submission");
+        return { status: "expired", message: `Account restricted: ${accountRestrictedMsg.slice(0, 100)}` };
+      }
+
+      if (isRateLimited) {
+        addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
+        await saveDebugScreenshot(page, "rate_limited_submission");
+        return { status: "retry", message: `Rate limited on submission (${rateLimitMsg.slice(0, 60)})` };
+      }
+
+      if (hasCaptchaChallenge) {
+        addLog("warning", "Security/captcha verification popup detected on this coin after clicking Post — triggering cooldown and fresh browser retry.");
+        await saveDebugScreenshot(page, "post_submission_captcha");
+        return { status: "captcha", message: "Captcha verification required on post submission" };
+      }
+
+      if (isModerationFlagged) {
+        addLog("warning", `CoinMarketCap content moderation filter flagged comment: "${moderationMsg.slice(0, 80)}"`);
+        await saveDebugScreenshot(page, "moderation_flagged_submission");
+        return { status: "failed", message: `Moderation filter triggered: ${moderationMsg.slice(0, 80)}` };
+      }
+
+      // 1. If the comment text is still sitting inside the editor box, CoinMarketCap did not accept the submission.
+      if (editorStillUnposted) {
+        addLog("warning", `Submission failed: Comment text remained inside the editor after clicking Post (CoinMarketCap rejected or rate-limited the submission).`);
+        await saveDebugScreenshot(page, "unverified_post_editor_not_cleared");
+        return {
+          status: "retry",
+          message: "Submission not accepted by CoinMarketCap (comment remained in editor)"
+        };
+      }
+
+      // 2. If a POST API call was observed and returned an error or non-zero status code, reject it.
+      if (postApiObserved && !postApiSucceeded) {
+        addLog("warning", `Submission API returned error (${postApiErrorMsg || "unconfirmed response"}).`);
+        await saveDebugScreenshot(page, "unverified_post_api_response");
+        return {
+          status: "failed",
+          message: postApiErrorMsg || "CoinMarketCap API rejected post submission"
+        };
+      }
+
       addLog("warning", "Submission failed: Editor cleared, but CoinMarketCap did not return a post creation confirmation or render the comment in the feed.");
       await saveDebugScreenshot(page, "unverified_post_no_signal");
       return {
@@ -724,19 +734,8 @@ export async function runRealPostingInternal(url: string, message: string, senti
     );
     await saveDebugScreenshot(page, "success_post_screenshot");
 
-    // Save refreshed storageState back to maintain session longevity
-    try {
-      await context.storageState({ path: st.AUTH_STATE_FILE });
-      if (fs.existsSync(st.AUTH_STATE_FILE)) {
-        const cookiesStr = fs.readFileSync(st.AUTH_STATE_FILE, "utf-8");
-        cmcInfo = extractCmcProfileInfo(cookiesStr);
-        const activeId = getActiveProfileId();
-        await saveSessionStateCloudIfChanged(cookiesStr, activeId || undefined);
-        await autoSyncSessionToProfiles(cookiesStr);
-      }
-    } catch (e) {
-      console.error("Failed to update and sync storage state after successful post:", (e as Error).message);
-    }
+    // IMPORTANT: Do NOT overwrite auth/state.json with post-submission localStorage/WAF counters after every comment!
+    // Preserving the clean login storageState prevents CoinMarketCap's client-side post counters from accumulating across coins.
 
     return {
       status: "success",
