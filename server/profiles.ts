@@ -193,6 +193,8 @@ export function ensureProfileDirectory(profileId: string): void {
   }
 }
 
+let lastLoggedProfilePathId: string | null | undefined = undefined;
+
 export function updateActiveProfilePaths() {
   const activeId = getActiveProfileId();
   if (activeId) {
@@ -210,7 +212,8 @@ export function updateActiveProfilePaths() {
     st.POST_PROGRESS_FILE = path.join(st.OUTPUT_DIR, "post_progress.json");
     st.TIMESTAMPS_FILE = path.join(st.OUTPUT_DIR, "timestamps.json");
   }
-  if (!isTestEnv) {
+  if (!isTestEnv && lastLoggedProfilePathId !== activeId) {
+    lastLoggedProfilePathId = activeId;
     console.log(`[PATHS] Dynamic paths updated. Active profile: ${activeId || "None"}`);
   }
 }
