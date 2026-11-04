@@ -9,10 +9,14 @@ export function updateProfileLastRun(
     profiles = normalizeProfilesWithSchedule(profiles);
     const targetIdx = profiles.findIndex(p => p.id === profileId);
     if (targetIdx !== -1) {
-      profiles[targetIdx].lastRun = lastRunData;
-      if (lastRunData.status === "skipped_expired" || lastRunData.status === "skipped_missing_session") {
+      const normalizedLastRun =
+        lastRunData.status === "stopped_captcha" && lastRunData.posted > 0
+          ? { ...lastRunData, status: "completed" as LastRunStatus }
+          : lastRunData;
+      profiles[targetIdx].lastRun = normalizedLastRun;
+      if (normalizedLastRun.status === "skipped_expired" || normalizedLastRun.status === "skipped_missing_session") {
         profiles[targetIdx].loginStatus = "expired";
-      } else if (lastRunData.status === "completed" && lastRunData.posted > 0) {
+      } else if (normalizedLastRun.status === "completed" && normalizedLastRun.posted > 0) {
         profiles[targetIdx].loginStatus = "logged_in";
       }
       profiles[targetIdx].updatedAt = new Date().toISOString();

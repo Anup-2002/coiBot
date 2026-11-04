@@ -205,8 +205,14 @@ export async function syncLocalFromCloudIfStale(force = false) {
 
         const mergedProfiles = cloudProfiles.map((cp: any) => {
           const localMatch = localProfiles.find(lp => lp.id === cp.id);
+          const rawLastRun = cp.lastRun;
+          const healedLastRun =
+            rawLastRun && rawLastRun.status === "stopped_captcha" && Number(rawLastRun.posted) > 0
+              ? { ...rawLastRun, status: "completed" }
+              : rawLastRun;
           return {
             ...cp,
+            ...(healedLastRun ? { lastRun: healedLastRun } : {}),
             dailyPostLimit: (localMatch && typeof localMatch.dailyPostLimit === "number") ? localMatch.dailyPostLimit : (cp.dailyPostLimit || 300),
             isActive: currentActiveId ? (cp.id === currentActiveId) : cp.isActive
           };
@@ -300,8 +306,19 @@ export async function hydrateLocalFromCloud() {
     try {
       const cloudProfiles = await getProfilesCloud();
       if (cloudProfiles && Array.isArray(cloudProfiles) && cloudProfiles.length > 0) {
-        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(cloudProfiles, null, 2), "utf-8");
-        addLog("success", `[FIREBASE] Hydrated ${cloudProfiles.length} user accounts profiles from Firestore!`);
+        let healedAny = false;
+        const normalizedCloudProfiles = cloudProfiles.map((cp: any) => {
+          if (cp?.lastRun?.status === "stopped_captcha" && Number(cp.lastRun.posted) > 0) {
+            healedAny = true;
+            return { ...cp, lastRun: { ...cp.lastRun, status: "completed" } };
+          }
+          return cp;
+        });
+        fs.writeFileSync(st.PROFILES_FILE, JSON.stringify(normalizedCloudProfiles, null, 2), "utf-8");
+        if (healedAny) {
+          saveProfilesCloud(normalizedCloudProfiles).catch(() => {});
+        }
+        addLog("success", `[FIREBASE] Hydrated ${normalizedCloudProfiles.length} user accounts profiles from Firestore!`);
       }
     } catch (e) {
       console.error("[FIREBASE] Could not hydrate profiles from cloud:", e);

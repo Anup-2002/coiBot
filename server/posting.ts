@@ -663,9 +663,18 @@ export async function runRealPostingInternal(url: string, message: string, senti
       createdPostUrl = feedMatchResult.postHref;
     }
 
-    const commitConfirmed = !editorStillUnposted && (postApiSucceeded || postedInFeedAfterClick);
+    const editorClearedCleanly =
+      !editorStillUnposted &&
+      !postApiErrorMsg &&
+      !isAccountRestricted &&
+      !isRateLimited &&
+      !isModerationFlagged &&
+      !hasCaptchaChallenge;
 
-    // Only evaluate error/captcha flags if the post was NOT already confirmed as published!
+    const commitConfirmed =
+      !editorStillUnposted && (postApiSucceeded || postedInFeedAfterClick || editorClearedCleanly);
+
+    // Only evaluate error/rate-limit flags if the post was NOT already confirmed as published!
     if (!commitConfirmed) {
       if (isAccountRestricted) {
         addLog("error", `CRITICAL: CoinMarketCap account restriction detected: "${accountRestrictedMsg.slice(0, 100)}". Halting posting to protect account.`);
@@ -673,16 +682,15 @@ export async function runRealPostingInternal(url: string, message: string, senti
         return { status: "expired", message: `Account restricted: ${accountRestrictedMsg.slice(0, 100)}` };
       }
 
-      if (isRateLimited) {
-        addLog("warning", `Rate limit warning detected near comment editor: "${rateLimitMsg.slice(0, 60)}"`);
+      if (isRateLimited || hasCaptchaChallenge) {
+        const reasonDetail = rateLimitMsg
+          ? rateLimitMsg.slice(0, 60)
+          : postApiErrorMsg
+            ? postApiErrorMsg.slice(0, 60)
+            : "submission verification / rate limit";
+        addLog("warning", `Post submission rate-limit or verification challenge detected (${reasonDetail}) — triggering 30s retry cooldown.`);
         await saveDebugScreenshot(page, "rate_limited_submission");
-        return { status: "retry", message: `Rate limited on submission (${rateLimitMsg.slice(0, 60)})` };
-      }
-
-      if (hasCaptchaChallenge) {
-        addLog("warning", "Security/captcha verification popup detected on this coin after clicking Post — triggering cooldown and fresh browser retry.");
-        await saveDebugScreenshot(page, "post_submission_captcha");
-        return { status: "captcha", message: "Captcha verification required on post submission" };
+        return { status: "retry", message: `Rate limited on submission (${reasonDetail})` };
       }
 
       if (isModerationFlagged) {

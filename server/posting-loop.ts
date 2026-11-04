@@ -573,36 +573,38 @@ export async function runPostingLoop(options: PostingLoopOptions = {}): Promise<
         // If a single coin hits a transient captcha challenge, DO NOT kill the entire account on the 1st occurrence!
         // Recycle the browser instance, cool down for 90s, and only halt with stopped_captcha if 3 consecutive coins fail!
         if (outcome === "captcha" && consecutiveFailures < 3) {
-          logWithPrefix("warning", `[CAPTCHA RECOVERY] Transient captcha/security challenge on ${item.symbol} (${consecutiveFailures}/3 consecutive). Recycling browser and cooling down 90s before next coin...`);
-          if (sharedBrowser) {
-            await sharedBrowser.close().catch(() => {});
-            sharedBrowser = null;
-            st.activePostingBrowser = null;
-          }
-          await interruptibleSleep(90000);
-          if (st.isPostingRunning && !isHaltRequested()) {
-            try {
-              sharedBrowser = await launchBrowserResilient({
-                headless: true,
-                args: [
-                  "--no-sandbox",
-                  "--disable-setuid-sandbox",
-                  "--disable-dev-shm-usage",
-                  "--disable-gpu",
-                  "--disable-blink-features=AutomationControlled",
-                ]
-              });
-              st.activePostingBrowser = sharedBrowser;
-            } catch (_) {
+          if (st.currentPostingIndex < messages.length) {
+            logWithPrefix("warning", `[CAPTCHA RECOVERY] Transient captcha/security challenge on ${item.symbol} (${consecutiveFailures}/3 consecutive). Recycling browser and cooling down 90s before next coin...`);
+            if (sharedBrowser) {
+              await sharedBrowser.close().catch(() => {});
               sharedBrowser = null;
               st.activePostingBrowser = null;
+            }
+            await interruptibleSleep(90000);
+            if (st.isPostingRunning && !isHaltRequested()) {
+              try {
+                sharedBrowser = await launchBrowserResilient({
+                  headless: true,
+                  args: [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
+                  ]
+                });
+                st.activePostingBrowser = sharedBrowser;
+              } catch (_) {
+                sharedBrowser = null;
+                st.activePostingBrowser = null;
+              }
             }
           }
           continue;
         }
 
         if (consecutiveFailures >= 3) {
-          stopReason = outcome === "captcha" ? "stopped_captcha" : "failed";
+          stopReason = runPosted > 0 ? "completed" : (outcome === "captcha" ? "stopped_captcha" : "failed");
           logWithPrefix("error", `CRITICAL: Automated posting paused due to 3 consecutive failures (last status: ${outcome}).`);
           if (!isSchedulerCall) {
             sendTelegramAlert(

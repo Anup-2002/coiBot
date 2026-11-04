@@ -84,7 +84,10 @@ export function normalizeProfilesWithSchedule(profiles: any[]): any[] {
   if (!Array.isArray(profiles)) return [];
   return profiles.map((p, idx) => {
     const { schedule, lastRun } = normalizeProfileSchedule(p, idx + 1);
-    let resolvedLastRun = lastRun;
+    let resolvedLastRun =
+      lastRun.status === "stopped_captcha" && lastRun.posted > 0
+        ? { ...lastRun, status: "completed" as const }
+        : lastRun;
     if (p.id) {
       try {
         const profDir = path.join(st.OUTPUT_DIR, p.id);
